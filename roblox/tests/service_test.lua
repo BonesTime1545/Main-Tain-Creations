@@ -83,3 +83,26 @@ print("recharge cost:", S.RechargeBlastCost(data))
 -- bad inputs
 data.Tools.BlastUsed = 0; clock += 5; S.PublishBlast(shooter, true)
 print("nan dir:", S.BlastAt(shooter, V.new(0/0, 0, 0)), " zero dir:", S.BlastAt(shooter, V.new(0, 5, 0)), " string:", S.BlastAt(shooter, "x"))
+
+-- ---------- a fully upgraded blaster breaks ice in the line of its pulse (3 hit points: 3 pulses)
+data.Tools.Up.Blaster = { Power = 5, Rate = 5, Size = 5, Energy = 5 }
+data.Tools.BlastUsed = 0
+local ice = { Position = V.new(0, 0, -12), Parent = true, hp = 3 }
+local off = { Position = V.new(20, 0, -12), Parent = true, hp = 3 }
+ctx.PlotSystem = { Get = function() return {} end }
+ctx.ResourceService = {
+	AliveIn = function() local set = { [ice] = true, [off] = true } return next, set end,
+	IsIced = function(part) return part.hp > 0 end,
+	HitIce = function(part, dmg) part.hp -= dmg; return part.hp <= 0 end,
+}
+shooter.attrs.BlastReloadAt = nil
+local bursts = 0
+local heavyDuring
+for i = 1, 3 do clock += 5; S.BlastAt(shooter, dir); heavyDuring = shooter.attrs.BlowHeavy; runDelayed() end
+print((ice.hp <= 0 and "PASS" or "FAIL") .. " maxed blaster broke the ice block in 3 pulses (hp " .. ice.hp .. ")")
+print((off.hp == 3 and "PASS" or "FAIL") .. " ice out of the line is untouched")
+print((heavyDuring == true and "PASS" or "FAIL") .. " stones are loose while it fires")
+data.Tools.Up.Blaster = { Power = 5, Rate = 5, Size = 5, Energy = 4 }
+ice.hp = 3
+clock += 5; S.BlastAt(shooter, dir); runDelayed()
+print((ice.hp == 3 and "PASS" or "FAIL") .. " a blaster that is not fully upgraded leaves the ice alone")

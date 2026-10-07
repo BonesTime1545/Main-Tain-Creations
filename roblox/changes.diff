@@ -1020,7 +1020,7 @@
 -		Description = "Doesn't collect anything — it BLOWS. Hold the button: leaves in front of you fly away from the nozzle. Great for moving a pile toward your zone or out of tall grass. Runs on energy: recharge it for Money in the shop or with a Blower Battery.",
 +		JetCooldown = 20, -- v2.43: seconds before the JET (strike key) can be started again after it was used (+ per level below)
 +		JetCooldownPer = -1, -- (−1 s per Blow Force level: 20 -> 15 s — never short)
-+		Description = "Doesn't collect anything — it BLOWS. Hold the button: leaves in front of you fly away from the nozzle. Great for moving a pile toward your zone or out of tall grass. Strike key = JET (the gust carries YOU; it needs a long recharge afterwards). Runs on energy: recharge it for Money in the shop or with a Blower Battery. FULLY UPGRADED (every upgrade at level 5) the stream is strong enough to BREAK blocks of ice and to nudge STONE items a little.",
++		Description = "Doesn't collect anything — it BLOWS. Hold the button: leaves in front of you fly away from the nozzle. Great for moving a pile toward your zone or out of tall grass. Strike key = JET (the gust carries YOU; it needs a long recharge afterwards). Runs on energy: recharge it for Money in the shop or with a Blower Battery.",
  	},
  	Vacuum = {
  		Display = "Vacuum", Rarity = "Legendary", Price = 450000, Slot = 5, Icon = "🌀",
@@ -1039,13 +1039,13 @@
 +		Magazine = 6, -- pulses before the reload
 +		Power = 24, -- studs/s the first items hit fly away with (+4.5 per Pulse Power level)
 +		FireEvery = 0.55, -- seconds between two pulses (−0.06 per Fire Rate level)
-+		Reload = 2.4, -- seconds of reloading after the last pulse (−0.2 per Fire Rate level)
++		Reload = 3.6, -- seconds of reloading after the last pulse (−0.25 per Fire Rate level: 3.6 -> 2.35)
 +		Size = 2.2, -- studs: radius of a pulse (+0.5 per Pulse Size level)
 +		Range = 34, -- studs a pulse flies (+1.5 per Pulse Size level)
 +		PulseSpeed = 85, -- studs/s the pulse itself flies
 +		PlayerPush = 30, PlayerLift = 10, -- the shove other players get (+12 % per Pulse Power level)
 +		Energy = 60, -- pulses on a full charge (upgrade "Energy": up to 360)
-+		Description = "Fires small air pulses. Click (or hold) to shoot: a pulse hits, the leaves fly away, crash into the ones lying around and bounce off them. Six pulses, then it reloads (strike key = reload now). Stone items and blocks of ice stay where they are; other players get a shove. Runs on energy — recharge it for Money in the shop. Upgrade its power, fire rate, pulse size and energy.",
++		Description = "Fires small air pulses. Click (or hold) to shoot: a pulse hits, the leaves fly away, crash into the ones lying around and bounce off them. Six pulses, then a long reload (strike key = reload now). Stone items and blocks of ice stay where they are; other players get a shove. Runs on energy — recharge it for Money in the shop. Upgrade its power, fire rate, pulse size and energy. FULLY UPGRADED (every upgrade at level 5) the pulses BREAK blocks of ice (3 pulses) and nudge STONE items a little.",
 +	},
  }
  
@@ -1074,7 +1074,7 @@
 +]]
 +T.BlasterUpgrades = {
 +	Power = { Display = "Pulse Power", Base = 900000, Growth = 2, Max = 5, Per = 4.5, Help = "+4.5 studs/s: items fly further · players are shoved harder" },
-+	Rate = { Display = "Fire Rate", Base = 900000, Growth = 2, Max = 5, Per = 0.06, Help = "0.06 s faster between pulses · 0.2 s faster reload" },
++	Rate = { Display = "Fire Rate", Base = 900000, Growth = 2, Max = 5, Per = 0.06, Help = "0.06 s faster between pulses · 0.25 s faster reload" },
 +	Size = { Display = "Pulse Size", Base = 800000, Growth = 2, Max = 5, Per = 0.5, Help = "+0.5 studs wider pulse · +1.5 studs range" },
 +	Energy = { Display = "Energy", Base = 700000, Growth = 2, Max = 5, Help = "more pulses on one charge (60 → 360)" },
 +}
@@ -1194,26 +1194,15 @@
  function T.UpgradeCost(tool, stat, level)
  	local ups = T.UpgradesOf(tool)
  	local u = ups and ups[stat]
-@@ -538,7 +803,18 @@
- function T.Blower(levels)
+@@ -539,6 +804,7 @@
  	levels = levels or {}
  	local d, U = T.Helpers.Blower, T.BlowerUpgrades
-+	-- v2.43: every upgrade at its top = the stream breaks ice (IceDamage per report) and nudges stone items
-+	local maxed = true
-+	for stat, u in U do
-+		if (tonumber(levels[stat]) or 0) < u.Max then
-+			maxed = false
-+		end
-+	end
  	return {
-+		Maxed = maxed,
-+		IceDamage = if maxed then 1 else nil, -- (a block of ice has 3 hit points: ~1 s of blowing; the others only melt it a little)
-+		StoneNudge = maxed, -- (stone items move a little — a quarter of the speed of a leaf)
 +		JetCooldown = math.max(10, d.JetCooldown + (tonumber(levels.Force) or 0) * d.JetCooldownPer),
  		Range = d.Range + (levels.Range or 0) * U.Range.Per,
  		Cone = d.Cone + (levels.Cone or 0) * U.Cone.Per,
  		Force = d.Force + (levels.Force or 0) * U.Force.Per,
-@@ -546,6 +822,37 @@
+@@ -546,6 +812,42 @@
  	}
  end
  
@@ -1231,9 +1220,14 @@
 +	end
 +	return {
 +		Magazine = d.Magazine,
++		-- every upgrade at its top: the pulses break ice (IceDamage per pulse; a block has 3 hit points)
++		-- and nudge stone items a little (a quarter of a leaf's speed)
++		Maxed = lv("Power") >= 5 and lv("Rate") >= 5 and lv("Size") >= 5 and lv("Energy") >= 5,
++		IceDamage = if lv("Power") >= 5 and lv("Rate") >= 5 and lv("Size") >= 5 and lv("Energy") >= 5 then 1 else nil,
++		StoneNudge = lv("Power") >= 5 and lv("Rate") >= 5 and lv("Size") >= 5 and lv("Energy") >= 5,
 +		Power = d.Power + lv("Power") * U.Power.Per,
 +		FireEvery = math.max(0.2, d.FireEvery - lv("Rate") * U.Rate.Per),
-+		Reload = math.max(1, d.Reload - lv("Rate") * 0.2),
++		Reload = math.max(2, d.Reload - lv("Rate") * 0.25),
 +		Size = d.Size + lv("Size") * U.Size.Per,
 +		Range = d.Range + lv("Size") * 1.5,
 +		Speed = d.PulseSpeed,
@@ -1251,7 +1245,7 @@
  -- v2.32: Money to put `seconds` of energy back into the Leaf Blower
  function T.RechargeCost(seconds)
  	return math.ceil(math.max(0, seconds) * T.BlowerRechargePerSecond)
-@@ -566,6 +873,9 @@
+@@ -566,6 +868,9 @@
  -- save gets its tier from the levels it already has)
  T.TierSteps = { Trimmer = 5 }
  function T.HelperTier(tool, levels)
@@ -1261,7 +1255,7 @@
  	if tool == "Pickaxe" then
  		return T.PickaxeTier(levels) -- v2.38: 1 Stone … 5 Rainbow
  	end
-@@ -583,7 +893,7 @@
+@@ -583,7 +888,7 @@
  		end
  		return math.clamp(1 + math.floor(sum / (T.TierSteps[tool] or T.TierStep)), 1, #T.TierNames)
  	end
@@ -1270,7 +1264,7 @@
  		return 1
  	end
  	local sum = 0
-@@ -601,10 +911,16 @@
+@@ -601,10 +906,16 @@
  end
  
  -- v2.41: the tools whose look follows T.TierNames (for the UI: "Rake · Pro")
@@ -1288,7 +1282,7 @@
  	if tool == "Pickaxe" then
  		local t = T.PickaxeTiers[tier]
  		return t and t.Name or ""
-@@ -613,10 +929,10 @@
+@@ -613,10 +924,10 @@
  end
  
  function T.UpgradesOf(tool)
@@ -1474,7 +1468,7 @@
  		self:_arcFX(self.root.Position, look, def.Radius, def.Arc or 160, if gold then Color3.fromRGB(255, 220, 90) else Color3.fromRGB(235, 255, 235), 0.4)
  		if gold then
  			self.Juice.Burst(self.root.Position, Color3.fromRGB(255, 220, 90), 18, 10)
-@@ -663,6 +733,565 @@
+@@ -663,6 +733,566 @@
  	return workspace:GetPartBoundsInRadius(center, radius, self.overlap)
  end
  
@@ -1508,8 +1502,8 @@
 +end
 +
 +-- a part this pulse may move: loose, simulated by me, and not a stone / ice / carried one
-+local function blastable(part)
-+	return part:IsA("BasePart") and not part.Anchored and part.ReceiveAge == 0 and not part:GetAttribute("Heavy") and part:GetAttribute("IceHP") == nil and not part:GetAttribute("Carried") and not part:GetAttribute("Cocooned")
++local function blastable(part, stone) -- (stone: a fully upgraded blaster may nudge STONE items)
++	return part:IsA("BasePart") and not part.Anchored and part.ReceiveAge == 0 and (stone == true or not part:GetAttribute("Heavy")) and part:GetAttribute("IceHP") == nil and not part:GetAttribute("Carried") and not part:GetAttribute("Cocooned")
 +end
 +
 +local function clampV(v, cap)
@@ -1803,7 +1797,8 @@
 +	end
 +	self:_send({ A = "Blast", Dir = dir })
 +	local tier = math.clamp(math.floor(tonumber(self.tool and self.tool:GetAttribute("Tier")) or 1), 1, 4)
-+	self:_newPulse(muzzle, dir, B.Size, B.Range, B.Speed, tier, true, math.min(aim.Y + 0.6, muzzle.Y + 3), B.Power, math.clamp(dist, 4, B.Range))
++	local pulse = self:_newPulse(muzzle, dir, B.Size, B.Range, B.Speed, tier, true, math.min(aim.Y + 0.6, muzzle.Y + 3), B.Power, math.clamp(dist, 4, B.Range))
++	pulse.stone = B.StoneNudge == true
 +	-- the muzzle flash, the recoil, the bang
 +	self:_fxBurst(10 + tier * 2)
 +	if self.fx and self.fx.Flash then
@@ -1874,7 +1869,7 @@
 +	local side = rel - p.dir * rel:Dot(p.dir)
 +	local sideDir = if side.Magnitude > 0.15 then side.Unit else Vector3.new(-p.dir.Z, 0, p.dir.X) * (if rng:NextNumber() < 0.5 then 1 else -1)
 +	local push = (p.dir * 0.8 + sideDir * 0.4).Unit
-+	local speed = math.min(p.power, self.blastCap) * (1 - 0.3 * p.dist / p.range) * rng:NextNumber(0.9, 1.1)
++	local speed = math.min(p.power, self.blastCap) * (1 - 0.3 * p.dist / p.range) * rng:NextNumber(0.9, 1.1) * (if part:GetAttribute("Heavy") then 0.25 else 1)
 +	local v = part.AssemblyLinearVelocity
 +	local nv = Vector3.new(push.X * speed, math.max(v.Y, 13 + p.power * 0.28), push.Z * speed)
 +	part.AssemblyLinearVelocity = clampV(nv, self.blastCap)
@@ -1931,7 +1926,7 @@
 +		-- (the ball sweeps from where it was to where it is: nothing slips through)
 +		local mid = (pulsePos(p, prev) + pos) / 2
 +		for _, part in myParts(self, mid, p.size + (p.dist - prev) / 2 + 0.3) do
-+			if not p.hit[part] and blastable(part) then
++			if not p.hit[part] and blastable(part, p.stone) then
 +				p.hit[part] = true
 +				self:_blastKick(part, p, pos)
 +			end
@@ -2040,7 +2035,7 @@
  function ToolController:_step(dt)
  	if not self.root or not self.root.Parent or (self.hum and self.hum.Health <= 0) then
  		self:Stop()
-@@ -778,10 +1407,28 @@
+@@ -778,10 +1408,28 @@
  			self:_suck(aim, dt, now)
  			self.anim = { Kind = "Hose", T0 = now, Len = 0.18, Amp = 0.7 } -- v2.37: the arm sweeps the hose over the ground
  		end
@@ -2069,24 +2064,7 @@
  	self:_fxWork(fxOn)
  	if self.loop then
  		self.loop.Volume += (vol - self.loop.Volume) * math.min(1, dt * 10)
-@@ -824,12 +1471,14 @@
- 		self:_send({ A = "Blow", Dir = dir })
- 	end
- 	for _, p in myParts(self, rootPos + dir * B.Range * 0.5, B.Range * 0.55) do
--		if p.ReceiveAge == 0 and not p.Anchored and not p:GetAttribute("Heavy") then
-+		-- (v2.43: a fully upgraded blower nudges STONE items a little — a quarter of a leaf's speed)
-+		local heavy = p:GetAttribute("Heavy")
-+		if p.ReceiveAge == 0 and not p.Anchored and (not heavy or B.StoneNudge) then
- 			local off = flat(p.Position - rootPos)
- 			local d = off.Magnitude
- 			if d > 0.5 and d <= B.Range and off.Unit:Dot(dir) >= cosHalf then
- 				local fall = 1 - d / B.Range * 0.6
--				local want = (off.Unit * 0.35 + dir * 0.65).Unit * maxV * fall
-+				local want = (off.Unit * 0.35 + dir * 0.65).Unit * maxV * fall * (if heavy then 0.25 else 1)
- 				local v = p.AssemblyLinearVelocity
- 				local nv = v:Lerp(Vector3.new(want.X, math.max(v.Y, 3 * fall), want.Z), math.min(1, dt * 6))
- 				p.AssemblyLinearVelocity = nv
-@@ -861,6 +1510,13 @@
+@@ -861,6 +1509,13 @@
  	if not self.active or self.kind ~= "Blower" or self.uiOpen then
  		return false
  	end
@@ -2100,7 +2078,7 @@
  	self.jet = not self.jet
  	self:_jetStop()
  	self:_jetFX()
-@@ -1238,6 +1894,13 @@
+@@ -1238,6 +1893,13 @@
  		-- while the body turns (WhirlFX), then comes back — it ends where it began
  		local k = math.sin(math.clamp(t, 0, 1) * math.pi)
  		cf = CFrame.Angles(-0.3 * k + math.sin(os.clock() * 60) * 0.03 * k, 0, 1.05 * k)
@@ -3074,35 +3052,7 @@
  		local m = dir.Magnitude
  		if m == m and m > 1e-3 and m < 1e3 and ctx.Net.ToolFX then
  			ctx.Net.ToolFX:FireAllClients("Jet", player.UserId, "Blower", root.Position, dir.Unit)
-@@ -1201,6 +1673,18 @@
- 			end
- 		end
- 	end
-+	-- v2.43: a FULLY upgraded blower may nudge STONE items: while it blows, the stones of the
-+	-- garden are loose (ResourceService.CanPushHeavy); a few seconds after it stops they are held again
-+	if B.StoneNudge then
-+		player:SetAttribute("BlowHeavy", true)
-+		local token = (s.HeavyToken or 0) + 1
-+		s.HeavyToken = token
-+		task.delay(3, function()
-+			if s.HeavyToken == token and player.Parent then
-+				player:SetAttribute("BlowHeavy", nil)
-+			end
-+		end)
-+	end
- 	-- v1.9: the air stream slowly MELTS frozen items' ice blocks in front of you
- 	local plot = ctx.PlotSystem.Get(player)
- 	local RS = ctx.ResourceService
-@@ -1211,7 +1695,7 @@
- 				local off = flat(part.Position - root.Position)
- 				local dist = off.Magnitude
- 				if dist <= B.Range + 1.5 and (dist < 1.5 or off.Unit:Dot(d) >= cosHalf) then
--					local broke = RS.HitIce(part, melt)
-+					local broke = RS.HitIce(part, B.IceDamage or melt) -- (v2.43: the maxed blower BREAKS the ice)
- 					if ctx.MutationService then
- 						ctx.MutationService.FX(if broke then "IceMelt" else "IceDrip", part.Position, Color3.fromRGB(150, 210, 255))
- 					end
-@@ -1222,6 +1706,123 @@
+@@ -1222,6 +1694,155 @@
  	return n
  end
  
@@ -3184,6 +3134,38 @@
 +	if ctx.Net.ToolFX then
 +		ctx.Net.ToolFX:FireAllClients("Blast", player.UserId, "Blaster", origin + d * 2.4, d, Vector3.new(B.Size, B.Range, tier))
 +	end
++	-- v2.43: a FULLY upgraded blaster: its pulses BREAK blocks of ice in their way and the stone
++	-- items of the garden are loose for a moment (ResourceService.CanPushHeavy: the client nudges them)
++	if B.Maxed then
++		local token = (s.HeavyToken or 0) + 1
++		s.HeavyToken = token
++		player:SetAttribute("BlowHeavy", true)
++		task.delay(3, function()
++			if s.HeavyToken == token and player.Parent then
++				player:SetAttribute("BlowHeavy", nil)
++			end
++		end)
++		local plot = ctx.PlotSystem.Get(player)
++		local RS = ctx.ResourceService
++		if plot and RS and RS.HitIce and RS.AliveIn then
++			for part in RS.AliveIn(plot) do
++				if RS.IsIced(part) then
++					local off = flat(part.Position - origin)
++					local along = off:Dot(d)
++					if along > 0.3 and along <= B.Range + 1.5 and (off - d * along).Magnitude <= B.Size + 1.5 then
++						task.delay(along / B.Speed, function()
++							if part.Parent and RS.IsIced(part) then
++								local broke = RS.HitIce(part, B.IceDamage)
++								if ctx.MutationService then
++									ctx.MutationService.FX(if broke then "IceMelt" else "IceDrip", part.Position, Color3.fromRGB(150, 210, 255))
++								end
++							end
++						end)
++					end
++				end
++			end
++		end
++	end
 +	-- the players the pulse reaches (each one when the pulse gets there)
 +	local n = 0
 +	for _, other in ctx.Players:GetPlayers() do
@@ -3226,7 +3208,7 @@
  function ToolService.RakeAt(player, pos)
  	if ToolService.Held(player) ~= "Rake" or typeof(pos) ~= "Vector3" then
  		return 0
-@@ -1563,7 +2164,8 @@
+@@ -1563,7 +2184,8 @@
  end
  
  function ToolService.Mount(player, id)
@@ -3236,7 +3218,7 @@
  	local char = player.Character
  	local hum = char and char:FindFirstChildOfClass("Humanoid")
  	local root = rootOf(player)
-@@ -1572,7 +2174,8 @@
+@@ -1572,7 +2194,8 @@
  	end
  	-- v2.8: you may ride the mower anywhere; it cuts grass only in your own garden
  	ToolService.Dismount(player, true)
@@ -3246,7 +3228,7 @@
  	local look = flat(root.CFrame.LookVector)
  	look = if look.Magnitude > 1e-3 then look.Unit else Vector3.new(0, 0, -1)
  	local groundY = root.Position.Y - hum.HipHeight - root.Size.Y / 2
-@@ -1718,12 +2321,19 @@
+@@ -1718,12 +2341,19 @@
  	end
  	local turbo = (player:GetAttribute("TurboUntil") or 0) > serverTime()
  	local mult = if turbo then TC().Consumables.TurboFuel.SpeedMult else 1
@@ -3269,7 +3251,7 @@
  		-- v2.8: riding outside your garden is fine — but nothing is cut there
  		local lp = plot.CFrame:PointToObjectSpace(chassis.Position)
  		if math.max(math.abs(lp.X), math.abs(lp.Z)) > plot.Size / 2 + 1 then
-@@ -1732,11 +2342,15 @@
+@@ -1732,11 +2362,15 @@
  		end
  	else
  		local id = ToolService.Held(player)
@@ -3286,7 +3268,7 @@
  		local root = rootOf(player)
  		if not root then
  			return 0
-@@ -1754,6 +2368,15 @@
+@@ -1754,6 +2388,15 @@
  	if moved.Magnitude / dt > maxSpeed or moved.Magnitude < 0.05 then
  		return 0 -- teleported (or standing still: nothing new under the deck)
  	end
@@ -3302,7 +3284,7 @@
  	local keys = ctx.GrassService.CellsIn(plot, pos, def.Radius)
  	-- v2.8: no mown stripes are left on the lawn behind the mower
  	return (ctx.GrassService.Cut(player, keys, def.Power))
-@@ -1778,9 +2401,15 @@
+@@ -1778,9 +2421,15 @@
  	elseif a == "Slot" then
  		return ToolService.SetSlot(player, req.Id, req.On == true)
  	elseif a == "Use" then
@@ -3319,7 +3301,7 @@
  	elseif a == "Hotbar" then
  		return ToolService.SetHotbar(player, req.List)
  	elseif a == "RepairPick" then
-@@ -1808,6 +2437,12 @@
+@@ -1808,6 +2457,12 @@
  		ToolService.Whirl(player) -- v2.40: the trimmer's strike-key ability
  	elseif a == "Blow" then
  		ToolService.BlowAt(player, req.Dir, req.Jet == true) -- v1.4 (v2.34: Jet = the gust carries the player)
@@ -3332,7 +3314,7 @@
  	elseif a == "Off" then
  		ToolService.Dismount(player)
  	elseif a == "Hold" then
-@@ -1857,6 +2492,17 @@
+@@ -1857,6 +2512,17 @@
  						warn("[LeafRush] magnet: " .. tostring(errM))
  					end
  				end
@@ -3937,8 +3919,8 @@
 +L.Strings["The classic scythe. One wide, slow swing mows several rows of grass around you. Strike key = HARVEST: a huge cone in front of you is cut down to the ground. It wears out — repair it. Five tiers: the last one is the Golden Scythe."] = "Классическая коса. Один широкий медленный взмах косит сразу несколько рядов травы вокруг тебя. Кнопка удара = ЖАТВА: огромный сектор перед тобой скашивается до земли. Изнашивается — чини. Пять рангов: последний — Золотая коса."
 +L.Strings["A proper lawn mower. Just walk with W A S D — it rolls in front of you and cuts everything under it, leaving neat stripes. Strike key = OVERDRIVE: a much wider deck and a faster walk for a while. It burns fuel — refuel it with Gasoline or in the shop. Five tiers."] = "Настоящая газонокосилка. Просто иди на W A S D — она катится перед тобой и срезает всё под собой, оставляя ровные полосы. Кнопка удара = ФОРСАЖ: гораздо более широкий корпус и быстрее шаг на время. Расходует топливо — заправляй бензином или в магазине. Пять рангов."
 +L.Strings["Sit down and drive (W A S D). Mows a wide strip and paints perfect stripes. Space = get off. Strike key = NITRO: a burst of speed. It burns fuel — refuel it with Gasoline or in the shop. Five tiers: the last one is the Turbo Mower."] = "Садись и езжай (W A S D). Косит широкую полосу и рисует идеальные полосы. Пробел = слезть. Кнопка удара = НИТРО: рывок скорости. Расходует топливо — заправляй бензином или в магазине. Пять рангов: последний — Турбо-косилка."
-+L.Strings["Doesn't collect anything — it BLOWS. Hold the button: leaves in front of you fly away from the nozzle. Great for moving a pile toward your zone or out of tall grass. Strike key = JET (the gust carries YOU; it needs a long recharge afterwards). Runs on energy: recharge it for Money in the shop or with a Blower Battery. FULLY UPGRADED (every upgrade at level 5) the stream is strong enough to BREAK blocks of ice and to nudge STONE items a little."] = "Ничего не собирает — он ДУЕТ. Удерживай кнопку: листья перед тобой разлетаются от сопла. Отлично подходит, чтобы гнать кучу к зоне или выдувать из высокой травы. Кнопка удара = РЕАКТИВНЫЙ РЕЖИМ (поток несёт ТЕБЯ; потом долго перезаряжается). Работает на энергии: заряжай её за деньги в магазине или батареей для воздуходувки. ПОЛНОСТЬЮ прокачанный (все улучшения на 5 уровне) поток достаточно силён, чтобы ЛОМАТЬ глыбы льда и чуть-чуть сдвигать КАМЕННЫЕ предметы."
-+L.Strings["Fires small air pulses. Click (or hold) to shoot: a pulse hits, the leaves fly away, crash into the ones lying around and bounce off them. Six pulses, then it reloads (strike key = reload now). Stone items and blocks of ice stay where they are; other players get a shove. Runs on energy — recharge it for Money in the shop. Upgrade its power, fire rate, pulse size and energy."] = "Стреляет небольшими воздушными импульсами. Кликай (или зажми кнопку): импульс бьёт, листья отлетают, сталкиваются с лежащими рядом и отскакивают от них. Шесть выстрелов, затем перезарядка (кнопка удара — перезарядить сразу). Камни и глыбы льда остаются на месте; других игроков импульс отталкивает. Работает на энергии — заряжай её за деньги в магазине. Прокачивай силу, скорость стрельбы, размер импульса и энергию."
++L.Strings["Doesn't collect anything — it BLOWS. Hold the button: leaves in front of you fly away from the nozzle. Great for moving a pile toward your zone or out of tall grass. Strike key = JET (the gust carries YOU; it needs a long recharge afterwards). Runs on energy: recharge it for Money in the shop or with a Blower Battery."] = "Ничего не собирает — он ДУЕТ. Удерживай кнопку: листья перед тобой разлетаются от сопла. Отлично подходит, чтобы гнать кучу к зоне или выдувать из высокой травы. Кнопка удара = РЕАКТИВНЫЙ РЕЖИМ (поток несёт ТЕБЯ; потом долго перезаряжается). Работает на энергии: заряжай её за деньги в магазине или батареей для воздуходувки."
++L.Strings["Fires small air pulses. Click (or hold) to shoot: a pulse hits, the leaves fly away, crash into the ones lying around and bounce off them. Six pulses, then a long reload (strike key = reload now). Stone items and blocks of ice stay where they are; other players get a shove. Runs on energy — recharge it for Money in the shop. Upgrade its power, fire rate, pulse size and energy. FULLY UPGRADED (every upgrade at level 5) the pulses BREAK blocks of ice (3 pulses) and nudge STONE items a little."] = "Стреляет небольшими воздушными импульсами. Кликай (или зажми кнопку): импульс бьёт, листья отлетают, сталкиваются с лежащими рядом и отскакивают от них. Шесть выстрелов, затем долгая перезарядка (кнопка удара — перезарядить сразу). Камни и глыбы льда остаются на месте, а других игроков импульс отталкивает. Работает на энергии — заряжай её за деньги в магазине. Прокачивай силу, скорость стрельбы, размер импульса и энергию. ПОЛНОСТЬЮ прокачанный (все улучшения на 5 уровне) бластер ЛОМАЕТ глыбы льда (3 импульса) и чуть-чуть сдвигает КАМЕННЫЕ предметы."
 +L.Strings["Fully recharges your Leaf Blaster's energy — right where you stand."] = "Полностью заряжает энергию твоего листового бластера — прямо там, где ты стоишь."
 +L.Strings["A can of gasoline: fills the fuel tank of your Push Mower and your Riding Mower to the top."] = "Канистра бензина: полностью заправляет бак твоей газонокосилки и твоего трактора."
 +L.Strings["Use it, then pick one of your Grass Shears, Weed Cutter, Scythe or Pickaxe in the panel: it is repaired completely."] = "Используй, затем выбери в панели свои садовые ножницы, резак, косу или кирку: предмет починится полностью."

@@ -41,6 +41,20 @@ print("leaves moved:", moved, "of", #leaves, " max speed", string.format("%.1f",
 print("stone moved?", stone.AssemblyLinearVelocity.Magnitude > 0, " ice moved?", ice.AssemblyLinearVelocity.Magnitude > 0, " anchored moved?", stuck.AssemblyLinearVelocity.Magnitude > 0, " foreign-owned moved?", foreign.AssemblyLinearVelocity.Magnitude > 0, " behind moved?", behind.AssemblyLinearVelocity.Magnitude > 0)
 print("bouncy set on", ctl.flyN, "items; elasticity of a hit leaf:", leaves[10].CustomPhysicalProperties and leaves[10].CustomPhysicalProperties.Elasticity)
 
+-- ---------------- stone: untouched by an ordinary pulse, nudged (a quarter speed) by a fully upgraded one
+for i = #FAKE_PARTS, 1, -1 do FAKE_PARTS[i] = nil end
+ctl.flying, ctl.flyN, ctl.pulses = {}, 0, {}
+local st1, st2, leaf = part(0, -8, { Heavy = true }), part(0.5, -8, { Heavy = true }), part(-0.5, -8)
+local p1 = ctl:_newPulse(V.new(0, 3, -2), V.new(0, 0, -1), B.Size, B.Range, B.Speed, 1, true, 0.9, B.Power, 20)
+for _ = 1, 40 do ctl:_blastWorld(1 / 60) end
+print("ordinary pulse: stone moved?", st1.AssemblyLinearVelocity.Magnitude > 0, "leaf moved?", leaf.AssemblyLinearVelocity.Magnitude > 0)
+st1.AssemblyLinearVelocity, leaf.AssemblyLinearVelocity = V.zero, V.zero
+ctl.flying, ctl.flyN, ctl.pulses = {}, 0, {}
+local p2 = ctl:_newPulse(V.new(0, 3, -2), V.new(0, 0, -1), B.Size, B.Range, B.Speed, 1, true, 0.9, B.Power, 20)
+p2.stone = true
+for _ = 1, 40 do ctl:_blastWorld(1 / 60) end
+local sv, lv = flatSpeed and 0 or 0, 0
+print("maxed pulse: stone moved?", st1.AssemblyLinearVelocity.Magnitude > 0, string.format("stone %.1f vs leaf %.1f horizontal", math.sqrt(st1.AssemblyLinearVelocity.X ^ 2 + st1.AssemblyLinearVelocity.Z ^ 2), math.sqrt(leaf.AssemblyLinearVelocity.X ^ 2 + leaf.AssemblyLinearVelocity.Z ^ 2)))
 -- ---------------- chain scenario
 for i = #FAKE_PARTS, 1, -1 do FAKE_PARTS[i] = nil end
 ctl.flying, ctl.flyN, ctl.pulses = {}, 0, {}
