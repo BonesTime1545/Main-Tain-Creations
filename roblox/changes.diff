@@ -1,3 +1,98 @@
+--- a/BlockFX.lua
++++ b/BlockFX.lua
+@@ -953,7 +953,7 @@
+ 	  • the lines are pooled parts: nothing is created per hit once the pool is warm
+ ]]
+ local STAGES = 5
+-local CRACK_POOL_MAX = 260
++local CRACK_POOL_MAX = 800
+ local FADE_TIME = 0.6
+ local crackPool = {} -- spare crack lines
+ local pulses = {} -- short-lived shells / rings: { Part, T0, Len, Tr0, Size0, Size1, CF, Amp }
+@@ -1151,6 +1151,39 @@
+ 	local dark = color:Lerp(Color3.new(0, 0, 0), 0.82)
+ 	local ext = Vector3.new(CELL / 2, bh / 2, CELL / 2)
+ 	local open = {}
++	-- v2.44 PIXEL CRACKS: the web is drawn on a 10 × 10 grid of little square "pixels" (the toy-brick look)
++	-- instead of thin sharp lines: dark pixels along the cracks, a lighter pixel beside some of them (a chipped
++	-- edge), the first lines a pixel thicker. The plan (BlockFX.CrackPlan) is the same: the web still GROWS.
++	local AX = { { 1, 3 }, { 3, 2 }, { 3, 2 }, { 1, 2 }, { 1, 2 } }
++	local extA = { CELL / 2, bh / 2, CELL / 2 }
++	local PX = CELL / 10
++	local light = color:Lerp(Color3.new(1, 1, 1), 0.45)
++	c.Pix = c.Pix or {}
++	local function pixel(f, iu, iv, col, tr)
++		local nu = math.floor(2 * extA[AX[f][1]] / PX + 0.5)
++		local nv = math.floor(2 * extA[AX[f][2]] / PX + 0.5)
++		if iu < 0 or iv < 0 or iu >= nu or iv >= nv then
++			return false
++		end
++		local k2 = f * 10000 + iu * 100 + iv
++		if c.Pix[k2] then
++			return false
++		end
++		c.Pix[k2] = true
++		local face = FACES[f]
++		local u = -extA[AX[f][1]] + (iu + 0.5) * PX
++		local v = -extA[AX[f][2]] + (iv + 0.5) * PX
++		local at = face.N * (math.abs(face.N:Dot(ext)) + 0.03) + face.U * u + face.V * v
++		local p = takeCrack()
++		p.Color = col
++		p.Transparency = tr
++		p.Size = Vector3.new(PX * 0.94, 0.03, PX * 0.94)
++		local rel = CFrame.fromMatrix(at, face.U, face.N)
++		p.CFrame = cf * rel
++		p.Parent = folderRoot
++		table.insert(c.Parts, { Part = p, Rel = rel, Tr = tr })
++		return true
++	end
+ 	for i, seg in c.Plan do
+ 		if seg.S <= stage and not c.Drawn[i] then
+ 			local f = seg.F
+@@ -1159,19 +1192,23 @@
+ 			end
+ 			if open[f] then
+ 				c.Drawn[i] = true
+-				local face = FACES[f]
+ 				local du, dv = seg.U1 - seg.U0, seg.V1 - seg.V0
+ 				local len = math.sqrt(du * du + dv * dv)
+-				local dir = (face.U * du + face.V * dv) / len
+-				local at = face.N * (math.abs(face.N:Dot(ext)) + 0.03) + face.U * ((seg.U0 + seg.U1) / 2) + face.V * ((seg.V0 + seg.V1) / 2)
+-				local p = takeCrack()
+-				p.Color = dark
+-				p.Transparency = 0.05
+-				p.Size = Vector3.new(len + seg.W * 0.5, 0.03, seg.W)
+-				local rel = CFrame.fromMatrix(at, dir, face.N)
+-				p.CFrame = cf * rel
+-				p.Parent = folderRoot
+-				table.insert(c.Parts, { Part = p, Rel = rel })
++				local steps = math.max(1, math.ceil(len / (PX * 0.5)))
++				local eU, eV = extA[AX[f][1]], extA[AX[f][2]]
++				for st = 0, steps do
++					local t = st / steps
++					local iu = math.floor((seg.U0 + du * t + eU) / PX)
++					local iv = math.floor((seg.V0 + dv * t + eV) / PX)
++					if pixel(f, iu, iv, dark, 0.04) then
++						if (iu * 7 + iv * 13 + f) % 3 == 0 then
++							pixel(f, iu + 1, iv, light, 0.2) -- a chipped, lighter edge
++						end
++						if seg.W >= 0.1 then
++							pixel(f, iu, iv + 1, dark:Lerp(color, 0.25), 0.1) -- the first lines are one pixel thicker
++						end
++					end
++				end
+ 			end
+ 		end
+ 	end
+@@ -1187,7 +1224,7 @@
+ 				clearCracks(key)
+ 			else
+ 				for _, e in c.Parts do
+-					e.Part.Transparency = 0.05 + 0.95 * k
++					e.Part.Transparency = (e.Tr or 0.05) + (1 - (e.Tr or 0.05)) * k
+ 				end
+ 			end
+ 		elseif c.Shake then
 --- a/BlockService.lua
 +++ b/BlockService.lua
 @@ -653,6 +653,12 @@
@@ -190,6 +285,29 @@
  		Trait = "Steady",
  		TraitText = "Steady: extra-smooth handling",
  		Description = "Hand-carved oak. Calm and precise.",
+--- a/BuildMode.lua
++++ b/BuildMode.lua
+@@ -1614,7 +1614,19 @@
+ 	if m and m:GetAttribute("Type") then
+ 		self:_inspect(m)
+ 	else
+-		self:_clearInspect()
++		-- v2.45: an egg or a cosmetic box is clicked like a tree: it is outlined and its card appears
++		local nest
++		if self.nestEdit then
++			local okP, found = pcall(self.nestEdit._pick, self.nestEdit, ray)
++			if okP then
++				nest = found
++			end
++		end
++		if nest then
++			self.nestEdit:Inspect(nest)
++		else
++			self:_clearInspect()
++		end
+ 	end
+ end
+ 
 --- a/BuildService.lua
 +++ b/BuildService.lua
 @@ -657,6 +657,9 @@
@@ -215,6 +333,22 @@
  	local info, money, gems, key, amount, run = BuildService.GardenQuote(data, id)
  	if not info then
  		return false, "Unknown upgrade"
+@@ -1156,11 +1165,14 @@
+ 	-- v2.12: the Build Shop and the UPGRADE sign work wherever you stand
+ 	if a == "Buy" and owner == player then
+ 		return BuildService.Buy(player, req.Kind, req.TypeId) -- (ok, message, new object id)
+-	elseif (a == "BuyBox" or a == "PlaceBox" or a == "MoveBox") and owner == player then
++	elseif (a == "BuyBox" or a == "PlaceBox" or a == "MoveBox" or a == "OpenBox") and owner == player then
+ 		-- v2.34: cosmetic boxes (BoxService): bought at the Build Shop, put in the garden like eggs
+ 		if not ctx.BoxService then
+ 			return false, "Not available"
+ 		end
++		if a == "OpenBox" then
++			return ctx.BoxService.Open(player, req.Nest) -- v2.45: the OPEN button of the box's card
++		end
+ 		if a == "MoveBox" then
+ 			-- v2.38: the Editor carries an unpacking / ready box to another spot (your own garden only)
+ 			if not ctx.BoxService.Move then
 --- a/BuildUI.lua
 +++ b/BuildUI.lua
 @@ -662,7 +662,7 @@
@@ -363,7 +497,46 @@
  		if not ITEM_IDS[id] then
 --- a/DecorBoxes.lua
 +++ b/DecorBoxes.lua
-@@ -893,15 +893,122 @@
+@@ -622,6 +622,22 @@
+ 	return p
+ end
+ 
++-- v2.45: the Editor's menu is hidden while a show plays, and comes back afterwards
++local function hideBuild()
++	local pg = player:FindFirstChild("PlayerGui")
++	local bg = pg and pg:FindFirstChild("LeafRushBuild")
++	if bg and bg:IsA("ScreenGui") and bg.Enabled then
++		show.hidBuild = bg
++		bg.Enabled = false
++	end
++end
++local function restoreBuild()
++	if show.hidBuild then
++		show.hidBuild.Enabled = true
++		show.hidBuild = nil
++	end
++end
++
+ local function makeGui()
+ 	if show.ready then
+ 		return
+@@ -845,6 +861,7 @@
+ 	if show.gui then
+ 		show.gui.Enabled = false
+ 	end
++	restoreBuild()
+ 	if show.ready then
+ 		show.nameLabel.Text = ""
+ 		show.rarityLabel.Text = ""
+@@ -880,6 +897,7 @@
+ 		if show.gui then
+ 			show.gui.Enabled = false
+ 		end
++		restoreBuild()
+ 		local stray = workspace:FindFirstChild("LeafRushBoxShow")
+ 		if stray and stray:IsA("Model") then
+ 			stray:Destroy()
+@@ -893,15 +911,122 @@
  	return started == true
  end
  
@@ -489,7 +662,7 @@
  		return false
  	end
  	DecorBoxes.CancelPlace()
-@@ -927,32 +1034,14 @@
+@@ -927,32 +1052,14 @@
  			show.descLabel.Size = UDim2.new(0.9, 0, 0, math.floor(48 * k))
  		end
  	end
@@ -525,7 +698,12 @@
  	local pad = showPart(model, { Name = "Pad", Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.2, 4.6, 4.6), CFrame = base * CFrame.new(0, 0.1, 0) * CFrame.Angles(0, 0, math.pi / 2), Color = glowColor:Lerp(Color3.new(1, 1, 1), 0.5), Material = Enum.Material.SmoothPlastic, Transparency = 0.2 })
  	local core = showPart(model, { Name = "Core", Size = Vector3.one * 0.2, CFrame = base * CFrame.new(0, boxH * 0.6, 0), Transparency = 1 })
  	local light = Instance.new("PointLight")
-@@ -981,6 +1070,7 @@
+@@ -977,10 +1084,12 @@
+ 	run = r
+ 	DecorBoxes.playing = true
+ 	show.gui.Enabled = true
++	hideBuild()
+ 	show.nameLabel.Text = ""
  	show.rarityLabel.Text = ""
  	show.descLabel.Text = ""
  	show.newLabel.Text = ""
@@ -533,7 +711,7 @@
  	show.tapLabel.Text = "TAP TO OPEN!"
  	show.tapLabel.Visible = true
  	show.dotsFrame.Visible = true
-@@ -1052,18 +1142,13 @@
+@@ -1052,18 +1161,13 @@
  	]]
  	local spun = {} -- [decorId] = { M = model } (built once, parked under the stage) / false
  	local function spinThrough()
@@ -554,7 +732,7 @@
  		local parked = base * CFrame.new(0, -60, 0)
  		local hover = 1.2
  		focus = (base * CFrame.new(0, hover + 2.2, 0)).Position
-@@ -1077,33 +1162,17 @@
+@@ -1077,33 +1181,17 @@
  				return
  			end
  			if shown then
@@ -591,7 +769,7 @@
  					e = { M = m }
  				end
  				spun[id] = e
-@@ -1112,8 +1181,7 @@
+@@ -1112,8 +1200,7 @@
  				shown = e
  			end
  			-- (the pad and the light take the colour of what is shown: the rarities flick past too)
@@ -601,7 +779,7 @@
  			pad.Color = scol
  			light.Color = scol
  			sparks:Emit(5)
-@@ -1128,7 +1196,7 @@
+@@ -1128,7 +1215,7 @@
  				spin += dt * (13 - k * 0.7)
  				if shown and shown.M.Parent then
  					local pop = math.min(1, (os.clock() - t0) * 7)
@@ -610,7 +788,25 @@
  				end
  			end
  		end
-@@ -1208,6 +1276,9 @@
+@@ -1146,6 +1233,9 @@
+ 			pcall(deps.Juice.Shake, 0.35, 0.3)
+ 		end
+ 		boxAlive = false
++		if spec.Shatter then
++			pcall(spec.Shatter, parts, base, model) -- (an egg: the shell breaks into flying shards)
++		else
+ 		-- the lid flies off, the rest sinks away
+ 		for i, p in parts do
+ 			if not p.Parent then
+@@ -1166,6 +1256,7 @@
+ 				end
+ 			end
+ 		end)
++		end
+ 		sparks:Emit(40)
+ 		light.Brightness = 1.2
+ 		light.Range = 12
+@@ -1208,6 +1299,9 @@
  			end
  			spun[id] = nil
  		end
@@ -620,7 +816,7 @@
  		-- the beam of light
  		local beamH = level.Beam
  		local beam = showPart(model, { Name = "Beam", Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.2, 2.6, 2.6), CFrame = base * CFrame.new(0, 0.2, 0) * CFrame.Angles(0, 0, math.pi / 2), Color = rarColor, Material = Enum.Material.Neon, Transparency = 0.55 })
-@@ -1224,45 +1295,15 @@
+@@ -1224,45 +1318,15 @@
  		sparks.Color = ColorSequence.new(rarColor, Color3.new(1, 1, 1))
  		sparks:Emit(level.Particles)
  		sparks.Rate = if rank >= 4 then 12 else 4
@@ -675,7 +871,7 @@
  		if deps.Juice then
  			for k = 1, level.Confetti do
  				task.delay(k * 0.2, function()
-@@ -1278,14 +1319,19 @@
+@@ -1278,14 +1342,19 @@
  			end
  		end
  		flashScreen(level.Flashes, rarColor:Lerp(Color3.new(1, 1, 1), 0.6))
@@ -707,7 +903,7 @@
  	end
 +	-- v2.44 MINI PARKOUR: ×2 for LEAVES while the boost from the button on the plaza runs
 +	local parkour = 1
-+	if data and data.Stats and (tonumber(data.Stats.ParkourUntil) or 0) > os.time() and (resourceId == "Leaf" or resourceId == "DarkLeaf" or resourceId == "GoldenLeaf" or resourceId == "CrownLeaf") then
++	if data and data.Stats and (tonumber(data.Stats.ParkourUntil) or 0) > os.time() then
 +		parkour = 2
 +	end
  	-- (v1.4: Yard Efficiency was removed from the game)
@@ -719,7 +915,7 @@
  function EconomyService.TreeUpgradeCost(treeDef, level)
 --- a/EggOpening.lua
 +++ b/EggOpening.lua
-@@ -838,6 +838,131 @@
+@@ -838,6 +838,184 @@
  	return m
  end
  
@@ -795,6 +991,59 @@
 +	function spec.Pose(m, cf, t)
 +		showPet(owner, m, cf * CFrame.new(0, 0.4, 0), t)
 +	end
++	-- the shell does NOT fly away: it bursts into shards that fly out, fall, bounce on the ground and fade
++	function spec.Shatter(parts, base, model)
++		local centre = base * CFrame.new(0, 2.2, 0)
++		for _, c in parts do
++			if c.Parent then
++				c:Destroy()
++			end
++		end
++		local rng = Random.new()
++		local shards = {}
++		local material = if eggDef.Look and eggDef.Look.Material and eggDef.Look.Material ~= Enum.Material.Neon then eggDef.Look.Material else Enum.Material.SmoothPlastic
++		for k = 1, 24 do
++			local dir = Vector3.new(rng:NextNumber(-1, 1), rng:NextNumber(-0.3, 1), rng:NextNumber(-1, 1))
++			dir = if dir.Magnitude > 0.1 then dir.Unit else Vector3.yAxis
++			local size = Vector3.new(rng:NextNumber(0.5, 1.1), rng:NextNumber(0.22, 0.4), rng:NextNumber(0.5, 1.0))
++			local color = if k % 4 == 0 then (eggDef.Look and eggDef.Look.Spots) or eggDef.Color:Lerp(Color3.new(1, 1, 1), 0.5) else eggDef.Color
++			local piece = part(model, { Name = "ShellShard", Size = size, CFrame = centre * CFrame.new(dir * 1.1) * CFrame.Angles(rng:NextNumber(0, 6), rng:NextNumber(0, 6), rng:NextNumber(0, 6)), Color = color, Material = material })
++			table.insert(shards, { P = piece, V = dir * rng:NextNumber(10, 22) + Vector3.new(0, rng:NextNumber(7, 15), 0), W = Vector3.new(rng:NextNumber(-9, 9), rng:NextNumber(-9, 9), rng:NextNumber(-9, 9)) })
++		end
++		local t0 = os.clock()
++		local last = t0
++		local floorY = base.Position.Y + 0.15
++		local conn
++		conn = RunService.Heartbeat:Connect(function()
++			local now = os.clock()
++			local dt = math.min(now - last, 0.05)
++			last = now
++			local age = now - t0
++			for _, s in shards do
++				if s.P.Parent then
++					s.V += Vector3.new(0, -55 * dt, 0)
++					local pos = s.P.Position + s.V * dt
++					if pos.Y < floorY then
++						pos = Vector3.new(pos.X, floorY, pos.Z)
++						s.V = Vector3.new(s.V.X * 0.55, math.abs(s.V.Y) * 0.35, s.V.Z * 0.55)
++						s.W *= 0.6
++					end
++					s.P.CFrame = CFrame.new(pos) * s.P.CFrame.Rotation * CFrame.Angles(s.W.X * dt, s.W.Y * dt, s.W.Z * dt)
++					if age > 1.3 then
++						s.P.Transparency = math.clamp((age - 1.3) / 0.7, 0, 1)
++					end
++				end
++			end
++			if age > 2.1 then
++				conn:Disconnect()
++				for _, s in shards do
++					if s.P.Parent then
++						s.P:Destroy()
++					end
++				end
++			end
++		end)
++	end
 +	function spec.Reveal(c)
 +		local m = build(pet.Id, pet.Variant)
 +		if not m then
@@ -851,7 +1100,7 @@
  function EggOpening:Open(eggId, pet, onDone)
  	if self.playing or type(pet) ~= "table" then
  		return false
-@@ -847,6 +972,25 @@
+@@ -847,6 +1025,25 @@
  	if not eggDef or not P.Pets[pet.Id] then
  		return false
  	end
@@ -939,7 +1188,7 @@
  			end
 --- a/FontSkin.lua
 +++ b/FontSkin.lua
-@@ -15,15 +15,18 @@
+@@ -15,15 +15,23 @@
  
  local FontSkin = {}
  
@@ -956,16 +1205,21 @@
 -	-- (the engine's own name for it is Enum.Font.Cartoon; ask it for the family)
 -	FontSkin.Family = Font.fromEnum(Enum.Font.Cartoon).Family
 +	FontSkin.Family = Font.fromEnum(Enum.Font.LuckiestGuy).Family
- end)
--FontSkin.Heading = Font.new(FontSkin.Family, Enum.FontWeight.Bold)
--FontSkin.Body = Font.new(FontSkin.Family, Enum.FontWeight.Bold)
++end)
 +FontSkin.Heading = Font.new(FontSkin.Family, Enum.FontWeight.Regular)
 +FontSkin.Body = FontSkin.Heading
 +FontSkin.CyrillicFont = nil :: Font?
++pcall(function()
++	-- v2.45: texts with RUSSIAN letters use a round, heavy, child-friendly font (Nunito ExtraBold-ish);
++	-- English texts stay Luckiest Guy. (If the engine's copy lacks a letter it falls back as before.)
++	FontSkin.CyrillicFont = Font.new(Font.fromEnum(Enum.Font.Nunito).Family, Enum.FontWeight.Heavy)
+ end)
+-FontSkin.Heading = Font.new(FontSkin.Family, Enum.FontWeight.Bold)
+-FontSkin.Body = Font.new(FontSkin.Family, Enum.FontWeight.Bold)
  
  local seen = setmetatable({}, { __mode = "k" })
  
-@@ -33,16 +36,25 @@
+@@ -33,16 +41,25 @@
  	end
  	seen[o] = true
  	local function fix()
@@ -1140,6 +1394,24 @@
  	return "Magnet"
 --- a/Hud.lua
 +++ b/Hud.lua
+@@ -372,7 +372,7 @@
+ 	end)
+ 	-- v2.16: clovers (and the wheel they are for) come with island 3
+ 	local function gloverShown()
+-		glover.Visible = (player:GetAttribute("IslandTier") or 1) >= 3
++		glover.Visible = (player:GetAttribute("IslandTier") or 1) >= 1 -- (v2.45: from the very first island)
+ 	end
+ 	player:GetAttributeChangedSignal("IslandTier"):Connect(gloverShown)
+ 	player:GetAttributeChangedSignal("Glover"):Connect(function()
+@@ -567,7 +567,7 @@
+ 		-- bold white text with a dark outline, in the game's font
+ 		local cap = label(btn, {
+ 			Name = "Label",
+-			Position = UDim2.fromOffset(16, 0),
++			Position = UDim2.fromOffset(16, -3), -- (v2.45: Luckiest Guy sits low in its line: lifted so the caps are in the middle)
+ 			Size = UDim2.new(1, -32, 1, 0),
+ 			Text = text,
+ 			TextSize = 32,
 @@ -615,7 +615,7 @@
  	end
  	-- (the red one keeps its SPAWN function and name — the owner's sample picture says "BUY")
@@ -1197,14 +1469,24 @@
  	plus.Activated:Connect(function()
  		local SocialService = game:GetService("SocialService")
  		task.spawn(function()
-@@ -681,9 +681,29 @@
+@@ -681,9 +681,39 @@
  			end
  		end)
  	end)
 +	-- v2.44: ×2 LEAVES from the plaza's parkour button: a small timer above this box
-+	local pk = label(box, { Name = "ParkourBoost", AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 0, -6), Size = UDim2.fromOffset(190, 30), BackgroundColor3 = Color3.fromRGB(70, 40, 10), BackgroundTransparency = 0.15, TextSize = 16, TextColor3 = Color3.fromRGB(255, 225, 120), TextXAlignment = Enum.TextXAlignment.Center, Text = "", Visible = false })
++	local pk = Instance.new("Frame")
++	pk.Name = "ParkourBoost"
++	pk.AnchorPoint = Vector2.new(0, 1)
++	pk.Position = UDim2.new(0, 0, 0, -6)
++	pk.Size = UDim2.fromOffset(190, 32)
++	pk.BackgroundColor3 = Color3.fromRGB(120, 70, 15)
++	pk.BackgroundTransparency = 0.05
++	pk.Visible = false
++	pk.Parent = box
 +	corner(pk, 12)
-+	stroke(pk, Color3.fromRGB(255, 200, 80), 2, 0.3)
++	stroke(pk, Color3.fromRGB(255, 200, 80), 2, 0.2)
++	UIKit.studs(pk, { W = 190, H = 32, Pitch = 14, Size = 9, Inset = 3 }) -- (v2.45: the toy-brick texture UNDER the text)
++	local pkText = label(pk, { Name = "Text", ZIndex = 2, Size = UDim2.fromScale(1, 1), TextSize = 17, TextColor3 = Color3.fromRGB(255, 235, 140), TextXAlignment = Enum.TextXAlignment.Center, TextYAlignment = Enum.TextYAlignment.Center, TextStrokeTransparency = 0.4, Text = "" })
 +	task.spawn(function()
 +		while pk.Parent do
 +			local untilT = tonumber(player:GetAttribute("ParkourBoostUntil")) or 0
@@ -1214,7 +1496,7 @@
 +			local left = untilT - (if ok then now else os.time())
 +			if left > 0 then
 +				pk.Visible = true
-+				pk.Text = string.format("🍃 ×2 LEAVES  %d:%02d", math.floor(left / 60), math.floor(left % 60))
++				pkText.Text = string.format("🍃 ×2 LEAVES  %d:%02d", math.floor(left / 60), math.floor(left % 60))
 +			else
 +				pk.Visible = false
 +			end
@@ -1228,7 +1510,7 @@
  		text.TextTransparency = if pct > 0 then 0 else 0.25
  	end
  	player:GetAttributeChangedSignal("FriendBoostPct"):Connect(refresh)
-@@ -732,35 +752,37 @@
+@@ -732,35 +762,37 @@
  	combo.Name = "ComboMeter"
  	combo.AnchorPoint = Vector2.new(0.5, 0)
  	combo.Position = UDim2.new(0.5, 0, 0, 52)
@@ -1281,7 +1563,7 @@
  	local cscale = Instance.new("UIScale")
  	cscale.Parent = combo
  	Layout.Add("Top", combo, "Combo")
-@@ -784,6 +806,7 @@
+@@ -784,6 +816,7 @@
  		name.TextColor3 = tier.Color
  		fillBar.BackgroundColor3 = tier.Color
  		cst.Color = tier.Color
@@ -1289,7 +1571,7 @@
  		local nextT = E and E.Combo.Tiers[ti + 1]
  		count.Text = if nextT then pts .. "/" .. nextT.At else tostring(pts)
  		local bonus = math.floor(((tier.Items or 1) - 1) * 100 + 0.5)
-@@ -904,6 +927,67 @@
+@@ -904,6 +937,67 @@
  	return b, icon, cap, st
  end
  
@@ -1357,7 +1639,7 @@
  function Hud:_keyOf(m)
  	local C = self.deps.Controls
  	if C and m.Action then
-@@ -1050,7 +1134,7 @@
+@@ -1050,7 +1144,7 @@
  	end
  end
  local DOCK_H = DOCK_N * (DOCK_BH + GAP)
@@ -1366,7 +1648,7 @@
  
  function Hud:_dock()
  	local dock = Instance.new("Frame")
-@@ -1075,7 +1159,7 @@
+@@ -1075,7 +1169,7 @@
  		local b
  		if m.Corner then
  			-- the bottom-right corner of the screen: Settings, and Admin to its left
@@ -1414,7 +1696,34 @@
  			Lines = lines,
 --- a/IslandConfig.lua
 +++ b/IslandConfig.lua
-@@ -141,23 +141,28 @@
+@@ -121,13 +121,19 @@
+ ]]
+ I.FenceSkins = {
+ 	{ Id = "Classic", Display = "Classic Fence", Icon = "🚧", Color = Color3.fromRGB(235, 215, 185), Post = Color3.fromRGB(240, 225, 200), Material = "Plastic", Blurb = "The cream fence every garden starts with." },
+-	{ Id = "Oak", Display = "Oak Fence", Icon = "🪵", Cost = 5000, Color = Color3.fromRGB(150, 100, 60), Post = Color3.fromRGB(110, 72, 42), Material = "Wood", Blurb = "Warm brown planks." },
+-	{ Id = "Stone", Display = "Stone Wall", Icon = "🪨", Cost = 40000, Color = Color3.fromRGB(140, 140, 146), Post = Color3.fromRGB(100, 100, 108), Material = "Slate", Blurb = "A low grey stone wall." },
+-	{ Id = "Brick", Display = "Brick Wall", Icon = "🧱", Cost = 150000, Color = Color3.fromRGB(176, 84, 62), Post = Color3.fromRGB(226, 214, 196), Material = "Brick", Blurb = "Red brick with pale posts." },
+-	{ Id = "Hedge", Display = "Green Hedge", Icon = "🌿", Cost = 600000, Color = Color3.fromRGB(70, 150, 66), Post = Color3.fromRGB(110, 76, 44), Material = "Grass", Blurb = "A living hedge." },
+-	{ Id = "Candy", Display = "Candy Fence", Icon = "🍬", Cost = 2500000, Color = Color3.fromRGB(255, 150, 190), Post = Color3.fromRGB(255, 250, 250), Material = "SmoothPlastic", Blurb = "Pink rails, white posts." },
+-	{ Id = "Ice", Display = "Ice Wall", Icon = "🧊", Gems = 60, Color = Color3.fromRGB(170, 225, 250), Post = Color3.fromRGB(225, 245, 255), Material = "Ice", Blurb = "Clear blue ice." },
+-	{ Id = "Gold", Display = "Golden Fence", Icon = "🏆", Gems = 150, Color = Color3.fromRGB(250, 205, 70), Post = Color3.fromRGB(255, 235, 150), Material = "Metal", Blurb = "Shines like treasure." },
++	{ Id = "Oak", Display = "Oak Fence", Icon = "🪵", Cost = 5000, Style = "Planks", Color = Color3.fromRGB(150, 100, 60), Post = Color3.fromRGB(110, 72, 42), Material = "Wood", Blurb = "Tall brown planks with pointed tops." },
++	{ Id = "Picket", Display = "White Picket Fence", Icon = "🏡", Cost = 20000, Style = "Picket", Color = Color3.fromRGB(250, 250, 252), Post = Color3.fromRGB(255, 205, 90), Material = "Plastic", Blurb = "A cosy picket fence: wavy boards with round golden caps." },
++	{ Id = "Stone", Display = "Stone Wall", Icon = "🪨", Cost = 40000, Style = "Battlements", Color = Color3.fromRGB(140, 140, 146), Post = Color3.fromRGB(100, 100, 108), Material = "Slate", Blurb = "A grey stone wall with little battlements." },
++	{ Id = "Bamboo", Display = "Bamboo Fence", Icon = "🎋", Cost = 90000, Style = "Bamboo", Color = Color3.fromRGB(150, 200, 80), Post = Color3.fromRGB(100, 150, 50), Material = "Plastic", Blurb = "Tall green stalks with rings." },
++	{ Id = "Brick", Display = "Brick Wall", Icon = "🧱", Cost = 150000, Style = "Bricks", Color = Color3.fromRGB(176, 84, 62), Post = Color3.fromRGB(226, 214, 196), Material = "Brick", Blurb = "Red brick with a pale diamond pattern and a capped top." },
++	{ Id = "Castle", Display = "Castle Wall", Icon = "🏰", Cost = 300000, Style = "Castle", Color = Color3.fromRGB(190, 190, 200), Post = Color3.fromRGB(230, 90, 90), Material = "Plastic", Blurb = "Battlements and little towers with red flags." },
++	{ Id = "Hedge", Display = "Green Hedge", Icon = "🌿", Cost = 600000, Style = "Hedge", Color = Color3.fromRGB(70, 150, 66), Post = Color3.fromRGB(110, 76, 44), Material = "Grass", Blurb = "A bushy hedge with little flowers." },
++	{ Id = "Lantern", Display = "Lantern Fence", Icon = "🏮", Cost = 1200000, Style = "Lantern", Color = Color3.fromRGB(200, 50, 50), Post = Color3.fromRGB(255, 220, 110), Material = "Plastic", Blurb = "Red pillars with glowing paper lanterns." },
++	{ Id = "Candy", Display = "Candy Fence", Icon = "🍬", Cost = 2500000, Style = "Candy", Color = Color3.fromRGB(255, 150, 190), Post = Color3.fromRGB(255, 250, 250), Material = "SmoothPlastic", Blurb = "Candy canes and lollipops." },
++	{ Id = "Rainbow", Display = "Rainbow Fence", Icon = "🌈", Cost = 6000000, Style = "Rainbow", Color = Color3.fromRGB(255, 255, 255), Post = Color3.fromRGB(255, 255, 255), Material = "Plastic", Blurb = "Every brick another colour." },
++	{ Id = "Ice", Display = "Ice Wall", Icon = "🧊", Gems = 60, Style = "Crystals", Color = Color3.fromRGB(170, 225, 250), Post = Color3.fromRGB(225, 245, 255), Material = "Ice", Blurb = "Blue ice with sharp crystal spikes." },
++	{ Id = "Crystal", Display = "Crystal Garden", Icon = "💎", Gems = 100, Style = "Gems", Color = Color3.fromRGB(190, 120, 255), Post = Color3.fromRGB(255, 160, 230), Material = "Plastic", Blurb = "Clusters of glittering purple gems." },
++	{ Id = "Gold", Display = "Golden Fence", Icon = "🏆", Gems = 150, Style = "Spears", Color = Color3.fromRGB(250, 205, 70), Post = Color3.fromRGB(255, 235, 150), Material = "Metal", Blurb = "Golden spears with diamond tips." },
+ }
+ --[[
+ 	v2.16 WHAT EVERY ISLAND OPENS. A part of the game is closed until you own the
+@@ -141,23 +147,28 @@
  	levels, the Editor, the Bestiary.
  ]]
  I.Features = {
@@ -2060,6 +2369,168 @@
  end
  
  -- the egg / box a ray points at (the nearest one; a garden object in front of it wins)
+@@ -210,16 +210,33 @@
+ 			local gems = R.ForGemSkip and R.ForGemSkip(left)
+ 			if gems then
+ 				local afford = R.Gems() >= gems
+-				table.insert(buttons, { Id = "NestSkipG", Text = "⏩ FINISH NOW · 💎" .. gems, Color = if afford then Color3.fromRGB(40, 150, 200) else Color3.fromRGB(120, 140, 150) })
++				table.insert(buttons, { Id = "NestSkipG", Text = "⏩ SKIP TIME · 💎" .. gems, Color = if afford then Color3.fromRGB(40, 150, 200) else Color3.fromRGB(120, 140, 150) })
+ 			end
+ 			local rb = R.ForSkip and R.ForSkip(left)
+ 			if rb and R.Available(rb) then
+-				table.insert(buttons, { Id = "NestSkipR", Text = "⏩ FINISH NOW · R$ " .. rb, Color = Color3.fromRGB(40, 170, 90) })
++				table.insert(buttons, { Id = "NestSkipR", Text = "⏩ SKIP TIME · R$ " .. rb, Color = Color3.fromRGB(40, 170, 90) })
+ 			end
+ 		end
+ 	else
+ 		table.insert(lines, "<font color='#9CF59C'><b>READY!</b></font>")
+-		table.insert(lines, "Close the Editor, walk up to it and open it (E).")
++		if not self.inspect then
++			table.insert(lines, "Close the Editor, walk up to it and open it (E), or press OPEN.")
++			table.insert(buttons, { Id = "NestOpen", Text = "🎁 OPEN", Color = Color3.fromRGB(70, 170, 90) })
++		end
++	end
++	if self.inspect then
++		-- outside the Editor: EDIT first, then SKIP TIME (or OPEN when it is ready), then CANCEL
++		local out = { { Id = "NestEdit", Text = "✏ EDIT", Color = Color3.fromRGB(70, 150, 90) } }
++		for _, bi in buttons do
++			if bi.Id ~= "NestMove" then
++				table.insert(out, bi)
++			end
++		end
++		if left <= 0 then
++			table.insert(out, { Id = "NestOpen", Text = "🎁 OPEN", Color = Color3.fromRGB(70, 170, 90) })
++		end
++		table.insert(out, { Id = "CloseInfo", Text = "✖ CANCEL", Color = Color3.fromRGB(215, 80, 70) })
++		buttons = out
+ 	end
+ 	local sig = {}
+ 	for _, bi in buttons do
+@@ -277,6 +294,41 @@
+ 	return true
+ end
+ 
++-- v2.45: a CLICK on an egg / a box outside the Editor: it is outlined and a card appears —
++-- ✏ EDIT (opens the Editor on it), ⏩ SKIP TIME (or 🎁 OPEN when it is ready), ✖ CANCEL
++function NestEdit:Inspect(model)
++	local b = self.build
++	local kind, id = kindOf(model, self.player.UserId)
++	if not kind or not model.Parent then
++		return false
++	end
++	b:_clearInspect()
++	b:_deselect()
++	self.model, self.id, self.kind = model, id, kind
++	self.inspect = true
++	b.inspecting = true -- (so the menus that close the tree card close this one too)
++	local hl = Instance.new("Highlight")
++	hl.FillTransparency = 0.8
++	hl.FillColor = Color3.fromRGB(255, 220, 90)
++	hl.OutlineColor = Color3.fromRGB(255, 220, 90)
++	hl.Parent = model
++	self.inspectHL = hl
++	self:_show(true)
++	task.spawn(function()
++		while self.inspect and self.model == model do
++			task.wait(0.5)
++			if not model.Parent then
++				b:_clearInspect()
++				return
++			end
++			if self.inspect and self.model == model then
++				self:_show(false)
++			end
++		end
++	end)
++	return true
++end
++
+ -- the ghost of a move goes away (the selection stays)
+ function NestEdit:_endMove()
+ 	if self.ghost then
+@@ -291,6 +343,11 @@
+ -- (called by BuildMode:_deselect — it hides the card and the highlight itself)
+ function NestEdit:Clear()
+ 	self:_endMove()
++	self.inspect = false
++	if self.inspectHL then
++		self.inspectHL:Destroy()
++		self.inspectHL = nil
++	end
+ 	self.model, self.id, self.kind = nil, nil, nil
+ 	self.cardSig, self.cardText = nil, nil
+ 	self.lostAt = nil
+@@ -471,13 +528,45 @@
+ 
+ ---------------------------------------------------------------- BuildMode's hooks
+ function NestEdit:Action(id)
+-	if id ~= "NestMove" and id ~= "NestSkipG" and id ~= "NestSkipR" then
++	if id ~= "NestMove" and id ~= "NestSkipG" and id ~= "NestSkipR" and id ~= "NestEdit" and id ~= "NestOpen" then
+ 		return false
+ 	end
+ 	local b = self.build
+ 	if not self.model or not self.model.Parent then
+ 		return true
+ 	end
++	if id == "NestEdit" then
++		-- the Editor opens at once, with this egg / box selected (its card there has MOVE and SKIP TIME)
++		local m = self.model
++		b:_clearInspect()
++		b:Enter()
++		if b.active and m.Parent then
++			self:Select(m)
++		end
++		return true
++	elseif id == "NestOpen" then
++		local kind, nid = self.kind, self.id
++		if b.active then
++			b:_deselect()
++		else
++			b:_clearInspect()
++		end
++		task.spawn(function()
++			local remote = if kind == "Egg" then self:_petRemote() else b.Remote
++			if not remote then
++				return
++			end
++			local ok, res, msg = pcall(function()
++				return remote:InvokeServer(if kind == "Egg" then { Action = "OpenNest", Nest = nid } else { Action = "OpenBox", Nest = nid })
++			end)
++			if not ok then
++				b.Hud:Toast("Connection problem, try again", 2, true)
++			elseif res == false then
++				b.Hud:Toast(tostring(msg or "Not now"), 2.5, true)
++			end
++		end)
++		return true
++	end
+ 	if id == "NestMove" then
+ 		self:BeginMove()
+ 	elseif b.RobuxUI then
+--- a/PetFollow.lua
++++ b/PetFollow.lua
+@@ -38,17 +38,10 @@
+ 	p.CanTouch = false
+ 	p.CastShadow = false
+ 	p:SetAttribute("Rel", cf)
+-	-- v2.18 TOY BRICKS EVERYWHERE: plastic with studs on every side (things that glow
+-	-- or are see-through keep their own material)
+-	do
+-		local mat = p.Material
+-		if mat ~= Enum.Material.Neon and mat ~= Enum.Material.Glass and mat ~= Enum.Material.ForceField and p.Transparency < 0.5 then
+-			p.Material = Enum.Material.Plastic
+-			p.TopSurface, p.BottomSurface = Enum.SurfaceType.Studs, Enum.SurfaceType.Studs
+-			p.FrontSurface, p.BackSurface = Enum.SurfaceType.Studs, Enum.SurfaceType.Studs
+-			p.LeftSurface, p.RightSurface = Enum.SurfaceType.Studs, Enum.SurfaceType.Studs
+-		end
+-	end
++	-- v2.45: pets are smooth — no toy-brick studs on them
++	p.TopSurface, p.BottomSurface = Enum.SurfaceType.Smooth, Enum.SurfaceType.Smooth
++	p.FrontSurface, p.BackSurface = Enum.SurfaceType.Smooth, Enum.SurfaceType.Smooth
++	p.LeftSurface, p.RightSurface = Enum.SurfaceType.Smooth, Enum.SurfaceType.Smooth
+ 	p.Parent = model
+ 	return p
+ end
 --- a/PetService.lua
 +++ b/PetService.lua
 @@ -151,7 +151,7 @@
@@ -2109,10 +2580,15 @@
  	local price = ctx.PetConfig.SellPrice(p.Id, p.Variant, p.Level)
  	data.Pets.Owned[uid] = nil
  	local i = table.find(data.Pets.Equipped, uid)
-@@ -542,6 +557,8 @@
+@@ -542,6 +557,13 @@
  		return PetService.Equip(player, req.Uid)
  	elseif a == "Unequip" then
  		return PetService.Unequip(player, req.Uid)
++	elseif a == "OpenNest" then -- v2.45: the OPEN button of the egg's card (the same as holding E at it)
++		if not ctx.IncubatorService or not ctx.IncubatorService.Open then
++			return false, "Not available"
++		end
++		return ctx.IncubatorService.Open(player, req.Nest)
 +	elseif a == "Favorite" then
 +		return PetService.Favorite(player, req.Uid, req.On == true)
  	elseif a == "Upgrade" then
@@ -2180,21 +2656,49 @@
  		}, "|")
  	end
  	local shown = ItemGrid.render(K, list, {
-@@ -1260,6 +1278,18 @@
+@@ -1115,6 +1133,36 @@
+ 		     ends above them — its height is what the buttons leave free
+ 	]]
+ 	self.detailView = ItemGrid.view(panel, it, 92) -- (v1.10: PetLevelFX celebrates over it)
++	-- v2.45 ⭐: a round star at the top left of the picture: grey = not a favourite, gold = favourite; a click flips it
++	do
++		local fav = p.Fav == true
++		local star = Instance.new("TextButton")
++		star.Name = "FavStar"
++		star.ZIndex = 50
++		star.Position = UDim2.fromOffset(18, 12)
++		star.Size = UDim2.fromOffset(32, 32)
++		star.AutoButtonColor = true
++		star.Text = "★"
++		star.TextSize = 22
++		star.Font = Enum.Font.GothamBold
++		star.TextColor3 = Color3.new(1, 1, 1)
++		star.BackgroundColor3 = if fav then Color3.fromRGB(255, 185, 30) else Color3.fromRGB(150, 150, 160)
++		star.Parent = panel
++		local sc = Instance.new("UICorner")
++		sc.CornerRadius = UDim.new(1, 0)
++		sc.Parent = star
++		local ss = Instance.new("UIStroke")
++		ss.Color = if fav then Color3.fromRGB(255, 240, 170) else Color3.new(1, 1, 1)
++		ss.Thickness = 2
++		ss.Parent = star
++		star.Activated:Connect(function()
++			self.selUid = p.Uid
++			self:_send({ Action = "Favorite", Uid = p.Uid, On = not fav })
++			if self.Sfx then
++				self.Sfx.Play("Click")
++			end
++		end)
++	end
+ 	self.detailUid = p.Uid
+ 	-- v1.10: short and simple — what it does now, what the next level gives
+ 	local lines = {
+@@ -1260,6 +1308,9 @@
  			end
  		end })
  	end
-+	-- v2.44: ⭐ FAVOURITE: first in the list, protected from SELL
-+	table.insert(specs, { Text = if p.Fav == true then "★ UNFAVOURITE" else "☆ FAVOURITE", Color = if p.Fav == true then K.MUTED else Color3.fromRGB(235, 170, 30), OnClick = function()
-+		self.selUid = p.Uid
-+		self:_send({ Action = "Favorite", Uid = p.Uid, On = p.Fav ~= true })
-+		if self.Sfx then
-+			self.Sfx.Play("Click")
-+		end
-+	end })
 +	if p.Fav == true then
-+		sellSpec.Enabled = false
-+		sellSpec.Text = "⭐ FAVOURITE"
++		sellSpec.Enabled = false -- (a favourite is never sold by mistake: take the star off first)
 +	end
  	table.insert(specs, sellSpec) -- (always the last button)
  	-- the whole description of its ability, last in the text box (scroll down to read it)
@@ -2246,7 +2750,275 @@
  local function refreshSign(plot)
  	local label = plot.SignLabel
  	if not label then
-@@ -529,6 +567,7 @@
+@@ -131,6 +169,259 @@
+ 	return plotCFrame(index, size)
+ end
+ 
++--[[
++	v2.44 FENCE SHAPES: every skin (IslandConfig.FenceSkins[].Style) also has its own FORM — pickets, battlements,
++	towers, canes, spears, gems … — made of toy bricks (Plastic + studs on every side, the same texture for all of
++	them) standing on the fence. They are only for the eyes: nothing collides, nothing can be clicked, the real
++	(low, solid) fence is exactly the one it was.
++]]
++local function fenceSegments(plot)
++	local segs = {}
++	local function add(w)
++		if w and w.Parent and w:IsA("BasePart") then
++			local sz = w.Size
++			local alongX = sz.X >= sz.Z
++			table.insert(segs, { Part = w, Len = if alongX then sz.X else sz.Z, Top = sz.Y / 2, AlongX = alongX })
++		end
++	end
++	for k = 2, 4 do
++		add(plot.Walls and plot.Walls[k])
++	end
++	if plot.Deco then
++		for _, d in plot.Deco:GetChildren() do
++			if d.Name == "FrontFence" then
++				add(d)
++			end
++		end
++	end
++	return segs
++end
++
++local RAINBOW = { Color3.fromRGB(255, 90, 90), Color3.fromRGB(255, 160, 60), Color3.fromRGB(255, 225, 70), Color3.fromRGB(110, 220, 110), Color3.fromRGB(80, 190, 255), Color3.fromRGB(170, 120, 255) }
++
++local FENCE_STYLES = {}
++-- every style: function(put, seg, color, post, plot) — put(along, up, size, color, opts) places one brick; opts = { Ball, Cyl, Neon, Rot (CFrame), Side }
++FENCE_STYLES.Planks = function(put, seg, color, post)
++	local i = 0
++	for a = -seg.Len / 2 + 0.5, seg.Len / 2 - 0.4, 1.0 do
++		i += 1
++		put(a, 0.8, Vector3.new(0.55, 1.6, 0.3), if i % 2 == 0 then color else color:Lerp(Color3.new(0, 0, 0), 0.12))
++		put(a, 1.68, Vector3.new(0.4, 0.4, 0.3), post, { Rot = CFrame.Angles(0, 0, math.rad(45)) })
++	end
++end
++FENCE_STYLES.Picket = function(put, seg, color, post)
++	local i = 0
++	for a = -seg.Len / 2 + 0.6, seg.Len / 2 - 0.5, 1.2 do
++		i += 1
++		local h = if i % 2 == 0 then 1.0 else 1.7
++		put(a, h / 2, Vector3.new(0.8, h, 0.25), color)
++		put(a, h + 0.1, Vector3.new(0.5, 0.5, 0.5), post, { Ball = true })
++	end
++	put(0, 0.35, Vector3.new(seg.Len, 0.25, 0.2), color:Lerp(Color3.new(0, 0, 0), 0.08), { Side = 0.25 })
++end
++FENCE_STYLES.Battlements = function(put, seg, color, post)
++	for a = -seg.Len / 2 + 0.7, seg.Len / 2 - 0.6, 2.0 do
++		put(a, 0.45, Vector3.new(1.1, 0.9, 0.7), color)
++		put(a, 0.95, Vector3.new(1.2, 0.2, 0.8), post)
++	end
++end
++FENCE_STYLES.Bamboo = function(put, seg, color, post)
++	local i = 0
++	for a = -seg.Len / 2 + 0.5, seg.Len / 2 - 0.4, 1.3 do
++		i += 1
++		local h = 2.0 + (i % 3) * 0.5
++		put(a, h / 2, Vector3.new(h, 0.45, 0.45), color, { Cyl = true, Up = true })
++		for y = 0.7, h - 0.2, 0.8 do
++			put(a, y, Vector3.new(0.14, 0.58, 0.58), post, { Cyl = true, Up = true })
++		end
++	end
++end
++FENCE_STYLES.Bricks = function(put, seg, color, post)
++	local i = 0
++	for a = -seg.Len / 2 + 1.1, seg.Len / 2 - 1.0, 2.4 do
++		i += 1
++		put(a, -0.55, Vector3.new(0.55, 0.55, 0.5), post, { Rot = CFrame.Angles(0, 0, math.rad(45)) })
++	end
++	local j = 0
++	for a = -seg.Len / 2 + 1.1, seg.Len / 2 - 1.0, 2.2 do
++		j += 1
++		put(a, 0.2, Vector3.new(2.0, 0.4, 0.6), if j % 2 == 0 then color:Lerp(post, 0.15) else color:Lerp(Color3.new(0, 0, 0), 0.15))
++	end
++end
++FENCE_STYLES.Castle = function(put, seg, color, post, plot)
++	for a = -seg.Len / 2 + 0.6, seg.Len / 2 - 0.5, 1.6 do
++		put(a, 0.5, Vector3.new(0.9, 1.0, 0.7), color)
++	end
++end
++FENCE_STYLES.Hedge = function(put, seg, color, post)
++	local i = 0
++	local FL = { Color3.fromRGB(255, 130, 170), Color3.fromRGB(255, 230, 90), Color3.fromRGB(255, 255, 255) }
++	for a = -seg.Len / 2 + 0.6, seg.Len / 2 - 0.5, 1.1 do
++		i += 1
++		local d = 1.5 + (i % 3) * 0.3
++		put(a, 0.55 + (i % 2) * 0.2, Vector3.new(d, d, d), if i % 2 == 0 then color else color:Lerp(Color3.new(0, 0, 0), 0.15), { Ball = true })
++		if i % 3 == 0 then
++			put(a + 0.2, 1.45 + (i % 2) * 0.2, Vector3.new(0.4, 0.4, 0.4), FL[(i / 3) % 3 + 1], { Ball = true, Side = 0.3 })
++		end
++	end
++end
++FENCE_STYLES.Lantern = function(put, seg, color, post)
++	put(0, 1.4, Vector3.new(seg.Len, 0.25, 0.25), color)
++	for a = -seg.Len / 2 + 0.8, seg.Len / 2 - 0.6, 5.0 do
++		put(a, 1.2, Vector3.new(0.7, 2.4, 0.7), color)
++		put(a, 2.85, Vector3.new(0.9, 0.9, 0.9), post, { Neon = true })
++		put(a, 3.45, Vector3.new(1.5, 0.25, 1.5), Color3.fromRGB(60, 40, 40))
++		put(a, 3.7, Vector3.new(0.8, 0.25, 0.8), Color3.fromRGB(60, 40, 40))
++	end
++end
++FENCE_STYLES.Candy = function(put, seg, color, post)
++	local i = 0
++	for a = -seg.Len / 2 + 0.8, seg.Len / 2 - 0.6, 3.0 do
++		i += 1
++		for k = 0, 4 do
++			put(a, 0.2 + k * 0.4, Vector3.new(0.4, 0.4, 0.4), if (k + i) % 2 == 0 then Color3.fromRGB(255, 70, 100) else Color3.new(1, 1, 1), { Cyl = true, Up = true })
++		end
++		put(a + 0.2, 2.15, Vector3.new(0.5, 0.4, 0.4), Color3.fromRGB(255, 70, 100), { Cyl = true })
++		put(a + 0.45, 1.95, Vector3.new(0.4, 0.4, 0.4), Color3.new(1, 1, 1), { Cyl = true, Up = true })
++	end
++	for a = -seg.Len / 2 + 2.3, seg.Len / 2 - 1.5, 3.0 do
++		put(a, 1.0, Vector3.new(1.0, 1.0, 0.3), RAINBOW[(math.floor(a * 3) % 6) + 1], { Ball = true })
++		put(a, 0.35, Vector3.new(0.14, 0.7, 0.14), Color3.new(1, 1, 1))
++	end
++end
++FENCE_STYLES.Rainbow = function(put, seg, color, post)
++	local i = 0
++	for a = -seg.Len / 2 + 0.6, seg.Len / 2 - 0.5, 1.2 do
++		i += 1
++		put(a, 0.25, Vector3.new(1.15, 0.5, 0.6), RAINBOW[i % 6 + 1])
++		if i % 2 == 0 then
++			put(a, 0.78, Vector3.new(0.5, 0.5, 0.5), RAINBOW[(i + 3) % 6 + 1], { Ball = true })
++		end
++	end
++end
++FENCE_STYLES.Crystals = function(put, seg, color, post)
++	local i = 0
++	for a = -seg.Len / 2 + 0.7, seg.Len / 2 - 0.5, 1.5 do
++		i += 1
++		local h = 1.4 + (i % 3) * 0.55
++		put(a, h / 2, Vector3.new(0.55, h, 0.55), if i % 2 == 0 then color else post, { Rot = CFrame.Angles(0, 0, math.rad(((i % 2) * 2 - 1) * 10)) })
++		put(a + ((i % 2) * 2 - 1) * 0.12, h + 0.15, Vector3.new(0.45, 0.45, 0.45), post, { Rot = CFrame.Angles(math.rad(45), 0, math.rad(45)) })
++	end
++end
++FENCE_STYLES.Gems = function(put, seg, color, post)
++	local i = 0
++	for a = -seg.Len / 2 + 0.9, seg.Len / 2 - 0.7, 2.2 do
++		i += 1
++		put(a, 1.0, Vector3.new(0.9, 0.9, 0.9), if i % 2 == 0 then color else post, { Rot = CFrame.Angles(math.rad(45), math.rad(45), 0) })
++		put(a - 0.65, 0.55, Vector3.new(0.5, 0.5, 0.5), post, { Rot = CFrame.Angles(math.rad(45), math.rad(45), 0) })
++		put(a + 0.65, 0.5, Vector3.new(0.4, 0.4, 0.4), color:Lerp(Color3.new(1, 1, 1), 0.3), { Rot = CFrame.Angles(math.rad(45), math.rad(45), 0) })
++	end
++end
++FENCE_STYLES.Spears = function(put, seg, color, post)
++	put(0, 1.5, Vector3.new(seg.Len, 0.18, 0.18), post)
++	local i = 0
++	for a = -seg.Len / 2 + 0.6, seg.Len / 2 - 0.5, 1.4 do
++		i += 1
++		local h = if i % 4 == 0 then 2.9 else 2.2
++		put(a, h / 2, Vector3.new(0.18, h, 0.18), color)
++		put(a, h + 0.12, Vector3.new(0.42, 0.42, 0.2), post, { Rot = CFrame.Angles(0, 0, math.rad(45)) })
++		if i % 4 == 0 then
++			put(a, 1.5, Vector3.new(0.5, 0.5, 0.5), post, { Ball = true })
++		end
++	end
++end
++
++-- v2.44: extras standing on the fence POSTS (towers of the castle, lollipops of the candy fence, gem tops …)
++local function fencePostTops(plot, style, color, post, put2)
++	if not plot.Deco then
++		return
++	end
++	for _, d in plot.Deco:GetChildren() do
++		if d.Name == "Post" and d:IsA("BasePart") then
++			local top = d.Position + Vector3.new(0, d.Size.Y / 2, 0)
++			if style == "Castle" then
++				put2(top + Vector3.new(0, 1.3, 0), Vector3.new(1.5, 2.6, 1.5), color, nil)
++				put2(top + Vector3.new(0, 2.8, 0), Vector3.new(1.9, 0.4, 1.9), post:Lerp(Color3.new(1, 1, 1), 0.3), nil)
++				put2(top + Vector3.new(0, 3.8, 0), Vector3.new(0.12, 1.8, 0.12), Color3.fromRGB(80, 80, 90), nil)
++				put2(top + Vector3.new(0.4, 4.3, 0), Vector3.new(0.8, 0.5, 0.1), post, nil)
++			elseif style == "Candy" or style == "Picket" or style == "Planks" or style == "Rainbow" then
++				put2(top + Vector3.new(0, 0.45, 0), Vector3.new(0.8, 0.8, 0.8), if style == "Rainbow" then RAINBOW[(math.floor(top.X + top.Z) % 6) + 1] else post, "Ball")
++			elseif style == "Gems" or style == "Crystals" then
++				put2(top + Vector3.new(0, 0.6, 0), Vector3.new(0.7, 0.7, 0.7), post, "Gem")
++			elseif style == "Spears" or style == "Lantern" then
++				put2(top + Vector3.new(0, 0.5, 0), Vector3.new(0.6, 0.6, 0.6), post, "Ball")
++			end
++		end
++	end
++end
++
++local function buildFenceShape(plot, skin)
++	local old = plot.Model:FindFirstChild("FenceShape")
++	if old then
++		old:Destroy()
++	end
++	local style = skin and skin.Style
++	local build = style and FENCE_STYLES[style]
++	if not build then
++		return
++	end
++	local folder = Instance.new("Folder")
++	folder.Name = "FenceShape"
++	local count = 0
++	local function brick(cf, size, color, opts)
++		count += 1
++		if count > 2600 then
++			return
++		end
++		local p = Instance.new("Part")
++		p.Anchored = true
++		p.CanCollide = false
++		p.CanQuery = false
++		p.CanTouch = false
++		p.CastShadow = false
++		p.Material = if opts and opts.Neon then Enum.Material.Neon else Enum.Material.Plastic -- (the same toy-brick plastic for every skin)
++		if opts and opts.Ball then
++			p.Shape = Enum.PartType.Ball
++		elseif opts and opts.Cyl then
++			p.Shape = Enum.PartType.Cylinder
++		end
++		p.Size = size
++		p.Color = color
++		p.CFrame = cf
++		for _, face in { "TopSurface", "BottomSurface", "FrontSurface", "BackSurface", "LeftSurface", "RightSurface" } do
++			(p :: any)[face] = Enum.SurfaceType.Studs
++		end
++		p.Parent = folder
++	end
++	local color, post = skin.Color, skin.Post
++	for _, seg in fenceSegments(plot) do
++		local function put(along, up, size, c, opts)
++			local cf
++			if seg.AlongX then
++				cf = seg.Part.CFrame * CFrame.new(along, seg.Top + up, (opts and opts.Side) or 0)
++			else
++				cf = seg.Part.CFrame * CFrame.new((opts and opts.Side) or 0, seg.Top + up, along) * CFrame.Angles(0, math.pi / 2, 0)
++			end
++			if opts and opts.Cyl and opts.Up then
++				cf *= CFrame.Angles(0, 0, math.pi / 2) -- (a cylinder lies along X: stand it up; without Up it lies along the wall)
++			end
++			if opts and opts.Rot then
++				cf *= opts.Rot
++			end
++			brick(cf, size, c, opts)
++		end
++		build(put, seg, color, post, plot)
++	end
++	fencePostTops(plot, style, color, post, function(pos, size, c, kind)
++		local cf = CFrame.new(pos)
++		if kind == "Gem" then
++			cf *= CFrame.Angles(math.rad(45), math.rad(45), 0)
++		end
++		brick(cf, size, c, if kind == "Ball" then { Ball = true } else nil)
++	end)
++	folder.Parent = plot.Model
++end
++
+ -- v2.15 FENCE SKINS: paint the fence (borders, posts, front pieces) of a yard.
+ -- `skin` = an IslandConfig.FenceSkins entry (nil = keep the one set before)
+ function PlotSystem.ApplyFence(plot, skin)
+@@ -174,6 +465,7 @@
+ 			end
+ 		end
+ 	end
++	pcall(buildFenceShape, plot, s) -- v2.44: the skin's own form on top of the fence
+ end
+ 
+ --[[
+@@ -529,6 +821,7 @@
  	end
  	pcall(fenceGroups, plot) -- v2.40: (a baked yard that needed no layout: its invisible walls get their groups here)
  	refreshSign(plot)
@@ -2254,7 +3026,7 @@
  	return plot
  end
  
-@@ -734,6 +773,7 @@
+@@ -734,6 +1027,7 @@
  	plot.Model:SetAttribute("Lane", plot.Lane)
  	player:SetAttribute("PlotIndex", plot.Index)
  	refreshSign(plot)
@@ -2262,7 +3034,7 @@
  	local size = ctx.PlotMath.PlotSize(ctx.Config.Plot, data.Plot.Expansion)
  	layoutGround(plot, size)
  	PlotSystem.PublishYard(player, data)
-@@ -948,6 +988,7 @@
+@@ -948,6 +1242,7 @@
  	end
  	layoutGround(plot, ctx.Config.Plot.Sizes[0])
  	refreshSign(plot)
@@ -2652,7 +3424,33 @@
  }
  
  --[[
-@@ -302,7 +504,7 @@
+@@ -207,10 +409,12 @@
+ 	(No "Price" / "Rarity" in these tables on purpose: StockConfig would sell them as tools.)
+ ]]
+ T.PickaxeTiers = {
+-	{ Id = "Stone", Name = "Stone", HitMult = 1, HitEvery = 0.34, Reach = 14, Durability = 150, Smash = 90, RepairPer = 10 },
+-	{ Id = "Iron", Name = "Iron", Cost = 40000, Hits = { D = 2, S = 2, L = 2, R = 4, W = 1 }, HitMult = 0.8, HitEvery = 0.32, Reach = 15, Durability = 350, Smash = 75, RepairPer = 14 },
+-	{ Id = "Gold", Name = "Gold", Cost = 250000, Hits = { D = 1, S = 1, L = 2, R = 3, W = 1 }, HitMult = 0.6, HitEvery = 0.3, Reach = 16, Durability = 700, Smash = 60, RepairPer = 18 },
+-	{ Id = "Diamond", Name = "Diamond", Cost = 1200000, Hits = { D = 1, S = 1, L = 1, R = 2, W = 1 }, HitMult = 0.4, HitEvery = 0.27, Reach = 18, Durability = 1200, Smash = 45, RepairPer = 24 },
++	-- v2.44: weak pickaxes take MANY swings (Hits per block code: D earth, S sand, L wood, R stone, W water);
++	-- the Rainbow pickaxe breaks every block with the first swing
++	{ Id = "Stone", Name = "Stone", Hits = { D = 4, S = 4, L = 6, R = 10, W = 1 }, HitMult = 1, HitEvery = 0.34, Reach = 14, Durability = 150, Smash = 90, RepairPer = 10 },
++	{ Id = "Iron", Name = "Iron", Cost = 40000, Hits = { D = 3, S = 3, L = 4, R = 7, W = 1 }, HitMult = 0.8, HitEvery = 0.32, Reach = 15, Durability = 350, Smash = 75, RepairPer = 14 },
++	{ Id = "Gold", Name = "Gold", Cost = 250000, Hits = { D = 2, S = 2, L = 3, R = 4, W = 1 }, HitMult = 0.6, HitEvery = 0.3, Reach = 16, Durability = 700, Smash = 60, RepairPer = 18 },
++	{ Id = "Diamond", Name = "Diamond", Cost = 1200000, Hits = { D = 1, S = 1, L = 2, R = 2, W = 1 }, HitMult = 0.4, HitEvery = 0.27, Reach = 18, Durability = 1200, Smash = 45, RepairPer = 24 },
+ 	{ Id = "Rainbow", Name = "Rainbow", Cost = 6000000, Hits = { D = 1, S = 1, L = 1, R = 1, W = 1 }, HitMult = 0.2, HitEvery = 0.24, Reach = 20, Durability = 2000, Smash = 30, RepairPer = 30 },
+ }
+ for i, t in T.PickaxeTiers do
+@@ -247,7 +451,7 @@
+ 	if not h then
+ 		h = math.ceil(baseHits * (t.HitMult or 1) - 1e-6)
+ 	end
+-	return math.clamp(h, 1, baseHits)
++	return math.clamp(h, 1, math.max(baseHits, h)) -- (v2.44: a weak pickaxe may need MORE swings than the block's base number)
+ end
+ 
+ -- Money to repair a pickaxe of this tier that has broken `used` blocks since its last repair
+@@ -302,7 +506,7 @@
  	end
  	return "Z"
  end
@@ -2661,7 +3459,7 @@
  
  --[[
  	v2.40 RAKE upgrades (level 0…5, saved as data.Tools.Up.Rake). The rake sweeps with the
-@@ -348,38 +550,58 @@
+@@ -348,38 +552,58 @@
  T.VacuumCapacity = { [0] = 100, 200, 350, 500, 750, 1000 }
  T.VacuumRepairPerItem = 60 -- Money per item of capacity
  
@@ -2728,7 +3526,7 @@
  		Description = "Fully recharges your Leaf Blower's energy — right where you stand.",
  	},
  	-- v2.38: the VACUUM's battery — puts its whole capacity back (exactly what the paid
-@@ -388,9 +610,25 @@
+@@ -388,9 +612,25 @@
  	-- repair is cheaper up to Capacity level 2, the same at level 3 (500 items) and
  	-- dearer from level 4 on — there the battery (rare in stock) is the better deal.
  	VacuumBattery = {
@@ -2755,7 +3553,7 @@
  	-- v2.32 PET TOYS: use one, pick one of your EQUIPPED pets — for 5 minutes its ability
  	-- recharges faster and is stronger by Boost (PetConfig.BoostValue / PetAbilityService.Boost).
  	-- PetTarget = the client opens the pet picker; the server gets { Action = "Use", Id, Pet = uid }.
-@@ -410,7 +648,8 @@
+@@ -410,7 +650,8 @@
  		Description = "Give it to one of your equipped pets: for 5 minutes its ability recharges 50% faster and is 50% stronger.",
  	},
  }
@@ -2765,7 +3563,7 @@
  T.ConsumableSlots = 3
  T.MaxStack = math.huge -- (v2.37: no limit on one-use items — nothing refuses by it any more)
  
-@@ -430,6 +669,32 @@
+@@ -430,6 +671,32 @@
  	return nil
  end
  
@@ -2798,7 +3596,7 @@
  function T.UpgradeCost(tool, stat, level)
  	local ups = T.UpgradesOf(tool)
  	local u = ups and ups[stat]
-@@ -539,6 +804,7 @@
+@@ -539,6 +806,7 @@
  	levels = levels or {}
  	local d, U = T.Helpers.Blower, T.BlowerUpgrades
  	return {
@@ -2806,7 +3604,7 @@
  		Range = d.Range + (levels.Range or 0) * U.Range.Per,
  		Cone = d.Cone + (levels.Cone or 0) * U.Cone.Per,
  		Force = d.Force + (levels.Force or 0) * U.Force.Per,
-@@ -546,6 +812,42 @@
+@@ -546,6 +814,42 @@
  	}
  end
  
@@ -2849,7 +3647,7 @@
  -- v2.32: Money to put `seconds` of energy back into the Leaf Blower
  function T.RechargeCost(seconds)
  	return math.ceil(math.max(0, seconds) * T.BlowerRechargePerSecond)
-@@ -566,6 +868,9 @@
+@@ -566,6 +870,9 @@
  -- save gets its tier from the levels it already has)
  T.TierSteps = { Trimmer = 5 }
  function T.HelperTier(tool, levels)
@@ -2859,7 +3657,7 @@
  	if tool == "Pickaxe" then
  		return T.PickaxeTier(levels) -- v2.38: 1 Stone … 5 Rainbow
  	end
-@@ -583,7 +888,7 @@
+@@ -583,7 +890,7 @@
  		end
  		return math.clamp(1 + math.floor(sum / (T.TierSteps[tool] or T.TierStep)), 1, #T.TierNames)
  	end
@@ -2868,7 +3666,7 @@
  		return 1
  	end
  	local sum = 0
-@@ -601,10 +906,16 @@
+@@ -601,10 +908,16 @@
  end
  
  -- v2.41: the tools whose look follows T.TierNames (for the UI: "Rake · Pro")
@@ -2886,7 +3684,7 @@
  	if tool == "Pickaxe" then
  		local t = T.PickaxeTiers[tier]
  		return t and t.Name or ""
-@@ -613,10 +924,10 @@
+@@ -613,10 +926,10 @@
  end
  
  function T.UpgradesOf(tool)
@@ -5319,6 +6117,15 @@
  	elseif id == "Vacuum" then
  		local V = TC.Vacuum(d.Up.Vacuum)
  		local used = math.min(self.player:GetAttribute("VacUsed") or 0, V.Capacity)
+@@ -625,7 +704,7 @@
+ 		local bestStone = TC.PickaxeHits(#TC.PickaxeTiers, "R", 5) * best.HitEvery
+ 		table.insert(rows, { "Tier: " .. P.Name, C.Extra, tier, #TC.PickaxeTiers, nil, tier .. " / " .. #TC.PickaxeTiers, "Tier" })
+ 		-- (FEWER seconds are better: the bar grows as the seconds go down)
+-		table.insert(rows, { "Breaks Stone in", C.Speed, 2 - stone, top(2 - bestStone, 2), nil, fmtNum(stone) .. " s" })
++		table.insert(rows, { "Breaks Stone in", C.Speed, 5 - stone, top(5 - bestStone, 5), nil, fmtNum(stone) .. " s" })
+ 		table.insert(rows, { "Reach", C.Reach, P.Reach, top(best.Reach, 20), nil, fmtNum(P.Reach) .. " st" })
+ 		table.insert(rows, { "Durability", C.Power, P.Durability, top(best.Durability, 2000), nil, tostring(P.Durability) })
+ 		table.insert(rows, { "Smash 3×3", C.Width, 120 - P.Smash, top(120 - (tonumber(best.Smash) or 30), 90), nil, fmtNum(P.Smash) .. " s" })
 @@ -798,6 +877,13 @@
  			c.tag.TextColor3 = if money >= def.Price then Color3.fromRGB(255, 220, 120) else Color3.fromRGB(200, 120, 110)
  		end
@@ -5811,7 +6618,7 @@
  return W
 --- a/WorldBuilder.lua
 +++ b/WorldBuilder.lua
-@@ -63,7 +63,200 @@
+@@ -63,7 +63,383 @@
  	return Vector3.new(s.Position.X, 0, s.Position.Z)
  end
  
@@ -5824,19 +6631,144 @@
 +]]
 +local PARKOUR = {
 +	Cooldown = 15 * 60, -- seconds the button rests after anyone used it
-+	Boost = 5 * 60, -- seconds of ×2 leaves the presser gets
-+	Steps = { -- { x, z, top height } of the platforms (the first is the start, the last carries the button)
-+		{ 46, -12, 1.0 }, { 53.5, -15, 3.5 }, { 60.5, -11, 6.0 }, { 67.5, -15, 8.5 }, { 74.5, -11, 11.0 }, { 81.5, -14.5, 13.5 }, { 89, -13, 16.0 },
++	Boost = 5 * 60, -- seconds of ×2 the presser gets
++	MinTime = 12, -- seconds between the start and the button (nobody teleports to the top)
++	--[[
++		The course: 26 platforms climbing 40 studs in four stages (east, back west, east again over narrow
++		beams, a last zig-zag). { x, z, top height, size, kind, a, b }:
++		  kind nil     a plain platform
++		  "move"       slides to and fro: a = axis ("x" | "z"), b = how far (studs)
++		  "fall"       breaks 0.6 s after it is touched and comes back 3 s later
++	]]
++	Steps = {
++		{ 44, -14, 1.0, 7 }, -- 1 = the start
++		{ 52, -14, 2.5, 4 }, { 59, -17, 4.0, 4 }, { 66, -12, 5.5, 3 }, { 73, -15, 7.0, 3 },
++		{ 80, -12, 8.0, 4, "move", "z", 4 }, { 86, -18, 9.5, 4 },
++		{ 80, -22, 11.0, 3 }, { 72, -21, 12.5, 3 }, { 65, -24, 14.0, 3, "fall" }, { 58, -20, 15.5, 3 },
++		{ 51, -22, 17.0, 4, "move", "x", 3 }, { 45, -17, 18.5, 3 },
++		{ 45, -9, 20.0, 3 }, { 52, -8, 21.5, 2 }, { 59, -6, 23.0, 2 }, { 66, -9, 24.5, 3, "fall" }, { 73, -6, 26.0, 2 },
++		{ 80, -9, 27.5, 3 }, { 86, -5, 29.0, 3 },
++		{ 86, -12, 31.0, 3 }, { 80, -17, 32.5, 2 }, { 72, -17, 34.0, 3, "move", "x", 4 }, { 64, -14, 35.5, 2 },
++		{ 58, -10, 37.0, 3, "fall" }, { 52, -13, 38.5, 2 },
++		{ 46, -18, 40.0, 9 }, -- the top: the button
 +	},
 +}
 +local parkourUntil = 0 -- os.time() the button is ready again
 +WorldBuilder.Parkour = PARKOUR
++
++-- the celebration when somebody presses the button: rings, a pillar of light, fireworks over the
++-- plaza, a shout over the player's head and a glow on them (everybody on the server sees it)
++local function parkourCelebrate(player, btn)
++	local TweenService = game:GetService("TweenService")
++	local Debris = game:GetService("Debris")
++	local at = btn.Position
++	local COLORS = { Color3.fromRGB(255, 90, 90), Color3.fromRGB(255, 190, 60), Color3.fromRGB(255, 240, 90), Color3.fromRGB(110, 230, 120), Color3.fromRGB(90, 200, 255), Color3.fromRGB(190, 130, 255), Color3.fromRGB(255, 130, 220) }
++	local function neon(props)
++		local p = Instance.new("Part")
++		p.Anchored, p.CanCollide, p.CanQuery, p.CanTouch, p.CastShadow = true, false, false, false, false
++		p.Material = Enum.Material.Neon
++		for k, v in props do
++			(p :: any)[k] = v
++		end
++		p.Parent = workspace
++		return p
++	end
++	-- expanding rings (a flat cylinder lies along X: turn it flat)
++	for k = 1, 5 do
++		task.delay((k - 1) * 0.18, function()
++			local ring = neon({ Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.3, 3, 3), Color = COLORS[k], Transparency = 0.2, CFrame = CFrame.new(at + Vector3.new(0, 0.6, 0)) * CFrame.Angles(0, 0, math.pi / 2) })
++			TweenService:Create(ring, TweenInfo.new(1.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Size = Vector3.new(0.3, 42, 42), Transparency = 1 }):Play()
++			Debris:AddItem(ring, 1.5)
++		end)
++	end
++	-- a pillar of light
++	local pillar = neon({ Size = Vector3.new(3, 1, 3), Color = Color3.fromRGB(255, 240, 150), Transparency = 0.35, CFrame = CFrame.new(at + Vector3.new(0, 0.5, 0)) })
++	TweenService:Create(pillar, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Size = Vector3.new(3, 120, 3), CFrame = CFrame.new(at + Vector3.new(0, 60, 0)) }):Play()
++	task.delay(1.6, function()
++		TweenService:Create(pillar, TweenInfo.new(1.0), { Transparency = 1, Size = Vector3.new(0.5, 120, 0.5) }):Play()
++	end)
++	Debris:AddItem(pillar, 3)
++	-- fireworks: bursts of coloured sparks around and above the top
++	local function burst(pos, color, n)
++		local holder = neon({ Size = Vector3.one * 0.2, Transparency = 1, CFrame = CFrame.new(pos) })
++		local em = Instance.new("ParticleEmitter")
++		em.Texture = "rbxasset://textures/particles/sparkles_main.dds"
++		em.Color = ColorSequence.new(color, color:Lerp(Color3.new(1, 1, 1), 0.5))
++		em.LightEmission = 1
++		em.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.3), NumberSequenceKeypoint.new(1, 0) })
++		em.Lifetime = NumberRange.new(0.9, 1.6)
++		em.Speed = NumberRange.new(18, 34)
++		em.SpreadAngle = Vector2.new(180, 180)
++		em.Drag = 2.5
++		em.Acceleration = Vector3.new(0, -14, 0)
++		em.Rate = 0
++		em.Parent = holder
++		em:Emit(n)
++		local light = Instance.new("PointLight")
++		light.Color, light.Range, light.Brightness = color, 30, 3
++		light.Parent = holder
++		TweenService:Create(light, TweenInfo.new(0.8), { Brightness = 0 }):Play()
++		Debris:AddItem(holder, 2.2)
++	end
++	for k = 1, 14 do
++		task.delay(0.15 + k * 0.22, function()
++			local a = k * 2.4
++			burst(at + Vector3.new(math.cos(a) * (6 + k % 4 * 3), 10 + (k % 5) * 5, math.sin(a) * (6 + k % 3 * 4)), COLORS[k % #COLORS + 1], 70)
++		end)
++	end
++	-- a sound
++	pcall(function()
++		local snd = Instance.new("Sound")
++		snd.SoundId = ctx.Config.FX.UiSoundId
++		snd.Volume = 1.2
++		snd.Parent = btn
++		for k = 0, 3 do
++			task.delay(k * 0.12, function()
++				snd.PlaybackSpeed = 1 + k * 0.25
++				snd:Play()
++			end)
++		end
++		Debris:AddItem(snd, 2)
++	end)
++	-- over the player: a shout rising up, and a golden glow on the character
++	local char = player.Character
++	local root = char and char:FindFirstChild("HumanoidRootPart")
++	if root then
++		local bb = Instance.new("BillboardGui")
++		bb.Size = UDim2.fromOffset(300, 80)
++		bb.StudsOffset = Vector3.new(0, 4, 0)
++		bb.AlwaysOnTop = true
++		bb.Parent = root
++		local tl = Instance.new("TextLabel")
++		tl.Size = UDim2.fromScale(1, 1)
++		tl.BackgroundTransparency = 1
++		tl.Font = Enum.Font.LuckiestGuy
++		tl.TextScaled = true
++		tl.Text = "×2 LEAVES!"
++		tl.TextColor3 = Color3.fromRGB(255, 235, 110)
++		tl.TextStrokeColor3 = Color3.fromRGB(120, 60, 0)
++		tl.TextStrokeTransparency = 0
++		tl.Parent = bb
++		TweenService:Create(bb, TweenInfo.new(2.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { StudsOffset = Vector3.new(0, 10, 0) }):Play()
++		TweenService:Create(tl, TweenInfo.new(1.0, Enum.EasingStyle.Linear, Enum.EasingDirection.In, 0, false, 1.4), { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
++		Debris:AddItem(bb, 2.6)
++		local hl = Instance.new("Highlight")
++		hl.FillColor = Color3.fromRGB(255, 220, 90)
++		hl.OutlineColor = Color3.new(1, 1, 1)
++		hl.FillTransparency = 0.35
++		hl.Parent = char
++		TweenService:Create(hl, TweenInfo.new(2.5), { FillTransparency = 1, OutlineTransparency = 1 }):Play()
++		Debris:AddItem(hl, 2.7)
++	end
++end
 +
 +local function buildParkour()
 +	local root = WorldBuilder.Root
 +	if not root then
 +		return
 +	end
++	local RunService = game:GetService("RunService")
++	local TweenService = game:GetService("TweenService")
 +	local hub = root:FindFirstChild("HubIsland") or root
 +	local old = hub:FindFirstChild("Parkour")
 +	if old then
@@ -5858,25 +6790,47 @@
 +		p.Parent = folder
 +		return p
 +	end
-+	local COLORS = { Color3.fromRGB(255, 120, 120), Color3.fromRGB(255, 190, 80), Color3.fromRGB(250, 230, 90), Color3.fromRGB(120, 220, 120), Color3.fromRGB(90, 190, 255), Color3.fromRGB(190, 130, 255), Color3.fromRGB(255, 255, 255) }
++	local COLORS = { Color3.fromRGB(255, 120, 120), Color3.fromRGB(255, 190, 80), Color3.fromRGB(250, 230, 90), Color3.fromRGB(120, 220, 120), Color3.fromRGB(90, 190, 255), Color3.fromRGB(190, 130, 255) }
 +	local steps = PARKOUR.Steps
-+	local first, last
++	local first
++	local movers, fallers = {}, {}
 +	for i, st in steps do
 +		local big = i == #steps
-+		local w = if big then 9 else 6
-+		local part = brick(if i == 1 then "Start" else if big then "Top" else "Step" .. i, Vector3.new(w, 1, w), CFrame.new(st[1], st[3] - 0.5, st[2]), COLORS[i] or COLORS[1])
-+		-- a column under each platform so it does not float in the air
-+		brick("Leg" .. i, Vector3.new(2, st[3] - 1, 2), CFrame.new(st[1], (st[3] - 1) / 2, st[2]), Color3.fromRGB(220, 220, 230), false)
++		local w = st[4]
++		local kind = st[5]
++		local color = if i == 1 then Color3.fromRGB(110, 220, 120) elseif big then Color3.fromRGB(255, 255, 255) elseif kind == "fall" then Color3.fromRGB(150, 150, 160) elseif kind == "move" then Color3.fromRGB(255, 160, 60) else COLORS[(i - 1) % #COLORS + 1]
++		local part = brick(if i == 1 then "Start" else if big then "Top" else "Step" .. i, Vector3.new(w, 1, w), CFrame.new(st[1], st[3] - 0.5, st[2]), color)
 +		if i == 1 then
 +			first = part
-+		elseif big then
-+			last = part
++			brick("Leg1", Vector3.new(2, st[3] - 1, 2), CFrame.new(st[1], (st[3] - 1) / 2, st[2]), Color3.fromRGB(220, 220, 230), false)
++		end
++		-- a number on the platform
++		if not big and i > 1 and w >= 3 then
++			local g = Instance.new("SurfaceGui")
++			g.Face = Enum.NormalId.Top
++			g.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
++			g.PixelsPerStud = 30
++			g.Parent = part
++			local t = Instance.new("TextLabel")
++			t.Size = UDim2.fromScale(1, 1)
++			t.BackgroundTransparency = 1
++			t.Font = Enum.Font.LuckiestGuy
++			t.TextScaled = true
++			t.TextTransparency = 0.35
++			t.TextColor3 = Color3.new(1, 1, 1)
++			t.Text = tostring(i - 1)
++			t.Parent = g
++		end
++		if kind == "move" then
++			table.insert(movers, { Part = part, Base = part.CFrame, Axis = st[6], Range = st[7], Phase = i })
++		elseif kind == "fall" then
++			table.insert(fallers, { Part = part, Base = part.CFrame, Busy = false })
 +		end
 +	end
 +	-- the sign at the start
 +	local sx, sz = steps[1][1], steps[1][2]
-+	local post = brick("SignPost", Vector3.new(0.6, 5, 0.6), CFrame.new(sx - 4.2, 3.5, sz + 3), Color3.fromRGB(120, 85, 55), false)
-+	local board = brick("SignBoard", Vector3.new(7, 3.4, 0.5), CFrame.new(sx - 4.2, 6.2, sz + 3) * CFrame.Angles(0, math.rad(-20), 0), Color3.fromRGB(60, 40, 25), false)
++	local post = brick("SignPost", Vector3.new(0.6, 5, 0.6), CFrame.new(sx - 4.6, 3.5, sz + 3.4), Color3.fromRGB(120, 85, 55), false)
++	local board = brick("SignBoard", Vector3.new(8, 3.8, 0.5), CFrame.new(sx - 4.6, 6.4, sz + 3.4) * CFrame.Angles(0, math.rad(-20), 0), Color3.fromRGB(60, 40, 25), false)
 +	local sg = Instance.new("SurfaceGui")
 +	sg.Face = Enum.NormalId.Front
 +	sg.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
@@ -5912,8 +6866,43 @@
 +	bl.TextColor3 = Color3.fromRGB(255, 240, 150)
 +	bl.TextStrokeTransparency = 0.2
 +	bl.Parent = bb
++	-- the moving platforms carry whoever stands on them (their velocity is set every frame)
++	if #movers > 0 then
++		local t0 = os.clock()
++		RunService.Heartbeat:Connect(function()
++			local t = os.clock() - t0
++			for _, m in movers do
++				if m.Part.Parent then
++					local w = 1.3
++					local off = math.sin(t * w + m.Phase) * m.Range
++					local vel = math.cos(t * w + m.Phase) * m.Range * w
++					local dir = if m.Axis == "x" then Vector3.xAxis else Vector3.zAxis
++					m.Part.CFrame = m.Base + dir * off
++					m.Part.AssemblyLinearVelocity = dir * vel
++				end
++			end
++		end)
++	end
++	-- the grey platforms break under your feet (and come back)
++	for _, f in fallers do
++		f.Part.Touched:Connect(function(hit)
++			if f.Busy or not hit.Parent or not Players:GetPlayerFromCharacter(hit:FindFirstAncestorOfClass("Model")) then
++				return
++			end
++			f.Busy = true
++			task.delay(0.6, function()
++				TweenService:Create(f.Part, TweenInfo.new(0.25), { Transparency = 1 }):Play()
++				task.wait(0.25)
++				f.Part.CanCollide = false
++				task.wait(3)
++				f.Part.CanCollide = true
++				TweenService:Create(f.Part, TweenInfo.new(0.3), { Transparency = 0 }):Play()
++				f.Busy = false
++			end)
++		end)
++	end
 +	local startedAt = {} -- [player] = os.clock() it touched the first platform
-+	local said = {} -- [player] = os.clock() of the last "recharging" message
++	local said = {} -- [player] = os.clock() of the last message
 +	local function notify(player, text)
 +		if ctx.Net and ctx.Net.Notify then
 +			ctx.Net.Notify:FireClient(player, text)
@@ -5939,7 +6928,7 @@
 +			return
 +		end
 +		local t0 = startedAt[pl]
-+		if not t0 or os.clock() - t0 < 4 then
++		if not t0 or os.clock() - t0 < PARKOUR.MinTime then
 +			if os.clock() - (said[pl] or -1e9) > 4 then
 +				said[pl] = os.clock()
 +				notify(pl, "🏁 Start on the first platform and climb up!")
@@ -5959,7 +6948,8 @@
 +		startedAt[pl] = nil
 +		data.Stats.ParkourUntil = now + PARKOUR.Boost
 +		pl:SetAttribute("ParkourBoostUntil", now + PARKOUR.Boost)
-+		notify(pl, "🍃 ×2 LEAVES for 5 minutes!")
++		notify(pl, "🍃 ×2 for everything that falls — 5 minutes!")
++		pcall(parkourCelebrate, pl, btn)
 +	end)
 +	Players.PlayerRemoving:Connect(function(pl)
 +		startedAt[pl], said[pl] = nil, nil
@@ -5975,7 +6965,7 @@
 +				btn.Color = if ready then Color3.fromRGB(235, 50, 50) else Color3.fromRGB(110, 110, 120)
 +				btn.Material = if ready then Enum.Material.Neon else Enum.Material.SmoothPlastic
 +			end
-+			bl.Text = if ready then "🍃 ×2 LEAVES · 5 min" else string.format("⏳ %d:%02d", math.floor(left / 60), left % 60)
++			bl.Text = if ready then "🍃 ×2 · 5 min" else string.format("⏳ %d:%02d", math.floor(left / 60), left % 60)
 +			task.wait(1)
 +		end
 +	end)
@@ -6014,7 +7004,7 @@
  		warn("[LeafRush] Workspace.LeafRush.Map is missing — the islands were deleted in Studio?")
 --- a/ru.lua
 +++ b/ru.lua
-@@ -5887,4 +5887,179 @@
+@@ -5887,4 +5887,206 @@
  L.Strings["There is a slab here already — only the same slab fits onto it"] = "Здесь уже лежит плита — на неё можно положить только такую же"
  L.Strings["Trees need a full block — not a slab"] = "Деревьям нужен целый блок, а не плита"
  
@@ -6192,5 +7182,32 @@
 +L.Strings["Most Liked Yard"] = "Самый залайканный сад"
 +L.Templates["⏳ The button is recharging: %d:%02d"] = "⏳ Кнопка перезаряжается: %1:%2"
 +L.Templates["🍃 ×2 LEAVES  %d:%02d"] = "🍃 ×2 листья  %1:%2"
++
++-- v2.45 fences, egg / box cards, parkour
++L.Strings["✖ CANCEL"] = "✖ ОТМЕНА"
++L.Strings["🎁 OPEN"] = "🎁 ОТКРЫТЬ"
++L.Strings["✏ EDIT"] = "✏ ИЗМЕНИТЬ"
++L.Strings["Close the Editor, walk up to it and open it (E), or press OPEN."] = "Закрой редактор, подойди и открой (E) или нажми ОТКРЫТЬ."
++L.Strings["🍃 ×2 for everything that falls — 5 minutes!"] = "🍃 ×2 за всё, что падает, — 5 минут!"
++L.Strings["🍃 ×2 · 5 min"] = "🍃 ×2 · 5 мин"
++L.Strings["White Picket Fence"] = "Белый штакетник"
++L.Strings["Bamboo Fence"] = "Бамбуковый забор"
++L.Strings["Castle Wall"] = "Замковая стена"
++L.Strings["Lantern Fence"] = "Забор с фонарями"
++L.Strings["Rainbow Fence"] = "Радужный забор"
++L.Strings["Crystal Garden"] = "Кристальный сад"
++L.Strings["Tall brown planks with pointed tops."] = "Высокие коричневые доски с острыми верхушками."
++L.Strings["A cosy picket fence: wavy boards with round golden caps."] = "Уютный штакетник: доски волной и круглые золотые шарики."
++L.Strings["A grey stone wall with little battlements."] = "Серая каменная стена с маленькими зубцами."
++L.Strings["Tall green stalks with rings."] = "Высокие зелёные стебли с кольцами."
++L.Strings["Red brick with a pale diamond pattern and a capped top."] = "Красный кирпич с бледным узором из ромбов и карнизом."
++L.Strings["Battlements and little towers with red flags."] = "Зубцы и башенки с красными флажками."
++L.Strings["A bushy hedge with little flowers."] = "Пышная изгородь с цветочками."
++L.Strings["Red pillars with glowing paper lanterns."] = "Красные столбы со светящимися бумажными фонариками."
++L.Strings["Candy canes and lollipops."] = "Карамельные трости и леденцы."
++L.Strings["Every brick another colour."] = "Каждый кирпичик другого цвета."
++L.Strings["Blue ice with sharp crystal spikes."] = "Голубой лёд с острыми кристаллами."
++L.Strings["Clusters of glittering purple gems."] = "Россыпи сверкающих фиолетовых самоцветов."
++L.Strings["Golden spears with diamond tips."] = "Золотые копья с ромбовидными наконечниками."
 +
  return L
