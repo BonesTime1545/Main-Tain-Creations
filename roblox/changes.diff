@@ -935,7 +935,15 @@
  		return
 --- a/MowerDrive.lua
 +++ b/MowerDrive.lua
-@@ -19,8 +19,13 @@
+@@ -11,6 +11,7 @@
+ 
+ local Players = game:GetService("Players")
+ local RunService = game:GetService("RunService")
++local UserInputService = game:GetService("UserInputService")
+ 
+ local MowerDrive = {}
+ 
+@@ -19,8 +20,13 @@
  function MowerDrive.Start(config, juice)
  	local cur, sound, hint = 0, nil, nil
  	local side, lastGood, stuckT, smoke = nil, nil, 0, nil -- (v2.12: fence, un-stick, exhaust)
@@ -949,7 +957,7 @@
  		side, lastGood, stuckT = nil, nil, 0
  		if smoke then
  			smoke:Destroy()
-@@ -35,6 +40,29 @@
+@@ -35,6 +41,29 @@
  			hint = nil
  		end
  	end
@@ -979,27 +987,76 @@
  	RunService.RenderStepped:Connect(function(dt)
  		local char = player.Character
  		local hum = char and char:FindFirstChildOfClass("Humanoid")
-@@ -118,19 +146,78 @@
+@@ -54,6 +83,14 @@
+ 		end
+ 		local top = model:GetAttribute("Speed") or 18
+ 		local throttle, steer = seat.ThrottleFloat, seat.SteerFloat
++		-- v2.45: if the seat reports nothing (the game's controls are off / busy), read the keys ourselves
++		if throttle == 0 and steer == 0 and not UserInputService:GetFocusedTextBox() then
++			local function down(a: Enum.KeyCode, b: Enum.KeyCode): number
++				return if UserInputService:IsKeyDown(a) or UserInputService:IsKeyDown(b) then 1 else 0
++			end
++			throttle = down(Enum.KeyCode.W, Enum.KeyCode.Up) - down(Enum.KeyCode.S, Enum.KeyCode.Down)
++			steer = down(Enum.KeyCode.D, Enum.KeyCode.Right) - down(Enum.KeyCode.A, Enum.KeyCode.Left)
++		end
+ 		local want = throttle * top * (if throttle < 0 then 0.5 else 1)
+ 		local accel = if math.abs(want) > math.abs(cur) then 14 else 22
+ 		cur += math.clamp(want - cur, -accel * dt, accel * dt)
+@@ -118,19 +155,92 @@
  			end
  			v = floor.CFrame:VectorToWorldSpace(Vector3.new(x, 0, z))
  		end
 -		drive.VectorVelocity = v
-+		-- v2.44: STEER: the heading turns by the wheel; the BODY then follows the ground
+-		-- v2.12: it sat down a little too low and can't move? lift it free
+-		if math.abs(throttle) > 0.5 and v.Magnitude > 1 and chassis.AssemblyLinearVelocity.Magnitude < 0.6 then
+-			stuckT += dt
+-			if stuckT > 0.7 then
+-				stuckT = 0
+-				model:PivotTo(model:GetPivot() + Vector3.new(0, 0.7, 0))
++		-- v2.45: the tractor is a carrier that never collides by itself: WE keep it on the surface and
++		-- stop it at walls. STEER: the heading turns by the wheel; the body then follows the ground.
 +		local turn = if math.abs(cur) > 0.5 then 1.9 else 1.2
 +		if not heading then
 +			heading = fwd
 +		end
 +		heading = (CFrame.Angles(0, -steer * turn * (if cur < -0.5 then -1 else 1) * dt, 0) * heading)
 +		heading = Vector3.new(heading.X, 0, heading.Z).Unit
-+		-- v2.44: CLIMB: five rays find the surface under and around the body; the tractor
-+		-- rides over curbs, ramps, rocks, bridges (anything up to ~2.5 studs at once, any slope)
 +		local tilt = chassis:FindFirstChild("Tilt")
 +		local pos = chassis.Position
 +		local skip = { char, model }
 +		if model.Parent then
 +			table.insert(skip, model.Parent)
 +		end
-+		local y0 = pos.Y + 3.4
++		-- WALLS: three rays ahead (in the direction of travel) at the height of a tall step; anything higher
++		-- (a wall, a fence, a big rock, a building) stops the tractor (it slides along it)
++		local hv = Vector3.new(v.X, 0, v.Z)
++		if hv.Magnitude > 0.5 then
++			local dir = hv.Unit
++			local perp = dir:Cross(Vector3.yAxis)
++			local wp = RaycastParams.new()
++			wp.FilterType = Enum.RaycastFilterType.Exclude
++			wp.FilterDescendantsInstances = skip
++			wp.CollisionGroup = C.Riders or "Default"
++			wp.RespectCanCollide = true
++			local reach = 2.5 + hv.Magnitude * 0.1
++			for _, off in { -1.4, 0, 1.4 } do
++				local hit = workspace:Raycast(Vector3.new(pos.X, pos.Y + 2.4, pos.Z) + perp * off, dir * reach, wp)
++				if hit and hit.Normal.Y < 0.6 then
++					local n = Vector3.new(hit.Normal.X, 0, hit.Normal.Z)
++					if n.Magnitude > 1e-3 then
++						n = n.Unit
++						local into = hv:Dot(n)
++						if into < 0 then
++							hv -= n * into
++						end
++					end
++				end
++			end
++			v = Vector3.new(hv.X, 0, hv.Z)
++		end
++		-- CLIMB: five rays down find the surface under and around the body: curbs, ramps, rocks,
++		-- bridges (up to ~2.5 studs at once, any slope); the body tilts with the slope
++		local y0 = pos.Y + 3.0
 +		local rightV = heading:Cross(Vector3.yAxis)
 +		local ahead = 2.5 + math.clamp(cur, 0, 40) * 0.12
 +		local hc = groundAt(pos.X, pos.Z, y0, skip)
@@ -1009,58 +1066,42 @@
 +			airT = 0
 +			local function sample(d: Vector3): number
 +				local h = groundAt(pos.X + d.X, pos.Z + d.Z, y0, skip)
-+				return math.clamp(h or hc, hc - 3, hc + 3)
++				return math.clamp(h or hc, hc - 2.6, hc + 2.6)
 +			end
 +			local hf, hb = sample(heading * ahead), sample(-heading * 2.2)
 +			local hr, hl = sample(rightV * 1.6), sample(-rightV * 1.6)
-+			local df = ahead
-+			local sf = math.clamp((hf - hb) / (df + 2.2), -1.2, 1.2)
++			local sf = math.clamp((hf - hb) / (ahead + 2.2), -1.2, 1.2)
 +			local sr = math.clamp((hr - hl) / 3.2, -1.2, 1.2)
-+			-- lift so that no sampled point of the ground is above the body's plane (a curb in front)
-+			local lift = math.max(0, hf - (hc + sf * df), hb - (hc - sf * 2.2), hr - (hc + sr * 1.6), hl - (hc - sr * 1.6))
-+			local targetY = hc + lift + 0.2
++			local lift = math.max(0, hf - (hc + sf * ahead), hb - (hc - sf * 2.2), hr - (hc + sr * 1.6), hl - (hc - sr * 1.6))
++			local targetY = hc + lift + 0.25
 +			vy = math.clamp((targetY - pos.Y) * 12, -60, 50)
 +			upTarget = (rightV * -sr + heading * -sf + Vector3.yAxis).Unit
-+			if pos.Y < hc - 1 then
-+				model:PivotTo(model:GetPivot() + Vector3.new(0, hc + 0.5 - pos.Y, 0)) -- it sank into the floor: out
++			if pos.Y < hc - 0.5 then
++				model:PivotTo(model:GetPivot() + Vector3.new(0, hc + 0.4 - pos.Y, 0)) -- below the surface: out
 +				vy = 0
-+			end
-+		else
+ 			end
+ 		else
+-			stuckT = 0
 +			airT += dt
 +			if airT > 2.5 and lastGood then
-+				-- fell off the world: back to the last good place
-+				model:PivotTo(lastGood + Vector3.new(0, 2, 0))
++				model:PivotTo(lastGood + Vector3.new(0, 2, 0)) -- fell off the world: back to the last good place
 +				chassis.AssemblyLinearVelocity = Vector3.zero
 +				cur = 0
 +				v = Vector3.zero
 +				airT = 0
 +			end
-+		end
+ 		end
+-		local turn = if math.abs(cur) > 0.5 then 1.9 else 1.2
+-		steerC.AngularVelocity = Vector3.new(0, -steer * turn * (if cur < -0.5 then -1 else 1), 0)
 +		upSm = if upSm then upSm:Lerp(upTarget, 1 - math.exp(-9 * dt)).Unit else upTarget
 +		if tilt and tilt:IsA("AlignOrientation") then
 +			local fwdP = heading - upSm * heading:Dot(upSm)
 +			fwdP = if fwdP.Magnitude > 1e-3 then fwdP.Unit else heading
-+			local right = fwdP:Cross(upSm)
-+			tilt.CFrame = CFrame.fromMatrix(Vector3.zero, right, upSm)
++			tilt.CFrame = CFrame.fromMatrix(Vector3.zero, fwdP:Cross(upSm), upSm)
 +		else
 +			steerC.AngularVelocity = Vector3.new(0, -steer * turn * (if cur < -0.5 then -1 else 1), 0)
 +		end
 +		drive.VectorVelocity = Vector3.new(v.X, vy, v.Z)
- 		-- v2.12: it sat down a little too low and can't move? lift it free
--		if math.abs(throttle) > 0.5 and v.Magnitude > 1 and chassis.AssemblyLinearVelocity.Magnitude < 0.6 then
-+		if math.abs(throttle) > 0.5 and v.Magnitude > 1 and Vector3.new(chassis.AssemblyLinearVelocity.X, 0, chassis.AssemblyLinearVelocity.Z).Magnitude < 0.6 then
- 			stuckT += dt
--			if stuckT > 0.7 then
-+			if stuckT > 0.5 then
- 				stuckT = 0
--				model:PivotTo(model:GetPivot() + Vector3.new(0, 0.7, 0))
-+				model:PivotTo(model:GetPivot() + Vector3.new(0, 0.8, 0))
- 			end
- 		else
- 			stuckT = 0
- 		end
--		local turn = if math.abs(cur) > 0.5 then 1.9 else 1.2
--		steerC.AngularVelocity = Vector3.new(0, -steer * turn * (if cur < -0.5 then -1 else 1), 0)
  		-- engine
  		if not sound then
  			sound = Instance.new("Sound")
@@ -3706,7 +3747,17 @@
  	local look = flat(root.CFrame.LookVector)
  	look = if look.Magnitude > 1e-3 then look.Unit else Vector3.new(0, 0, -1)
  	local groundY = root.Position.Y - hum.HipHeight - root.Size.Y / 2
-@@ -1621,16 +2255,27 @@
+@@ -1613,6 +2247,9 @@
+ 		end
+ 	end
+ 	chassis.CollisionGroup = ctx.Config.Collision.Riders or ctx.Config.Collision.Characters -- (v2.40: the fences' invisible wall stops riders)
++	-- v2.45: the chassis is only a carrier: it can no longer sink into / jam on the ground. The driver's
++	-- client rides it over the surface with rays (MowerDrive) and stops it at walls / fences itself.
++	chassis.CanCollide = false
+ 	local att = Instance.new("Attachment")
+ 	att.Parent = chassis
+ 	local lv = Instance.new("LinearVelocity")
+@@ -1621,16 +2258,27 @@
  	lv.RelativeTo = Enum.ActuatorRelativeTo.World
  	lv.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
  	lv.ForceLimitMode = Enum.ForceLimitMode.PerAxis
@@ -3736,7 +3787,53 @@
  	-- v2.12: exhaust smoke behind the mower (everyone sees it; the driver's client
  	-- makes it thicker with speed)
  	local exhaust = Instance.new("Attachment")
-@@ -1718,12 +2363,23 @@
+@@ -1662,6 +2310,45 @@
+ 	local s = S(player)
+ 	s.Mower, s.MowerId, s.MowerPos, s.MowerT = model, id, chassis.Position, ToolService.Now()
+ 	setRiding(player, true) -- v2.40: on the mower the fences are a wall (Dismount takes it back)
++	-- v2.45 safety net: the carrier does not collide, so the server checks every half second that it is not
++	-- below the surface (it is lifted back) or out of the world (then you are put off)
++	task.spawn(function()
++		local C = ctx.Config.Collision
++		local walls = { [C.PlotWall] = true, [C.RideWall or ""] = true, [C.ResWall] = true, [C.Ghost] = true }
++		while st[player] and st[player].Mower == model and model.Parent do
++			task.wait(0.5)
++			local c = model.PrimaryPart
++			if not c then
++				break
++			end
++			local list: { Instance } = { model, mowersFolder() }
++			if player.Character then
++				table.insert(list, player.Character)
++			end
++			local p = RaycastParams.new()
++			p.FilterType = Enum.RaycastFilterType.Exclude
++			p.CollisionGroup = C.Riders or "Default"
++			p.RespectCanCollide = true
++			local hit
++			for _ = 1, 6 do
++				p.FilterDescendantsInstances = list
++				hit = workspace:Raycast(c.Position + Vector3.new(0, 4, 0), Vector3.new(0, -120, 0), p)
++				if hit and walls[hit.Instance.CollisionGroup] then
++					table.insert(list, hit.Instance)
++					hit = nil
++				else
++					break
++				end
++			end
++			if hit and c.Position.Y < hit.Position.Y - 0.25 then
++				model:PivotTo(model:GetPivot() + Vector3.new(0, hit.Position.Y + 0.4 - c.Position.Y, 0))
++				c.AssemblyLinearVelocity = Vector3.zero
++			elseif not hit and c.Position.Y < workspace.FallenPartsDestroyHeight + 50 then
++				ToolService.Dismount(player)
++				break
++			end
++		end
++	end)
+ 	seat.CanTouch = false -- (only the server seats you: nobody else can hop on)
+ 	seat:Sit(hum)
+ 	task.delay(0.6, function()
+@@ -1718,12 +2405,23 @@
  	end
  	local turbo = (player:GetAttribute("TurboUntil") or 0) > serverTime()
  	local mult = if turbo then TC().Consumables.TurboFuel.SpeedMult else 1
@@ -3763,7 +3860,7 @@
  		-- v2.8: riding outside your garden is fine — but nothing is cut there
  		local lp = plot.CFrame:PointToObjectSpace(chassis.Position)
  		if math.max(math.abs(lp.X), math.abs(lp.Z)) > plot.Size / 2 + 1 then
-@@ -1732,11 +2388,15 @@
+@@ -1732,11 +2430,15 @@
  		end
  	else
  		local id = ToolService.Held(player)
@@ -3780,7 +3877,7 @@
  		local root = rootOf(player)
  		if not root then
  			return 0
-@@ -1750,10 +2410,22 @@
+@@ -1750,10 +2452,22 @@
  		return 0
  	end
  	local moved = flat(pos - last)
@@ -3804,7 +3901,7 @@
  	local keys = ctx.GrassService.CellsIn(plot, pos, def.Radius)
  	-- v2.8: no mown stripes are left on the lawn behind the mower
  	return (ctx.GrassService.Cut(player, keys, def.Power))
-@@ -1778,9 +2450,15 @@
+@@ -1778,9 +2492,15 @@
  	elseif a == "Slot" then
  		return ToolService.SetSlot(player, req.Id, req.On == true)
  	elseif a == "Use" then
@@ -3821,7 +3918,7 @@
  	elseif a == "Hotbar" then
  		return ToolService.SetHotbar(player, req.List)
  	elseif a == "RepairPick" then
-@@ -1808,6 +2486,12 @@
+@@ -1808,6 +2528,12 @@
  		ToolService.Whirl(player) -- v2.40: the trimmer's strike-key ability
  	elseif a == "Blow" then
  		ToolService.BlowAt(player, req.Dir, req.Jet == true) -- v1.4 (v2.34: Jet = the gust carries the player)
@@ -3834,7 +3931,7 @@
  	elseif a == "Off" then
  		ToolService.Dismount(player)
  	elseif a == "Hold" then
-@@ -1857,6 +2541,17 @@
+@@ -1857,6 +2583,17 @@
  						warn("[LeafRush] magnet: " .. tostring(errM))
  					end
  				end
