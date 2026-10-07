@@ -98,7 +98,7 @@
 +	local okT, now = pcall(function()
 +		return workspace:GetServerTimeNow()
 +	end)
-+	if not names or not okT then
++	if not names or not okT or not self.entries or not self.slots then
 +		return
 +	end
 +	for i, e in self.entries do
@@ -686,16 +686,15 @@
  	else
  		use(nil)
  	end
-@@ -519,6 +530,8 @@
+@@ -519,6 +530,7 @@
  	return egg and pets:_eggModel(egg)
  end
  inventory.Hotbar = hotbar
-+toolsUI.Hotbar = hotbar -- v2.43: the "＋ HOTBAR" button of SHOP · TOOLS
-+toolsUI.items.Hotbar = hotbar
++toolsUI.Hotbar = hotbar -- v2.43: the "＋ HOTBAR" button of SHOP · TOOLS (the one-use items window keeps its own hotbar action)
  inventory.PlotMath = PlotMath
  hotbar.inEditor = function()
  	return build.active and not build.quick
-@@ -644,7 +657,7 @@
+@@ -644,7 +656,7 @@
  UIKit.polish(shop.gui)
  UIKit.polish(toolsUI.gui)
  -- v2.16: BROOM SHOP · ITEMS (the one-use items, moved out of TOOLS)
@@ -704,7 +703,7 @@
  UIKit.polish(toolsUI.items.gui)
  UIKit.polish(build.UI.gui)
  
-@@ -867,16 +880,28 @@
+@@ -867,16 +879,28 @@
  	Features.Attach(toolsUI.gui, toolsUI.frame, always("Tools"), 56)
  	Features.Attach(toolsUI.items.gui, toolsUI.items.frame, always("Items"), 56)
  	win(pets.w, always("Eggs"))
@@ -736,7 +735,7 @@
  end
  local stallPages = {
  	Eggs = {
-@@ -1349,8 +1374,168 @@
+@@ -1349,8 +1373,168 @@
  	end
  end)
  
@@ -906,7 +905,7 @@
  	if kind == "Jet" then
  		-- v2.34: another player's Leaf Blower in JET mode — its air stream behind them
  		if uid ~= player.UserId and typeof(center) == "Vector3" and typeof(dir) == "Vector3" and dir.Magnitude > 0.1 and dir.Magnitude < 2 then
-@@ -1362,6 +1547,27 @@
+@@ -1362,6 +1546,27 @@
  			end
  		end
  		return
