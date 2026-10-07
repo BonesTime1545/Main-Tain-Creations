@@ -4849,7 +4849,7 @@
 +	UIKit.stroke(hero, UIKit.shade(accent, 0.55), 2.5)
 +	UIKit.gradient(hero, Color3.new(1, 1, 1), Color3.fromRGB(205, 205, 205))
 +	UIKit.studs(hero, { W = W - 36, H = 104, ZIndex = 2 })
-+	local badge = UIKit.label(hero, { Position = UDim2.fromOffset(12, 12), Size = UDim2.fromOffset(80, 80), TextScaled = true, TextXAlignment = Enum.TextXAlignment.Center, TextYAlignment = Enum.TextYAlignment.Center, Text = t.Icon, ZIndex = 5, BackgroundTransparency = 0.25, BackgroundColor3 = Color3.new(1, 1, 1) })
++	local badge = UIKit.label(hero, { Position = UDim2.fromOffset(12, 12), Size = UDim2.fromOffset(80, 80), TextScaled = false, TextSize = 34, TextXAlignment = Enum.TextXAlignment.Center, TextYAlignment = Enum.TextYAlignment.Center, Text = t.Icon, ZIndex = 5, BackgroundTransparency = 0.25, BackgroundColor3 = Color3.new(1, 1, 1) })
 +	UIKit.corner(badge, 40)
 +	UIKit.stroke(badge, UIKit.shade(accent, 0.5), 3)
 +	UIKit.label(hero, { Position = UDim2.fromOffset(104, 8), Size = UDim2.new(1, -116, 0, 38), TextSize = 30, TextColor3 = Color3.new(1, 1, 1), TextStrokeTransparency = 0.35, TextStrokeColor3 = UIKit.shade(accent, 0.4), TextYAlignment = Enum.TextYAlignment.Center, Text = t.Display, ZIndex = 5 })
