@@ -6862,7 +6862,7 @@
  		local nextT = E and E.Combo.Tiers[ti + 1]
  		count.Text = if nextT then pts .. "/" .. nextT.At else tostring(pts)
  		local bonus = math.floor(((tier.Items or 1) - 1) * 100 + 0.5)
-@@ -904,6 +950,67 @@
+@@ -904,6 +950,69 @@
  	return b, icon, cap, st
  end
  
@@ -6906,7 +6906,9 @@
 +	b.MouseEnter:Connect(function()
 +		local key = self:_keyOf(m)
 +		t.Text = m.Label .. (if key then "  [" .. key .. "]" else "")
-+		t.Visible = not self.touch
++		-- (v2.53: the tip sits ABOVE the button; for the top-right Hide/Show button that is off the screen = an invisible
++		-- text over nothing: no tip for buttons at the top edge or when the button is called HideUI)
++		t.Visible = not self.touch and b.AbsolutePosition.Y > 60 and b.Name ~= "HideUI"
 +		TweenService:Create(st, TweenInfo.new(0.12), { Transparency = 0, Thickness = 3.5 }):Play()
 +		shine.BackgroundTransparency = 0.72
 +	end)
@@ -6930,7 +6932,7 @@
  function Hud:_keyOf(m)
  	local C = self.deps.Controls
  	if C and m.Action then
-@@ -1040,8 +1147,6 @@
+@@ -1040,8 +1149,6 @@
  
  -- v1.8.1: button sizes come from UIImages (SIZES): change them there
  local GAP = 12 -- (v2.15: the dock buttons are spread apart)
@@ -6939,7 +6941,7 @@
  local DOCK_W, DOCK_BH = 148, 58
  local DOCK_N = 0
  for _, m in Hud.Menus do
-@@ -1050,7 +1155,7 @@
+@@ -1050,7 +1157,7 @@
  	end
  end
  local DOCK_H = DOCK_N * (DOCK_BH + GAP)
@@ -6948,7 +6950,7 @@
  
  function Hud:_dock()
  	local dock = Instance.new("Frame")
-@@ -1075,7 +1180,7 @@
+@@ -1075,7 +1182,7 @@
  		local b
  		if m.Corner then
  			-- the bottom-right corner of the screen: Settings, and Admin to its left
@@ -6957,7 +6959,7 @@
  			b.AnchorPoint = Vector2.new(1, 1)
  			b.Position = UDim2.new(1, -cornerX, 1, -12)
  			cornerX += CORNER + 8
-@@ -1125,123 +1230,180 @@
+@@ -1125,123 +1232,180 @@
  	-- (v1.1: the More popover is gone; kept so older callers don't break)
  end
  
@@ -7245,7 +7247,7 @@
  end
  
  ---------------------------------------------------------------- menu plumbing
-@@ -1300,6 +1462,7 @@
+@@ -1300,6 +1464,7 @@
  			b.Visible = on
  		end
  	end
@@ -7253,7 +7255,7 @@
  end
  
  -- a red number on a button, driven by a player attribute (hidden at 0)
-@@ -1320,15 +1483,20 @@
+@@ -1320,15 +1485,20 @@
  	t.Parent = b
  	corner(t, 10)
  	stroke(t, Color3.new(1, 1, 1), 1.5, 0)
@@ -7275,7 +7277,7 @@
  	refresh()
  end
  
-@@ -1341,6 +1509,9 @@
+@@ -1341,6 +1511,9 @@
  function Hud:Pulse(id, on)
  	self.pulses = self.pulses or {}
  	on = on == true
@@ -7285,7 +7287,7 @@
  	if (self.pulses[id] ~= nil) == on then
  		return
  	end
-@@ -1431,26 +1602,21 @@
+@@ -1431,26 +1604,21 @@
  		self.friendBox.Position = if self.touch then UDim2.new(0, 10, 0.5, 30) else UDim2.new(0, 12, 1, -12)
  	end
  	if self.travelScale then
@@ -7316,7 +7318,7 @@
  	local st = self.status
  	st.Size = UDim2.fromOffset(math.clamp(vp.X - 560 * s, 220, 640), if vp.X < 900 then 40 else 28)
  	-- (v2.15: the hint line sits ABOVE the hotbar / the Editor's panel, never under them)
-@@ -1500,7 +1666,10 @@
+@@ -1500,7 +1668,10 @@
  	end
  end
  
@@ -7328,7 +7330,7 @@
  	self.status.Visible = text ~= nil
  	self.status.Text = text or ""
  end
-@@ -1509,10 +1678,13 @@
+@@ -1509,10 +1680,13 @@
  	Toasts. With the "Notifications" setting OFF only important ones show (errors of
  	something you just did, trades, friend invites …): pass important = true.
  ]]
