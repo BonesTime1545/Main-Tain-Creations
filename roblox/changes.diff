@@ -3619,7 +3619,15 @@
  		local root = rootOf(player)
  		if not root then
  			return 0
-@@ -1754,6 +2403,15 @@
+@@ -1750,10 +2399,22 @@
+ 		return 0
+ 	end
+ 	local moved = flat(pos - last)
+-	local maxSpeed = (def.Speed or 24) * mult * 1.4 + 6
++	-- (the anti-teleport limit: a mower on foot is limited by how fast a PLAYER can walk — sprint,
++	-- pets, Overdrive — not by the 16 studs/s the stats list for it; a rider by the mower's own speed)
++	local topSpeed = if def.Kind == "Push" then 24 * ToolService.WalkMult(player) else (def.Speed or 24)
++	local maxSpeed = topSpeed * mult * 1.4 + 6
  	if moved.Magnitude / dt > maxSpeed or moved.Magnitude < 0.05 then
  		return 0 -- teleported (or standing still: nothing new under the deck)
  	end
@@ -3635,7 +3643,7 @@
  	local keys = ctx.GrassService.CellsIn(plot, pos, def.Radius)
  	-- v2.8: no mown stripes are left on the lawn behind the mower
  	return (ctx.GrassService.Cut(player, keys, def.Power))
-@@ -1778,9 +2436,15 @@
+@@ -1778,9 +2439,15 @@
  	elseif a == "Slot" then
  		return ToolService.SetSlot(player, req.Id, req.On == true)
  	elseif a == "Use" then
@@ -3652,7 +3660,7 @@
  	elseif a == "Hotbar" then
  		return ToolService.SetHotbar(player, req.List)
  	elseif a == "RepairPick" then
-@@ -1808,6 +2472,12 @@
+@@ -1808,6 +2475,12 @@
  		ToolService.Whirl(player) -- v2.40: the trimmer's strike-key ability
  	elseif a == "Blow" then
  		ToolService.BlowAt(player, req.Dir, req.Jet == true) -- v1.4 (v2.34: Jet = the gust carries the player)
@@ -3665,7 +3673,7 @@
  	elseif a == "Off" then
  		ToolService.Dismount(player)
  	elseif a == "Hold" then
-@@ -1857,6 +2527,17 @@
+@@ -1857,6 +2530,17 @@
  						warn("[LeafRush] magnet: " .. tostring(errM))
  					end
  				end

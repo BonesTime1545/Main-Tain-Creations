@@ -19,7 +19,7 @@ workspace = { GetServerTimeNow = function() return clock_ST or 0 end }'
 { cat stubs.lua; echo 'local function ToolConfigModule()'; cat "$SRC/ToolConfig.lua"; echo; echo 'end'; echo 'T = ToolConfigModule()'; cat ladder_test.lua; cat island_test.lua; } > run_ladder.lua
 run "ladder / prices / islands" run_ladder.lua
 # 2. the server: blaster, durability, fuel, repair, abilities, upgrades
-for t in service_test grass_test; do
+for t in service_test grass_test mow_test; do
   { cat stubs.lua; mod mc ToolConfig; echo 'TC_MODULE = mc()'; echo "$HTTP"; mod ms ToolService; echo 'SERVICE_MODULE = ms()'; cat $t.lua; } > run_$t.lua
   run "server: $t" run_$t.lua
 done
