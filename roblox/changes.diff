@@ -13369,16 +13369,21 @@
  end
  
  --[[
-@@ -258,7 +562,7 @@
+@@ -258,7 +562,12 @@
  		end
  	end
  	fenceGroups(plot) -- v2.40: on foot you jump over the fence; the tall wall is for items and mower riders
 -	plot.Spawn.CFrame = plot.CFrame * CFrame.new(0, -0.2, half + 3.5) -- spans hub ground (y 0) to yard level
 +	plot.Spawn.CFrame = plot.CFrame * CFrame.new(0, -0.3, half + 3.5) -- its top is the ground (hub ground = yard level = y 0)
++	-- v2.54: the brown mat at the gate is gone: the part stays only as the invisible spot players are put on
++	plot.Spawn.Transparency = 1
++	plot.Spawn.CanCollide = false
++	plot.Spawn.CanQuery = false
++	plot.Spawn.CanTouch = false
  	plot.SignPost.CFrame = plot.CFrame * CFrame.new(0, 11.2, half + 0.2) -- (over the entrance arch)
  
  	-- decoration (rebuilt when the yard size changes): fence posts, flowers, lanterns
-@@ -479,6 +783,25 @@
+@@ -479,6 +788,25 @@
  	model:SetAttribute("PlotIndex", index)
  	model:SetAttribute("OwnerUserId", 0)
  	model:SetAttribute("Size", P.Sizes[0])
@@ -13404,7 +13409,7 @@
  	local function folder(name)
  		return model:FindFirstChild(name) or mk("Folder", model, { Name = name })
  	end
-@@ -529,6 +852,7 @@
+@@ -529,6 +857,7 @@
  	end
  	pcall(fenceGroups, plot) -- v2.40: (a baked yard that needed no layout: its invisible walls get their groups here)
  	refreshSign(plot)
@@ -13412,7 +13417,7 @@
  	return plot
  end
  
-@@ -734,7 +1058,11 @@
+@@ -734,7 +1063,11 @@
  	plot.Model:SetAttribute("Lane", plot.Lane)
  	player:SetAttribute("PlotIndex", plot.Index)
  	refreshSign(plot)
@@ -13424,7 +13429,7 @@
  	layoutGround(plot, size)
  	PlotSystem.PublishYard(player, data)
  
-@@ -807,6 +1135,7 @@
+@@ -807,6 +1140,7 @@
  		rec.Z += shift
  	end
  	data.Plot.Blocks = ctx.PlotMath.RemapTiles(data.Plot.Blocks, oldSize, size, P.CellSize) -- v2.32: the blocks keep their place in the world
@@ -13432,7 +13437,7 @@
  	layoutGround(plot, size)
  	local moved = PlotSystem.Settle(player, data, size)
  	for id, rec in data.Plot.Objects do
-@@ -865,6 +1194,7 @@
+@@ -865,6 +1199,7 @@
  	data.Plot.Stored = {}
  	data.Plot.Expansion = 0
  	data.Plot.Blocks = {} -- v2.32
@@ -13440,7 +13445,7 @@
  	for _, rec in ctx.Config.Plot.StartingObjects do
  		data.Plot.Objects[PlotSystem.NewObjectId(data)] = table.clone(rec)
  	end
-@@ -948,6 +1278,7 @@
+@@ -948,6 +1283,7 @@
  	end
  	layoutGround(plot, ctx.Config.Plot.Sizes[0])
  	refreshSign(plot)
