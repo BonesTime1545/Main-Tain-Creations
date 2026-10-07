@@ -248,7 +248,24 @@
  		-- v1.2 one-use items: Owned[id] = count, Slots = up to 3 ids shown in the hotbar
  		Consumables = { Owned = {}, Slots = {} },
  		-- v1.2 the lawn: Cells["3,5"] = growth 0…100 (grid of the yard at size Size)
-@@ -1190,18 +1190,44 @@
+@@ -860,6 +860,7 @@
+ 			data.Currencies.Gems = (tonumber(data.Currencies.Gems) or 0) + 150
+ 		else
+ 			p.Level = math.clamp(math.floor(cleanNumber(p.Level, 1)), 1, 10)
++			p.Fav = if p.Fav == true then true else nil -- v2.44: favourite pets (shown first in the inventory)
+ 			-- v1.1 variants (old ids are renamed; anything unknown becomes Normal)
+ 			local v = if type(p.Variant) == "string" then p.Variant else "Normal"
+ 			v = ({ Fire = "Golden", RainbowFire = "Diamond", Ancient = "Rainbow" })[v] or v
+@@ -882,7 +883,7 @@
+ 			data.Eggs.Owned[k] = nil
+ 		end
+ 	end
+-	for _, k in { "LVEarned", "LVSpent", "TotalCollected", "RobotDeliveries" } do
++	for _, k in { "LVEarned", "LVSpent", "TotalCollected", "RobotDeliveries", "ParkourUntil" } do
+ 		data.Stats[k] = cleanNumber(data.Stats[k], 0)
+ 	end
+ 	for k, v in data.Stats.Collected do
+@@ -1190,18 +1191,44 @@
  
  -- v1.2: tools, one-use items, the lawn
  local TOOL_IDS = {
@@ -296,7 +313,7 @@
  	for id, v in T.Owned do
  		if not TOOL_IDS[id] or v ~= true then
  			T.Owned[id] = nil
-@@ -1212,7 +1238,7 @@
+@@ -1212,7 +1239,7 @@
  		T.Grass = "Shears"
  	end
  	T.Up = if type(T.Up) == "table" then T.Up else {}
@@ -305,7 +322,7 @@
  		local u = if type(T.Up[tool]) == "table" then T.Up[tool] else {}
  		for k, v in u do
  			if type(k) ~= "string" or #k > 16 then
-@@ -1224,7 +1250,7 @@
+@@ -1224,7 +1251,7 @@
  		T.Up[tool] = u
  	end
  	for k in T.Up do
@@ -314,7 +331,7 @@
  			T.Up[k] = nil
  		end
  	end
-@@ -1235,6 +1261,29 @@
+@@ -1235,6 +1262,29 @@
  	T.VacUsed = math.clamp(math.floor(cleanNumber(T.VacUsed, 0)), 0, 100000)
  	-- v2.32: seconds of Leaf Blower energy used since its last recharge (old saves: 0 = full)
  	T.BlowUsed = math.clamp(cleanNumber(T.BlowUsed, 0), 0, 1000)
@@ -344,6 +361,522 @@
  	local C = data.Consumables
  	for id, n in C.Owned do
  		if not ITEM_IDS[id] then
+--- a/DecorBoxes.lua
++++ b/DecorBoxes.lua
+@@ -893,15 +893,122 @@
+ 	return started == true
+ end
+ 
++-- what the show needs to know about its subject. A cosmetic box fills it here; an EGG fills its own
++-- (EggOpening:_openBoxStyle) — so the two openings are the very same show.
++local function boxSpec(payload)
++	local box = BC.Get(payload.Box)
++	local DT = deps.DecorTypes
++	local def = DT and DT.Get(payload.Decor)
++	if not box or not def then
++		return nil
++	end
++	local rarity = (DT.RarityOf and DT.RarityOf(def)) or def.Rarity or "Common"
++	local function prepare(m, biggestTo)
++		for _, d in m:GetDescendants() do
++			if d:IsA("BasePart") then
++				d.Anchored = true
++				d.CanCollide = false
++				d.CanQuery = false
++				d.CanTouch = false
++			elseif d:IsA("BillboardGui") then
++				d:Destroy()
++			end
++		end
++		local okB, _, bsize = pcall(m.GetBoundingBox, m)
++		local size = if okB and typeof(bsize) == "Vector3" then bsize else Vector3.new(4, 4, 4)
++		local k = math.clamp(biggestTo / math.max(size.X, size.Y, size.Z, 0.5), 0.3, 1.8)
++		return size, k
++	end
++	local spec: any = {
++		Rarity = rarity,
++		Rank = RANK[rarity] or 1,
++		Color = DecorBoxes.RarityColor(rarity),
++		Glow = box.Glow or box.Color or Color3.fromRGB(255, 230, 150),
++		PrizeId = payload.Decor,
++		Title = "🎁 " .. tostring(def.Display),
++		Desc = def.Blurb or "",
++		New = payload.New == true,
++	}
++	function spec.Build(model, base)
++		local built = DecorBoxes.BoxModel(payload.Box)
++		local parts, rels, lids = {}, {}, {}
++		local boxH = 2.6
++		if built then
++			boxH = tonumber(built:GetAttribute("Height")) or boxH
++			for _, p in built:GetChildren() do
++				if p:IsA("BasePart") then
++					table.insert(parts, p)
++					table.insert(rels, p.CFrame)
++					lids[p] = p:GetAttribute("Lid") == true
++					p.CFrame = base * p.CFrame
++					p.Parent = model
++				end
++			end
++			built:Destroy()
++		end
++		return parts, rels, lids, boxH
++	end
++	function spec.Pool()
++		local pool = {}
++		for _, decorId in (box.Contents or {}) do
++			if DT.Get(decorId) then
++				table.insert(pool, decorId)
++			end
++		end
++		return pool
++	end
++	function spec.PoolColor(id)
++		local sdef = DT.Get(id)
++		return DecorBoxes.RarityColor((sdef and DT.RarityOf and DT.RarityOf(sdef)) or (sdef and sdef.Rarity) or "Common")
++	end
++	function spec.Make(id, _isPrize)
++		local m = DecorBoxes.CosmeticModel(id)
++		if not m then
++			return nil
++		end
++		local _, k = prepare(m, 4.2)
++		pcall(m.ScaleTo, m, k)
++		return m
++	end
++	function spec.Pose(m, cf, _t)
++		pcall(m.PivotTo, m, cf)
++	end
++	function spec.Reveal(c)
++		local cos = DecorBoxes.CosmeticModel(payload.Decor)
++		local hover = 1.2
++		if not cos then
++			return
++		end
++		local size, k = prepare(cos, 5)
++		pcall(cos.PivotTo, cos, c.base * CFrame.new(0, -60, 0))
++		cos.Parent = c.model
++		local okScale = pcall(function()
++			cos:ScaleTo(k)
++		end)
++		local height = size.Y * (if okScale then k else 1)
++		local t0 = os.clock()
++		local function pose()
++			local t = os.clock() - t0
++			local rise = math.min(1, t / 0.7)
++			local e = 1 - (1 - rise) ^ 3
++			local bob = math.sin(t * 2.2) * 0.18
++			pcall(cos.PivotTo, cos, c.base * CFrame.new(0, hover * e - 1.5 * (1 - e) + bob, 0) * CFrame.Angles(0, t * 0.9, 0))
++		end
++		pose()
++		table.insert(c.conns, RunService.RenderStepped:Connect(pose))
++		c.setFocus((c.base * CFrame.new(0, hover + height * 0.5, 0)).Position, math.clamp(math.max(height, 5) * 1.7, 8, 16))
++	end
++	return spec
++end
++
+ openShow = function(payload, onDone)
+ 	if DecorBoxes.playing or run or type(payload) ~= "table" then
+ 		return false
+ 	end
+-	local box = BC.Get(payload.Box)
+ 	local DT = deps.DecorTypes
+-	local def = DT and DT.Get(payload.Decor)
+ 	local cam = workspace.CurrentCamera
+-	if not box or not def or not cam then
++	local spec = if payload.Spec then payload.Spec else boxSpec(payload)
++	if not spec or not cam then
+ 		return false
+ 	end
+ 	DecorBoxes.CancelPlace()
+@@ -927,32 +1034,14 @@
+ 			show.descLabel.Size = UDim2.new(0.9, 0, 0, math.floor(48 * k))
+ 		end
+ 	end
+-	local rarity =(DT.RarityOf and DT.RarityOf(def)) or def.Rarity or "Common"
+-	local rank = RANK[rarity] or 1
+-	local rarColor = DecorBoxes.RarityColor(rarity)
+-	local glowColor = box.Glow or box.Color or Color3.fromRGB(255, 230, 150)
+-	local level = SHOW[rank] or SHOW[1]
++	local rarity, rank, rarColor, glowColor = spec.Rarity, spec.Rank, spec.Color, spec.Glow
++	local level = SHOW[math.clamp(rank, 1, 7)] or SHOW[1]
+ 
+ 	local base = stageCF()
+ 	local model = Instance.new("Model")
+ 	model.Name = "LeafRushBoxShow"
+ 	-- the box on its pad
+-	local built = DecorBoxes.BoxModel(payload.Box)
+-	local parts, rels, lids = {}, {}, {}
+-	local boxH = 2.6
+-	if built then
+-		boxH = tonumber(built:GetAttribute("Height")) or boxH
+-		for _, p in built:GetChildren() do
+-			if p:IsA("BasePart") then
+-				table.insert(parts, p)
+-				table.insert(rels, p.CFrame)
+-				lids[p] = p:GetAttribute("Lid") == true
+-				p.CFrame = base * p.CFrame
+-				p.Parent = model
+-			end
+-		end
+-		built:Destroy()
+-	end
++	local parts, rels, lids, boxH = spec.Build(model, base)
+ 	local pad = showPart(model, { Name = "Pad", Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.2, 4.6, 4.6), CFrame = base * CFrame.new(0, 0.1, 0) * CFrame.Angles(0, 0, math.pi / 2), Color = glowColor:Lerp(Color3.new(1, 1, 1), 0.5), Material = Enum.Material.SmoothPlastic, Transparency = 0.2 })
+ 	local core = showPart(model, { Name = "Core", Size = Vector3.one * 0.2, CFrame = base * CFrame.new(0, boxH * 0.6, 0), Transparency = 1 })
+ 	local light = Instance.new("PointLight")
+@@ -981,6 +1070,7 @@
+ 	show.rarityLabel.Text = ""
+ 	show.descLabel.Text = ""
+ 	show.newLabel.Text = ""
++	show.nameLabel.TextColor3 = Color3.new(1, 1, 1)
+ 	show.tapLabel.Text = "TAP TO OPEN!"
+ 	show.tapLabel.Visible = true
+ 	show.dotsFrame.Visible = true
+@@ -1052,18 +1142,13 @@
+ 	]]
+ 	local spun = {} -- [decorId] = { M = model } (built once, parked under the stage) / false
+ 	local function spinThrough()
+-		local pool = {}
+-		for _, decorId in (box.Contents or {}) do
+-			if DT.Get(decorId) then
+-				table.insert(pool, decorId)
+-			end
+-		end
++		local pool = spec.Pool()
+ 		local n = #pool
+ 		if n < 2 then
+ 			return
+ 		end
+ 		phase = "spin"
+-		local prizeAt = table.find(pool, payload.Decor) or 1
++		local prizeAt = table.find(pool, spec.PrizeId) or 1
+ 		local parked = base * CFrame.new(0, -60, 0)
+ 		local hover = 1.2
+ 		focus = (base * CFrame.new(0, hover + 2.2, 0)).Position
+@@ -1077,33 +1162,17 @@
+ 				return
+ 			end
+ 			if shown then
+-				pcall(shown.M.PivotTo, shown.M, parked)
++				pcall(spec.Pose, shown.M, parked, 0)
+ 				shown = nil
+ 			end
+ 			local id = pool[((prizeAt - 1 - (STEPS - k)) % n) + 1]
+ 			local e = spun[id]
+ 			if e == nil then
+ 				e = false
+-				local m = DecorBoxes.CosmeticModel(id)
++				local m = spec.Make(id, false)
+ 				if m then
+-					for _, d in m:GetDescendants() do
+-						if d:IsA("BasePart") then
+-							d.Anchored = true
+-							d.CanCollide = false
+-							d.CanQuery = false
+-							d.CanTouch = false
+-						elseif d:IsA("BillboardGui") then
+-							d:Destroy()
+-						end
+-					end
+-					local okB, _, bsize = pcall(m.GetBoundingBox, m)
+-					local size = if okB and typeof(bsize) == "Vector3" then bsize else Vector3.new(4, 4, 4)
+-					local sc = math.clamp(4.2 / math.max(size.X, size.Y, size.Z, 0.5), 0.3, 1.8)
+-					pcall(m.PivotTo, m, parked)
++					pcall(spec.Pose, m, parked, 0)
+ 					m.Parent = model
+-					pcall(function()
+-						m:ScaleTo(sc)
+-					end)
+ 					e = { M = m }
+ 				end
+ 				spun[id] = e
+@@ -1112,8 +1181,7 @@
+ 				shown = e
+ 			end
+ 			-- (the pad and the light take the colour of what is shown: the rarities flick past too)
+-			local sdef = DT.Get(id)
+-			local scol = DecorBoxes.RarityColor((sdef and DT.RarityOf and DT.RarityOf(sdef)) or (sdef and sdef.Rarity) or "Common")
++			local scol = spec.PoolColor(id)
+ 			pad.Color = scol
+ 			light.Color = scol
+ 			sparks:Emit(5)
+@@ -1128,7 +1196,7 @@
+ 				spin += dt * (13 - k * 0.7)
+ 				if shown and shown.M.Parent then
+ 					local pop = math.min(1, (os.clock() - t0) * 7)
+-					pcall(shown.M.PivotTo, shown.M, base * CFrame.new(0, hover - 0.35 * (1 - pop), 0) * CFrame.Angles(0, spin, 0))
++					pcall(spec.Pose, shown.M, base * CFrame.new(0, hover - 0.35 * (1 - pop), 0) * CFrame.Angles(0, spin, 0), os.clock() - t0)
+ 				end
+ 			end
+ 		end
+@@ -1208,6 +1276,9 @@
+ 			end
+ 			spun[id] = nil
+ 		end
++		if spec.OnReveal then
++			pcall(spec.OnReveal)
++		end
+ 		-- the beam of light
+ 		local beamH = level.Beam
+ 		local beam = showPart(model, { Name = "Beam", Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.2, 2.6, 2.6), CFrame = base * CFrame.new(0, 0.2, 0) * CFrame.Angles(0, 0, math.pi / 2), Color = rarColor, Material = Enum.Material.Neon, Transparency = 0.55 })
+@@ -1224,45 +1295,15 @@
+ 		sparks.Color = ColorSequence.new(rarColor, Color3.new(1, 1, 1))
+ 		sparks:Emit(level.Particles)
+ 		sparks.Rate = if rank >= 4 then 12 else 4
+-		-- the cosmetic rises out of the light, turning
+-		local cos = DecorBoxes.CosmeticModel(payload.Decor)
+-		local hover = 1.2
+-		if cos then
+-			for _, d in cos:GetDescendants() do
+-				if d:IsA("BasePart") then
+-					d.Anchored = true
+-					d.CanCollide = false
+-					d.CanQuery = false
+-					d.CanTouch = false
+-				elseif d:IsA("BillboardGui") then
+-					d:Destroy()
+-				end
+-			end
+-			local okB, _, bsize = pcall(cos.GetBoundingBox, cos)
+-			local size = if okB and typeof(bsize) == "Vector3" then bsize else Vector3.new(4, 4, 4)
+-			local biggest = math.max(size.X, size.Y, size.Z, 0.5)
+-			local k = math.clamp(5 / biggest, 0.3, 1.8)
+-			-- (far under the stage until its first pose, so it never flashes at the world's origin)
+-			pcall(cos.PivotTo, cos, base * CFrame.new(0, -60, 0))
+-			cos.Parent = model
+-			local okScale = pcall(function()
+-				cos:ScaleTo(k)
+-			end)
+-			local height = size.Y * (if okScale then k else 1)
+-			local t0 = os.clock()
+-			local function pose()
+-				local t = os.clock() - t0
+-				local rise = math.min(1, t / 0.7)
+-				local e = 1 - (1 - rise) ^ 3
+-				local bob = math.sin(t * 2.2) * 0.18
+-				local cf = base * CFrame.new(0, hover * e - 1.5 * (1 - e) + bob, 0) * CFrame.Angles(0, t * 0.9, 0)
+-				pcall(cos.PivotTo, cos, cf)
+-			end
+-			pose()
+-			table.insert(r.conns, RunService.RenderStepped:Connect(pose))
+-			focus = (base * CFrame.new(0, hover + height * 0.5, 0)).Position
+-			targetDist = math.clamp(math.max(height, 5) * 1.7, 8, 16)
+-		end
++		-- the prize rises out of the light, turning (a cosmetic: boxSpec; a pet: EggOpening)
++		spec.Reveal({
++			model = model,
++			base = base,
++			conns = r.conns,
++			setFocus = function(pos, dist)
++				focus, targetDist = pos, dist
++			end,
++		})
+ 		if deps.Juice then
+ 			for k = 1, level.Confetti do
+ 				task.delay(k * 0.2, function()
+@@ -1278,14 +1319,19 @@
+ 			end
+ 		end
+ 		flashScreen(level.Flashes, rarColor:Lerp(Color3.new(1, 1, 1), 0.6))
+-		show.nameLabel.Text = "🎁 " .. tostring(def.Display)
++		show.nameLabel.Text = spec.Title
+ 		show.nameLabel.TextColor3 = rarColor
+ 		show.nameScale.Scale = 0.3
+ 		TweenService:Create(show.nameScale, TweenInfo.new(0.45, Enum.EasingStyle.Back), { Scale = 1 }):Play()
+-		show.rarityLabel.Text = string.upper(rarity)
++		show.rarityLabel.Text = string.upper(spec.RarityText or rarity)
+ 		show.rarityLabel.TextColor3 = rarColor
+-		show.descLabel.Text = def.Blurb or ""
+-		show.newLabel.Text = if payload.New then "✨ NEW! ✨" else ""
++		show.descLabel.Text = spec.Desc or ""
++		show.newLabel.Text = if spec.New then "✨ NEW! ✨" else ""
++		if spec.Extra then
++			pcall(spec.Extra, { show = show, base = base, flash = flashScreen, alive = function()
++				return run == r and phase == "reveal"
++			end })
++		end
+ 		sfx("EggHatch")
+ 		if deps.Sfx and rank >= 4 then
+ 			pcall(deps.Sfx.Stinger, "Rare", 0.35)
+--- a/EconomyService.lua
++++ b/EconomyService.lua
+@@ -45,9 +45,14 @@
+ 	if data and ctx.FriendBoostService then
+ 		bonus += ctx.FriendBoostService.BonusOf(data)
+ 	end
++	-- v2.44 MINI PARKOUR: ×2 for LEAVES while the boost from the button on the plaza runs
++	local parkour = 1
++	if data and data.Stats and (tonumber(data.Stats.ParkourUntil) or 0) > os.time() and (resourceId == "Leaf" or resourceId == "DarkLeaf" or resourceId == "GoldenLeaf" or resourceId == "CrownLeaf") then
++		parkour = 2
++	end
+ 	-- (v1.4: Yard Efficiency was removed from the game)
+ 	-- (v2.33: endless mutation stacks — never inf / NaN, never above the money cap)
+-	return (ctx.MutationTypes.ClampValue(itemValue * mutMult * (data and data.Rebirth.Multiplier or 1) * bonus))
++	return (ctx.MutationTypes.ClampValue(itemValue * mutMult * (data and data.Rebirth.Multiplier or 1) * bonus * parkour))
+ end
+ 
+ function EconomyService.TreeUpgradeCost(treeDef, level)
+--- a/EggOpening.lua
++++ b/EggOpening.lua
+@@ -838,6 +838,131 @@
+ 	return m
+ end
+ 
++-- v2.44: the egg you hatch in your garden is opened with THE SAME SHOW as a cosmetic box
++-- (DecorBoxes: the pet's pad, the camera circling, 3 taps, the burst, the pets flicking past,
++-- the beam of light, name / rarity / description, CLAIM): this builds what that show needs
++function EggOpening:_boxSpec(eggDef, pet)
++	local P = self.PetConfig
++	local def = P.Pets[pet.Id]
++	local rarity = P.Rarities[def.Rarity]
++	local tierColor = self:_tier(eggDef)
++	local owner = self
++	local function build(id, variant)
++		local m = owner.PetFollow.Build(P, id, variant or "Normal", 1)
++		if not m then
++			return nil
++		end
++		for _, d in m:GetDescendants() do
++			if d:IsA("BasePart") then
++				d.Anchored = true
++				d.CanCollide = false
++				d.CanQuery = false
++			elseif d:IsA("BillboardGui") then
++				d:Destroy()
++			end
++		end
++		m:ScaleTo(PET_ZOOM)
++		return m
++	end
++	local spec: any = {
++		Rarity = def.Rarity,
++		Rank = rarity.Order,
++		Color = rarity.Color,
++		Glow = tierColor,
++		PrizeId = pet.Id,
++		Title = (if pet.Pity then "🎯 GUARANTEED!  " else "🐣 ") .. P.Name(pet.Id, pet.Variant),
++		Desc = def.Desc or "",
++		New = false,
++	}
++	function spec.Build(model, base)
++		local egg = owner:_buildEgg(eggDef, base)
++		local parts, rels, lids = {}, {}, {}
++		for _, c in egg.model:GetChildren() do
++			if c:IsA("BasePart") and c.Name ~= "Pad" and c.Name ~= "Core" then
++				table.insert(parts, c)
++				table.insert(rels, base:ToObjectSpace(c.CFrame))
++				lids[c] = true -- (the whole shell flies apart)
++				c.Parent = model
++			end
++		end
++		egg.model:Destroy()
++		return parts, rels, lids, 3.4
++	end
++	function spec.Pool()
++		local pool = {}
++		for id in eggDef.Contents do
++			table.insert(pool, id)
++		end
++		table.sort(pool)
++		if not table.find(pool, pet.Id) then
++			table.insert(pool, pet.Id)
++		end
++		return pool
++	end
++	function spec.PoolColor(id)
++		local d = P.Pets[id]
++		local r = d and P.Rarities[d.Rarity]
++		return r and r.Color or Color3.new(1, 1, 1)
++	end
++	function spec.Make(id, isPrize)
++		return build(id, if isPrize then pet.Variant else "Normal")
++	end
++	function spec.Pose(m, cf, t)
++		showPet(owner, m, cf * CFrame.new(0, 0.4, 0), t)
++	end
++	function spec.Reveal(c)
++		local m = build(pet.Id, pet.Variant)
++		if not m then
++			return
++		end
++		local groundCF = c.base * CFrame.new(0, 2.2, 0) -- (its ground point floats 2.2 studs up)
++		local okB, _, bsize = pcall(m.GetBoundingBox, m)
++		local size = if okB and typeof(bsize) == "Vector3" then bsize else Vector3.new(3, 3, 3)
++		showPet(owner, m, groundCF * CFrame.new(0, -1.8, 0) * CFrame.Angles(0, math.pi, 0), 0)
++		m.Parent = c.model
++		local t0 = os.clock()
++		table.insert(c.conns, RunService.RenderStepped:Connect(function()
++			local t = os.clock() - t0
++			local rise = math.min(1, t / 0.6)
++			local e = 1 - (1 - rise) ^ 3
++			local bob = math.sin(t * 2.2) * 0.25
++			showPet(owner, m, groundCF * CFrame.new(0, -1.8 * (1 - e) + bob, 0) * CFrame.Angles(math.sin(t * 1.7) * 0.06, t * 0.9 + math.pi, math.sin(t * 1.3) * 0.05), t)
++		end))
++		c.setFocus(groundCF.Position + Vector3.new(0, size.Y * 0.6, 0), math.max(6, size.Magnitude * 1.3))
++	end
++	-- a Golden / Diamond / Rainbow pet gets its own bigger show on top
++	function spec.Extra(c)
++		local vs = VARIANT_SHOW[pet.Variant or "Normal"]
++		if not vs then
++			return
++		end
++		c.show.nameLabel.Text = (if pet.Pity then "🎯 " else "") .. vs.Title .. "  " .. P.Name(pet.Id, pet.Variant)
++		c.show.nameLabel.TextColor3 = vs.Color
++		c.flash(vs.Flashes, vs.Color)
++		owner.Juice.Shake(0.5, 0.6)
++		for k = 1, vs.Confetti do
++			task.delay(k * 0.15, function()
++				owner.Juice.Confetti(c.base.Position + Vector3.new(math.random(-3, 3), 3, math.random(-3, 3)))
++			end)
++		end
++		owner.Juice.Pillar(c.base.Position, vs.Color, 30)
++		owner.Juice.Ring(c.base.Position, vs.Color, 12, 0.8)
++		if owner.Sfx then
++			owner.Sfx.Stinger("Rare", 0.5)
++		end
++		if vs.Rainbow then
++			task.spawn(function()
++				local t0 = os.clock()
++				while c.alive() and c.show.nameLabel.Parent do
++					c.show.nameLabel.TextColor3 = Color3.fromHSV(((os.clock() - t0) * 0.4) % 1, 0.6, 1)
++					task.wait()
++				end
++			end)
++		end
++	end
++	return spec
++end
++
+ function EggOpening:Open(eggId, pet, onDone)
+ 	if self.playing or type(pet) ~= "table" then
+ 		return false
+@@ -847,6 +972,25 @@
+ 	if not eggDef or not P.Pets[pet.Id] then
+ 		return false
+ 	end
++	if self.Boxes and self.Boxes.Open and not self.noBoxShow then
++		local okSpec, spec = pcall(self._boxSpec, self, eggDef, pet)
++		if okSpec and spec then
++			self.playing = true
++			local started = self.Boxes.Open({ Spec = spec }, function()
++				self.playing = false
++				if onDone then
++					onDone()
++				end
++			end)
++			if started then
++				return true
++			end
++			self.playing = false
++		elseif not okSpec then
++			warn("[LeafRush] egg show spec: " .. tostring(spec))
++		end
++		-- (anything went wrong: the old show below still works)
++	end
+ 	self.playing = true
+ 	self.canClose = false
+ 	self.onDone = onDone
 --- a/Features.lua
 +++ b/Features.lua
 @@ -67,6 +67,34 @@
@@ -404,6 +937,62 @@
  				acc = 0
  				refresh()
  			end
+--- a/FontSkin.lua
++++ b/FontSkin.lua
+@@ -15,15 +15,18 @@
+ 
+ local FontSkin = {}
+ 
+--- v2.15: the Comic Sans look. Roblox has no Comic Sans itself; Comic Neue is its
+--- open twin (the only comic family in the engine).
+-FontSkin.Family = "rbxasset://fonts/families/ComicNeueAngular.json"
++-- v2.44: LUCKIEST GUY for EVERYTHING (HUD, windows, buttons, splashes, signs, name tags).
++-- The engine's copy of the font has Latin letters only, so Russian text would drop to the
++-- default font. Put the asset id of any Cyrillic font you like in FontSkin.CyrillicFont
++-- (e.g. Font.new("rbxassetid://<family>", Enum.FontWeight.Regular)) and every text with
++-- Cyrillic letters uses it instead; leave it nil to keep the engine fallback.
++FontSkin.Family = "rbxasset://fonts/families/LuckiestGuy.json"
+ pcall(function()
+-	-- (the engine's own name for it is Enum.Font.Cartoon; ask it for the family)
+-	FontSkin.Family = Font.fromEnum(Enum.Font.Cartoon).Family
++	FontSkin.Family = Font.fromEnum(Enum.Font.LuckiestGuy).Family
+ end)
+-FontSkin.Heading = Font.new(FontSkin.Family, Enum.FontWeight.Bold)
+-FontSkin.Body = Font.new(FontSkin.Family, Enum.FontWeight.Bold)
++FontSkin.Heading = Font.new(FontSkin.Family, Enum.FontWeight.Regular)
++FontSkin.Body = FontSkin.Heading
++FontSkin.CyrillicFont = nil :: Font?
+ 
+ local seen = setmetatable({}, { __mode = "k" })
+ 
+@@ -33,16 +36,25 @@
+ 	end
+ 	seen[o] = true
+ 	local function fix()
++		local want = FontSkin.Heading
++		if FontSkin.CyrillicFont and string.find(o.Text, "[\208\209]") then
++			want = FontSkin.CyrillicFont
++		end
+ 		local f = o.FontFace
+-		if f.Family == FontSkin.Family then
++		if f.Family == want.Family and f.Weight == want.Weight and f.Style == want.Style then
+ 			return
+ 		end
+-		o.FontFace = FontSkin.Heading
++		o.FontFace = want
+ 	end
+ 	pcall(fix)
+ 	o:GetPropertyChangedSignal("FontFace"):Connect(function()
+ 		pcall(fix)
+ 	end)
++	o:GetPropertyChangedSignal("Text"):Connect(function()
++		if FontSkin.CyrillicFont then
++			pcall(fix)
++		end
++	end)
+ end
+ 
+ local started = false
 --- a/GearService.lua
 +++ b/GearService.lua
 @@ -97,6 +97,11 @@
@@ -560,9 +1149,246 @@
  	self.homeButton, self.homeCooldown = home, cd
  	self.spawnButton, self.spawnCooldown = spawnBtn, spawnCd
  	-- no garden yet (still loading): hide it
+@@ -637,7 +637,7 @@
+ 	box.Name = "FriendBoost"
+ 	box.AnchorPoint = Vector2.new(0, 1)
+ 	box.Position = UDim2.new(0, 12, 1, -12)
+-	box.Size = UDim2.fromOffset(236, 30)
++	box.Size = UDim2.fromOffset(190, 46) -- v2.44: taller (46) and shorter (190) than before (236 x 30)
+ 	box.BackgroundTransparency = 1
+ 	box.Parent = self.gui
+ 	local scale = Instance.new("UIScale")
+@@ -645,27 +645,27 @@
+ 	self.friendBox, self.friendScale = box, scale
+ 	local chip = Instance.new("Frame")
+ 	chip.Name = "Chip"
+-	chip.Size = UDim2.fromOffset(198, 30)
++	chip.Size = UDim2.fromOffset(148, 46)
+ 	chip.BackgroundColor3 = Color3.fromRGB(24, 46, 28)
+-	chip.BackgroundTransparency = 0.25
++	chip.BackgroundTransparency = 0.15
+ 	chip.Parent = box
+-	corner(chip, 15)
+-	stroke(chip, GREEN, 1.5, 0.45)
+-	UIKit.studs(chip, { W = 198, H = 30, Pitch = 18, Size = 11, Inset = 4 })
+-	local text = label(chip, { Name = "Text", Position = UDim2.fromOffset(10, 0), Size = UDim2.new(1, -16, 1, 0), TextSize = 14, TextColor3 = GREEN, TextStrokeTransparency = 0.6, Text = "" })
++	corner(chip, 16)
++	stroke(chip, GREEN, 2, 0.35)
++	UIKit.studs(chip, { W = 148, H = 46, Pitch = 16, Size = 10, Inset = 4 })
++	local text = label(chip, { Name = "Text", ZIndex = 2, Position = UDim2.fromOffset(8, 2), Size = UDim2.new(1, -14, 1, -4), TextSize = 17, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Center, TextYAlignment = Enum.TextYAlignment.Center, TextColor3 = GREEN, TextStrokeTransparency = 0.5, Text = "" })
+ 	local plus = Instance.new("TextButton")
+ 	plus.Name = "Invite"
+ 	plus.AutoButtonColor = true
+-	plus.Position = UDim2.fromOffset(204, 0)
+-	plus.Size = UDim2.fromOffset(30, 30)
++	plus.Position = UDim2.fromOffset(154, 0)
++	plus.Size = UDim2.fromOffset(36, 46)
+ 	plus.BackgroundColor3 = Color3.fromRGB(70, 190, 90)
+ 	plus.Font = FONT
+-	plus.TextSize = 22
++	plus.TextSize = 28
+ 	plus.TextColor3 = Color3.new(1, 1, 1)
+ 	plus.Text = "+"
+ 	plus.Parent = box
+-	corner(plus, 15)
+-	stroke(plus, Color3.fromRGB(215, 255, 215), 1.5, 0.3)
++	corner(plus, 16)
++	stroke(plus, Color3.fromRGB(215, 255, 215), 2, 0.3)
+ 	plus.Activated:Connect(function()
+ 		local SocialService = game:GetService("SocialService")
+ 		task.spawn(function()
+@@ -681,9 +681,29 @@
+ 			end
+ 		end)
+ 	end)
++	-- v2.44: ×2 LEAVES from the plaza's parkour button: a small timer above this box
++	local pk = label(box, { Name = "ParkourBoost", AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 0, -6), Size = UDim2.fromOffset(190, 30), BackgroundColor3 = Color3.fromRGB(70, 40, 10), BackgroundTransparency = 0.15, TextSize = 16, TextColor3 = Color3.fromRGB(255, 225, 120), TextXAlignment = Enum.TextXAlignment.Center, Text = "", Visible = false })
++	corner(pk, 12)
++	stroke(pk, Color3.fromRGB(255, 200, 80), 2, 0.3)
++	task.spawn(function()
++		while pk.Parent do
++			local untilT = tonumber(player:GetAttribute("ParkourBoostUntil")) or 0
++			local ok, now = pcall(function()
++				return workspace:GetServerTimeNow()
++			end)
++			local left = untilT - (if ok then now else os.time())
++			if left > 0 then
++				pk.Visible = true
++				pk.Text = string.format("🍃 ×2 LEAVES  %d:%02d", math.floor(left / 60), math.floor(left % 60))
++			else
++				pk.Visible = false
++			end
++			task.wait(0.5)
++		end
++	end)
+ 	local function refresh()
+ 		local pct = player:GetAttribute("FriendBoostPct") or 0
+-		text.Text = "💚 Friend Boost  +" .. pct .. "%"
++		text.Text = "💚 Friend Boost\n+" .. pct .. "%"
+ 		text.TextTransparency = if pct > 0 then 0 else 0.25
+ 	end
+ 	player:GetAttributeChangedSignal("FriendBoostPct"):Connect(refresh)
+@@ -732,35 +752,37 @@
+ 	combo.Name = "ComboMeter"
+ 	combo.AnchorPoint = Vector2.new(0.5, 0)
+ 	combo.Position = UDim2.new(0.5, 0, 0, 52)
+-	combo.Size = UDim2.fromOffset(204, 48) -- v2.15: every pop-up panel is smaller
+-	combo.BackgroundColor3 = BG
+-	combo.BackgroundTransparency = 0.25
++	combo.Size = UDim2.fromOffset(232, 56) -- v2.44: the new plate is a little bigger
++	combo.BackgroundColor3 = Color3.fromRGB(60, 56, 78)
++	combo.BackgroundTransparency = 0
+ 	combo.Visible = false
+ 	combo.Parent = gui
+-	corner(combo, 12)
+-	local cst = stroke(combo, Color3.new(1, 1, 1), 2, 0.2)
+-	UIKit.studs(combo, { W = 204, H = 48, Pitch = 20, Size = 12, Inset = 5 }) -- (v2.22; its texts are ZIndex 1+)
+-	local cg = Instance.new("UIGradient")
+-	cg.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255), Color3.fromRGB(190, 190, 205))
++	corner(combo, 16)
++	local cst = stroke(combo, Color3.new(1, 1, 1), 3, 0.05)
++	local cg = Instance.new("UIGradient") -- (v2.44: lit from the top, like the dock buttons; recoloured by the tier)
++	cg.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255), Color3.fromRGB(150, 150, 170))
+ 	cg.Rotation = 90
+ 	cg.Parent = combo
+-	local mult = label(combo, { Name = "Mult", Position = UDim2.fromOffset(6, 4), Size = UDim2.fromOffset(62, 40), TextSize = 26, Text = "×1", TextXAlignment = Enum.TextXAlignment.Center, TextYAlignment = Enum.TextYAlignment.Center, TextStrokeTransparency = 0.25, TextScaled = true })
++	UIKit.studs(combo, { W = 232, H = 56, Pitch = 16, Size = 11, Inset = 5 }) -- (v2.44: added BEFORE the texts, which are ZIndex 2+: the studs lie under them)
++	local mult = label(combo, { Name = "Mult", ZIndex = 2, Position = UDim2.fromOffset(6, 5), Size = UDim2.fromOffset(66, 46), TextSize = 26, Text = "×1", TextXAlignment = Enum.TextXAlignment.Center, TextYAlignment = Enum.TextYAlignment.Center, TextStrokeTransparency = 0.25, TextScaled = true })
+ 	local ms = Instance.new("UITextSizeConstraint")
+ 	ms.MaxTextSize = 26
+ 	ms.Parent = mult
+-	local name = label(combo, { Name = "ComboName", Position = UDim2.fromOffset(72, 3), Size = UDim2.new(1, -132, 0, 16), TextSize = 13, Text = "COMBO", TextStrokeTransparency = 0.4 })
+-	local count = label(combo, { Name = "Count", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -8, 0, 4), Size = UDim2.fromOffset(56, 14), TextSize = 10, Font = BODY, TextColor3 = SOFT, TextXAlignment = Enum.TextXAlignment.Right, Text = "" })
++	local name = label(combo, { Name = "ComboName", ZIndex = 2, Position = UDim2.fromOffset(76, 5), Size = UDim2.new(1, -140, 0, 16), TextSize = 14, Text = "COMBO", TextStrokeTransparency = 0.4 })
++	local count = label(combo, { Name = "Count", ZIndex = 2, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -8, 0, 4), Size = UDim2.fromOffset(56, 14), TextSize = 10, Font = BODY, TextColor3 = SOFT, TextXAlignment = Enum.TextXAlignment.Right, Text = "" })
+ 	local back = Instance.new("Frame")
+-	back.Position = UDim2.fromOffset(72, 22)
+-	back.Size = UDim2.new(1, -82, 0, 8)
+-	back.BackgroundColor3 = BG2
++	back.ZIndex = 2
++	back.Position = UDim2.fromOffset(76, 24)
++	back.Size = UDim2.new(1, -88, 0, 9)
++	back.BackgroundColor3 = BG
+ 	back.Parent = combo
+ 	corner(back, 5)
+ 	local fillBar = Instance.new("Frame")
++	fillBar.ZIndex = 3
+ 	fillBar.Size = UDim2.fromScale(1, 1)
+ 	fillBar.Parent = back
+ 	corner(fillBar, 5)
+-	local items = label(combo, { Name = "Items", Position = UDim2.fromOffset(72, 32), Size = UDim2.new(1, -78, 0, 13), TextSize = 10, Font = Enum.Font.GothamBold, TextColor3 = TEXT, Text = "" })
++	local items = label(combo, { Name = "Items", ZIndex = 2, Position = UDim2.fromOffset(76, 36), Size = UDim2.new(1, -84, 0, 14), TextSize = 10, Font = Enum.Font.GothamBold, TextColor3 = TEXT, Text = "" })
+ 	local cscale = Instance.new("UIScale")
+ 	cscale.Parent = combo
+ 	Layout.Add("Top", combo, "Combo")
+@@ -784,6 +806,7 @@
+ 		name.TextColor3 = tier.Color
+ 		fillBar.BackgroundColor3 = tier.Color
+ 		cst.Color = tier.Color
++		combo.BackgroundColor3 = tier.Color:Lerp(Color3.new(0, 0, 0), 0.52)
+ 		local nextT = E and E.Combo.Tiers[ti + 1]
+ 		count.Text = if nextT then pts .. "/" .. nextT.At else tostring(pts)
+ 		local bonus = math.floor(((tier.Items or 1) - 1) * 100 + 0.5)
+@@ -904,6 +927,67 @@
+ 	return b, icon, cap, st
+ end
+ 
++-- v2.44: Settings / Admin: the dock's look (colour gradient, white rim, shine) but SQUARE, with the
++-- toy-brick studs lying UNDER the icon (the studs are added first; icon + name are ZIndex 2)
++function Hud:_cornerButton(parent, m, size)
++	local b = Instance.new("TextButton")
++	b.Name = m.Id
++	b.Text = ""
++	b.AutoButtonColor = false
++	b.Size = UDim2.fromOffset(size, size)
++	b.BackgroundColor3 = Color3.new(1, 1, 1)
++	b.Parent = parent
++	corner(b, 14)
++	local c = m.Color
++	local g = Instance.new("UIGradient")
++	g.Color = ColorSequence.new({
++		ColorSequenceKeypoint.new(0, c:Lerp(Color3.new(1, 1, 1), 0.28)),
++		ColorSequenceKeypoint.new(0.55, c),
++		ColorSequenceKeypoint.new(1, c:Lerp(Color3.new(0, 0, 0), 0.32)),
++	})
++	g.Rotation = 90
++	g.Parent = b
++	local st = stroke(b, Color3.new(1, 1, 1), 2.5, 0.2)
++	local shine = Instance.new("Frame")
++	shine.Name = "Shine"
++	shine.BackgroundColor3 = Color3.new(1, 1, 1)
++	shine.BackgroundTransparency = 0.84
++	shine.BorderSizePixel = 0
++	shine.Position = UDim2.fromOffset(4, 3)
++	shine.Size = UDim2.new(1, -8, 0.4, 0)
++	shine.Parent = b
++	corner(shine, 10)
++	UIKit.studs(b, { W = size, H = size, Pitch = 14, Size = 9, Inset = 4 }) -- (under the icon and the name)
++	local icon = label(b, { Name = "Icon", Size = UDim2.new(1, 0, 1, -13), Text = m.Icon, TextSize = math.floor(size * 0.5), TextXAlignment = Enum.TextXAlignment.Center, TextYAlignment = Enum.TextYAlignment.Center, ZIndex = 3 })
++	local cap = label(b, { Name = "Caption", AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 1, -3), Size = UDim2.new(1, 0, 0, 12), Text = string.upper(m.Label), TextSize = 10, TextXAlignment = Enum.TextXAlignment.Center, TextStrokeTransparency = 0.3, TextStrokeColor3 = c:Lerp(Color3.new(0, 0, 0), 0.6), ZIndex = 3 })
++	UIImages.Set(icon, m.Id, m.Icon) -- (a picture, if there is one, replaces only the icon: the studs stay behind it)
++	local t = tip(b, m.Label)
++	t.AnchorPoint = Vector2.new(1, 1)
++	t.Position = UDim2.new(1, 0, 0, -6)
++	b.MouseEnter:Connect(function()
++		local key = self:_keyOf(m)
++		t.Text = m.Label .. (if key then "  [" .. key .. "]" else "")
++		t.Visible = not self.touch
++		TweenService:Create(st, TweenInfo.new(0.12), { Transparency = 0, Thickness = 3.5 }):Play()
++		shine.BackgroundTransparency = 0.72
++	end)
++	b.MouseLeave:Connect(function()
++		t.Visible = false
++		TweenService:Create(st, TweenInfo.new(0.15), { Transparency = 0.2, Thickness = 2.5 }):Play()
++		shine.BackgroundTransparency = 0.84
++	end)
++	b.MouseButton1Down:Connect(function()
++		st.Color = Color3.fromRGB(255, 225, 120)
++	end)
++	b.MouseButton1Up:Connect(function()
++		st.Color = Color3.new(1, 1, 1)
++	end)
++	b.Activated:Connect(function()
++		self:_fire(m.Id)
++	end)
++	return b, icon, cap, st
++end
++
+ function Hud:_keyOf(m)
+ 	local C = self.deps.Controls
+ 	if C and m.Action then
+@@ -1050,7 +1134,7 @@
+ 	end
+ end
+ local DOCK_H = DOCK_N * (DOCK_BH + GAP)
+-local CORNER = 48 -- Settings / Admin in the bottom-right corner
++local CORNER = 54 -- Settings / Admin in the bottom-right corner
+ 
+ function Hud:_dock()
+ 	local dock = Instance.new("Frame")
+@@ -1075,7 +1159,7 @@
+ 		local b
+ 		if m.Corner then
+ 			-- the bottom-right corner of the screen: Settings, and Admin to its left
+-			b = self:_iconButton(self.gui, m, CORNER)
++			b = self:_cornerButton(self.gui, m, CORNER)
+ 			b.AnchorPoint = Vector2.new(1, 1)
+ 			b.Position = UDim2.new(1, -cornerX, 1, -12)
+ 			cornerX += CORNER + 8
 --- a/InventoryUI.lua
 +++ b/InventoryUI.lua
-@@ -597,6 +597,7 @@
+@@ -124,6 +124,10 @@
+ end
+ 
+ function InventoryUI:Toggle(force)
++	-- v2.44: opening the menu again puts un-starred pets in their place (PetsUI.favKeep)
++	if self.Pets and not self.w.open and force ~= false then
++		pcall(self.Pets.ResetFavOrder, self.Pets)
++	end
+ 	self.w.Toggle(force)
+ end
+ 
+@@ -597,6 +601,7 @@
  			continue
  		end
  		local title, color, lines, badge = "Object", Color3.fromRGB(150, 150, 150), {}, nil
@@ -570,7 +1396,7 @@
  		if e.Type == "Tree" then
  			local tdef = TT.Get(e.TreeType)
  			title = tdef and tdef.Display or "Tree"
-@@ -624,6 +625,7 @@
+@@ -624,6 +629,7 @@
  			-- and the first line show it
  			if not building and def and type(def.Rarity) == "string" and K.rarityColor then
  				color = K.rarityColor(def.Rarity)
@@ -578,7 +1404,7 @@
  				table.insert(lines, string.format("<font color='#%s'><b>%s</b></font>", K.shade(color, 0.7):ToHex(), def.Rarity))
  			end
  			table.insert(lines, def and def.Blurb or (if building then "A building for your garden." else "A decoration for your garden."))
-@@ -639,6 +641,7 @@
+@@ -639,6 +645,7 @@
  			Key = e.Id,
  			Title = title,
  			Color = color,
@@ -649,6 +1475,17 @@
  	local d = islandData(data)
  	if d.Fences[id] then
  		return IslandService.SetFence(player, id)
+--- a/LeaderboardService.lua
++++ b/LeaderboardService.lua
+@@ -413,7 +413,7 @@
+ 		local row = labels[i + 1]
+ 		if row then
+ 			local medal = if i == 1 then "🥇" elseif i == 2 then "🥈" elseif i == 3 then "🥉" else (i .. ".")
+-			row.Text = if r then string.format("%s %s — %s", medal, r.Name, S().Short(r.Value)) else ""
++			row.Text = if r then string.format("%s %s — %s", medal, r.Name, if b.Time then S().Duration(r.Value) else S().Short(r.Value)) else ""
+ 		end
+ 	end
+ end
 --- a/LeafRushClient.lua
 +++ b/LeafRushClient.lua
 @@ -348,13 +348,13 @@
@@ -735,7 +1572,63 @@
  end
  local stallPages = {
  	Eggs = {
-@@ -1349,8 +1373,168 @@
+@@ -1071,6 +1095,55 @@
+ 		hubOpen(shopHub, "Wheel") -- v2.8: the Lucky Leaf Wheel on the hub island
+ 	end
+ end)
++-- v2.44: the QUEST GIVER and the UPGRADE sign work only in YOUR OWN garden: their prompts are
++-- off for everyone (the server) and this client switches on the ones of the yard it owns
++do
++	local prompts: { ProximityPrompt } = {}
++	local function track(d: Instance)
++		if d:IsA("ProximityPrompt") and (d.Name == "QuestNpc" or d.Name == "GardenUpgrade") then
++			table.insert(prompts, d)
++		end
++	end
++	local function plotOf(d: Instance): Instance?
++		local plots = workspace:FindFirstChild("LeafRush") and workspace.LeafRush:FindFirstChild("Plots")
++		local cur: Instance? = d
++		while cur and cur.Parent ~= plots do
++			cur = cur.Parent
++		end
++		return cur
++	end
++	local function refresh()
++		for i = #prompts, 1, -1 do
++			local pr = prompts[i]
++			if not pr.Parent then
++				table.remove(prompts, i)
++			else
++				local plot = plotOf(pr)
++				local mine = plot ~= nil and plot:GetAttribute("OwnerUserId") == player.UserId
++				if pr.Enabled ~= mine then
++					pr.Enabled = mine
++				end
++			end
++		end
++	end
++	local lr = workspace:WaitForChild("LeafRush", 30)
++	local plotsFolder = lr and lr:WaitForChild("Plots", 30)
++	if plotsFolder then
++		for _, d in plotsFolder:GetDescendants() do
++			track(d)
++		end
++		plotsFolder.DescendantAdded:Connect(function(d)
++			track(d)
++			task.defer(refresh)
++		end)
++		task.spawn(function()
++			while true do
++				refresh()
++				task.wait(1)
++			end
++		end)
++	end
++end
+ ---------------------------------------------------------------- raycast ignore list for the broom
+ local function rebuildIgnore()
+ 	local list = { visuals }
+@@ -1349,8 +1422,168 @@
  	end
  end)
  
@@ -905,11 +1798,10 @@
  	if kind == "Jet" then
  		-- v2.34: another player's Leaf Blower in JET mode — its air stream behind them
  		if uid ~= player.UserId and typeof(center) == "Vector3" and typeof(dir) == "Vector3" and dir.Magnitude > 0.1 and dir.Magnitude < 2 then
-@@ -1362,6 +1546,27 @@
- 			end
+@@ -1363,6 +1596,27 @@
  		end
  		return
-+	end
+ 	end
 +	if kind == "Ability" then
 +		-- v2.43: a grass tool's strike-key ability (ToolService.Ability): its own effect for everybody
 +		if typeof(center) == "Vector3" and typeof(dir) == "Vector3" then
@@ -930,9 +1822,31 @@
 +			end
 +		end
 +		return
- 	end
++	end
  	if kind ~= "Cut" or uid == player.UserId or typeof(center) ~= "Vector3" then
  		return
+ 	end
+@@ -1558,6 +1812,7 @@
+ 	-- Shop · COSMETICS, put in the garden like eggs, opened with a show of their own
+ 	local ok, err = pcall(function()
+ 		local DecorBoxes = require(script:WaitForChild("DecorBoxes"))
++		eggOpening.Boxes = DecorBoxes -- v2.44: the garden egg is opened with the same show as a box
+ 		DecorBoxes.Start({
+ 			UIKit = UIKit,
+ 			Hud = hud,
+--- a/LeafRushServer.lua
++++ b/LeafRushServer.lua
+@@ -179,6 +179,10 @@
+ 	PhysicsService:CollisionGroupSetCollidable(RD, RD, false)
+ 	PhysicsService:CollisionGroupSetCollidable(RD, C.RayGroup, false)
+ 	PhysicsService:CollisionGroupSetCollidable(RD, C.Ghost, false)
++	-- v2.45: the rider's body (and the carrier) pass through the floor, curbs, pads and decor: the driver's
++	-- client rides the tractor over them with rays (MowerDrive). Only the fences stop riders.
++	PhysicsService:CollisionGroupSetCollidable(RD, "Default", false)
++	PhysicsService:CollisionGroupSetCollidable(RD, C.Floor, false)
+ 	for i = 1, LANES do
+ 		local res, broom = C.ResourcePrefix .. i, C.BroomPrefix .. i
+ 		PhysicsService:CollisionGroupSetCollidable(res, RW, true) -- the wall still keeps the items in
 --- a/MowerDrive.lua
 +++ b/MowerDrive.lua
 @@ -11,6 +11,7 @@
@@ -947,17 +1861,17 @@
  function MowerDrive.Start(config, juice)
  	local cur, sound, hint = 0, nil, nil
  	local side, lastGood, stuckT, smoke = nil, nil, 0, nil -- (v2.12: fence, un-stick, exhaust)
-+	local heading, upSm, airT = nil, nil, 0 -- (v2.44: yaw, smoothed slope normal, time without ground)
++	local heading, upSm, airT, yT = nil, nil, 0, nil -- (v2.44: yaw, smoothed slope normal, time without ground; v2.45: smoothed height)
 +	local C = config.Collision
 +	-- the fences / walls the tractor must NOT climb (they stay solid): the ground rays skip them
 +	local WALLS = { [C.PlotWall] = true, [C.RideWall or ""] = true, [C.ResWall] = true, [C.Ghost] = true }
  	local function cleanup()
  		cur = 0
-+		heading, upSm, airT = nil, nil, 0
++		heading, upSm, airT, yT = nil, nil, 0, nil
  		side, lastGood, stuckT = nil, nil, 0
  		if smoke then
  			smoke:Destroy()
-@@ -35,6 +41,29 @@
+@@ -35,6 +41,51 @@
  			hint = nil
  		end
  	end
@@ -967,7 +1881,7 @@
 +		local list = table.clone(skip)
 +		local rp = RaycastParams.new()
 +		rp.FilterType = Enum.RaycastFilterType.Exclude
-+		rp.CollisionGroup = C.Riders or "Default"
++		rp.CollisionGroup = "Default" -- (v2.45: the rider group passes through the world now: rays look as a normal part)
 +		rp.RespectCanCollide = true
 +		for _ = 1, 6 do
 +			rp.FilterDescendantsInstances = list
@@ -984,10 +1898,32 @@
 +		end
 +		return nil
 +	end
++	-- a ray that looks through the gate wall (it only stops leaves) but stops at everything else
++	local function castSolid(origin: Vector3, dir: Vector3, skip: { Instance }): RaycastResult?
++		local list = table.clone(skip)
++		local rp = RaycastParams.new()
++		rp.FilterType = Enum.RaycastFilterType.Exclude
++		rp.CollisionGroup = "Default"
++		rp.RespectCanCollide = true
++		for _ = 1, 4 do
++			rp.FilterDescendantsInstances = list
++			local hit = workspace:Raycast(origin, dir, rp)
++			if not hit then
++				return nil
++			end
++			local g = (hit.Instance :: any).CollisionGroup
++			if g == C.ResWall or g == C.Ghost then
++				table.insert(list, hit.Instance)
++			else
++				return hit
++			end
++		end
++		return nil
++	end
  	RunService.RenderStepped:Connect(function(dt)
  		local char = player.Character
  		local hum = char and char:FindFirstChildOfClass("Humanoid")
-@@ -54,6 +83,14 @@
+@@ -54,6 +105,14 @@
  		end
  		local top = model:GetAttribute("Speed") or 18
  		local throttle, steer = seat.ThrottleFloat, seat.SteerFloat
@@ -1002,7 +1938,7 @@
  		local want = throttle * top * (if throttle < 0 then 0.5 else 1)
  		local accel = if math.abs(want) > math.abs(cur) then 14 else 22
  		cur += math.clamp(want - cur, -accel * dt, accel * dt)
-@@ -118,19 +155,92 @@
+@@ -118,19 +177,100 @@
  			end
  			v = floor.CFrame:VectorToWorldSpace(Vector3.new(x, 0, z))
  		end
@@ -1027,20 +1963,20 @@
 +		if model.Parent then
 +			table.insert(skip, model.Parent)
 +		end
++		for _, pl in Players:GetPlayers() do
++			if pl.Character and pl.Character ~= char then
++				table.insert(skip, pl.Character) -- (other players are not ground and not walls)
++			end
++		end
 +		-- WALLS: three rays ahead (in the direction of travel) at the height of a tall step; anything higher
 +		-- (a wall, a fence, a big rock, a building) stops the tractor (it slides along it)
 +		local hv = Vector3.new(v.X, 0, v.Z)
 +		if hv.Magnitude > 0.5 then
 +			local dir = hv.Unit
 +			local perp = dir:Cross(Vector3.yAxis)
-+			local wp = RaycastParams.new()
-+			wp.FilterType = Enum.RaycastFilterType.Exclude
-+			wp.FilterDescendantsInstances = skip
-+			wp.CollisionGroup = C.Riders or "Default"
-+			wp.RespectCanCollide = true
 +			local reach = 2.5 + hv.Magnitude * 0.1
 +			for _, off in { -1.4, 0, 1.4 } do
-+				local hit = workspace:Raycast(Vector3.new(pos.X, pos.Y + 2.4, pos.Z) + perp * off, dir * reach, wp)
++				local hit = castSolid(Vector3.new(pos.X, pos.Y + 2.4, pos.Z) + perp * off, dir * reach, skip)
 +				if hit and hit.Normal.Y < 0.6 then
 +					local n = Vector3.new(hit.Normal.X, 0, hit.Normal.Z)
 +					if n.Magnitude > 1e-3 then
@@ -1067,21 +2003,28 @@
 +			local function sample(d: Vector3): number
 +				local h = groundAt(pos.X + d.X, pos.Z + d.Z, y0, skip)
 +				return math.clamp(h or hc, hc - 2.6, hc + 2.6)
-+			end
+ 			end
 +			local hf, hb = sample(heading * ahead), sample(-heading * 2.2)
 +			local hr, hl = sample(rightV * 1.6), sample(-rightV * 1.6)
-+			local sf = math.clamp((hf - hb) / (ahead + 2.2), -1.2, 1.2)
-+			local sr = math.clamp((hr - hl) / 3.2, -1.2, 1.2)
++			local function dead(v: number): number
++				return if math.abs(v) < 0.3 then 0 else v - math.sign(v) * 0.3
++			end
++			local sf = math.clamp(dead((hf - hb) / (ahead + 2.2)), -1.2, 1.2)
++			local sr = math.clamp(dead((hr - hl) / 3.2), -1.2, 1.2)
 +			local lift = math.max(0, hf - (hc + sf * ahead), hb - (hc - sf * 2.2), hr - (hc + sr * 1.6), hl - (hc - sr * 1.6))
 +			local targetY = hc + lift + 0.25
-+			vy = math.clamp((targetY - pos.Y) * 12, -60, 50)
++			-- the height follows the ground smoothly (a 0.6 stud pad is a glide, not a jolt), but never
++			-- more than 0.3 below what the body needs
++			yT = if yT then yT + (targetY - yT) * (1 - math.exp(-16 * dt)) else targetY
++			yT = math.max(yT, targetY - 0.3)
++			vy = math.clamp((yT - pos.Y) * 14, -60, 50)
 +			upTarget = (rightV * -sr + heading * -sf + Vector3.yAxis).Unit
 +			if pos.Y < hc - 0.5 then
 +				model:PivotTo(model:GetPivot() + Vector3.new(0, hc + 0.4 - pos.Y, 0)) -- below the surface: out
 +				vy = 0
- 			end
- 		else
--			stuckT = 0
++			end
++		else
++			yT = nil
 +			airT += dt
 +			if airT > 2.5 and lastGood then
 +				model:PivotTo(lastGood + Vector3.new(0, 2, 0)) -- fell off the world: back to the last good place
@@ -1090,24 +2033,64 @@
 +				v = Vector3.zero
 +				airT = 0
 +			end
- 		end
--		local turn = if math.abs(cur) > 0.5 then 1.9 else 1.2
--		steerC.AngularVelocity = Vector3.new(0, -steer * turn * (if cur < -0.5 then -1 else 1), 0)
++		end
 +		upSm = if upSm then upSm:Lerp(upTarget, 1 - math.exp(-9 * dt)).Unit else upTarget
 +		if tilt and tilt:IsA("AlignOrientation") then
 +			local fwdP = heading - upSm * heading:Dot(upSm)
 +			fwdP = if fwdP.Magnitude > 1e-3 then fwdP.Unit else heading
 +			tilt.CFrame = CFrame.fromMatrix(Vector3.zero, fwdP:Cross(upSm), upSm)
-+		else
+ 		else
+-			stuckT = 0
 +			steerC.AngularVelocity = Vector3.new(0, -steer * turn * (if cur < -0.5 then -1 else 1), 0)
-+		end
+ 		end
+-		local turn = if math.abs(cur) > 0.5 then 1.9 else 1.2
+-		steerC.AngularVelocity = Vector3.new(0, -steer * turn * (if cur < -0.5 then -1 else 1), 0)
 +		drive.VectorVelocity = Vector3.new(v.X, vy, v.Z)
  		-- engine
  		if not sound then
  			sound = Instance.new("Sound")
+--- a/NestEdit.lua
++++ b/NestEdit.lua
+@@ -100,7 +100,7 @@
+ 		local h = tonumber(model:GetAttribute("Height")) or 2.5
+ 		return root.Position, math.clamp(h * 0.7, 1.7, 3)
+ 	end
+-	return root.Position, 1.6
++	return root.Position, 2.4
+ end
+ 
+ -- the egg / box a ray points at (the nearest one; a garden object in front of it wins)
 --- a/PetService.lua
 +++ b/PetService.lua
-@@ -423,7 +423,7 @@
+@@ -151,7 +151,7 @@
+ 	player:SetAttribute("PetsEquipped", table.concat(eq, ","))
+ 	local owned = {}
+ 	for uid, p in data.Pets.Owned do
+-		owned[uid] = { Id = p.Id, Variant = p.Variant, Level = p.Level, Eq = table.find(data.Pets.Equipped, uid) ~= nil }
++		owned[uid] = { Id = p.Id, Variant = p.Variant, Level = p.Level, Eq = table.find(data.Pets.Equipped, uid) ~= nil, Fav = p.Fav == true or nil }
+ 	end
+ 	player:SetAttribute("PetData", HttpService:JSONEncode(owned))
+ 	player:SetAttribute("EggsOwned", HttpService:JSONEncode(data.Eggs.Owned))
+@@ -338,6 +338,18 @@
+ 	return true, ctx.PetConfig.Name(data.Pets.Owned[uid].Id, data.Pets.Owned[uid].Variant) .. " is following you"
+ end
+ 
++-- v2.44: ⭐ favourite pets: shown first in Inventory · PETS, and not sold by mistake
++function PetService.Favorite(player, uid, on)
++	local data = ctx.PlayerDataService.Get(player)
++	local p = data and pet(data, uid)
++	if not p then
++		return false, "Not your pet"
++	end
++	p.Fav = if on == true then true else nil
++	PetService.Publish(player)
++	return true, if on == true then "⭐ Added to favourites" else "Removed from favourites"
++end
++
+ function PetService.Unequip(player, uid)
+ 	local data = ctx.PlayerDataService.Get(player)
+ 	local i = data and type(uid) == "string" and table.find(data.Pets.Equipped, uid)
+@@ -423,7 +435,7 @@
  		return false, "Not your pet"
  	end
  	if ctx.IslandService then
@@ -1116,6 +2099,177 @@
  		if not can then
  			return false, why
  		end
+@@ -482,6 +494,9 @@
+ 	if offered(player, uid) then
+ 		return false, "This pet is in your trade offer"
+ 	end
++	if p.Fav == true then
++		return false, "⭐ It is a favourite — remove the star first"
++	end
+ 	local price = ctx.PetConfig.SellPrice(p.Id, p.Variant, p.Level)
+ 	data.Pets.Owned[uid] = nil
+ 	local i = table.find(data.Pets.Equipped, uid)
+@@ -542,6 +557,8 @@
+ 		return PetService.Equip(player, req.Uid)
+ 	elseif a == "Unequip" then
+ 		return PetService.Unequip(player, req.Uid)
++	elseif a == "Favorite" then
++		return PetService.Favorite(player, req.Uid, req.On == true)
+ 	elseif a == "Upgrade" then
+ 		return PetService.Upgrade(player, req.Uid)
+ 	elseif a == "UpgradeMax" then -- v2.34
+--- a/PetsUI.lua
++++ b/PetsUI.lua
+@@ -817,7 +817,20 @@
+ 			end
+ 		end
+ 	end
++	-- v2.44 ⭐: favourites first. A pet whose star you take off stays where it is until you open the
++	-- menu again (favKeep is cleared by ResetFavOrder), so it never jumps to the bottom under your cursor
++	self.favKeep = self.favKeep or {}
++	for _, p in arr do
++		if p.Fav == true then
++			self.favKeep[p.Uid] = true
++		end
++	end
++	local keep = self.favKeep
+ 	table.sort(arr, function(a, b)
++		local fa, fb = keep[a.Uid] == true, keep[b.Uid] == true
++		if fa ~= fb then
++			return fa
++		end
+ 		if a.Eq ~= b.Eq then
+ 			return a.Eq
+ 		end
+@@ -841,6 +854,11 @@
+ 	return arr, same, equipped
+ end
+ 
++-- the menu was opened again: the pets whose star was taken off go down to their place
++function PetsUI:ResetFavOrder()
++	self.favKeep = nil
++end
++
+ -- v2.39 STACKS: what keeps two otherwise identical pets APART (besides following you or
+ -- not): on the hotbar "H", boosted by a toy "T", in your open trade offer "L".
+ -- -> markOf(p) -> string, and the three sets (for the panel's text)
+@@ -872,7 +890,7 @@
+ 		return ok and on == true
+ 	end
+ 	return function(p)
+-		return (if hot[p.Uid] then "H" else "") .. (if toy[p.Uid] then "T" else "") .. (if locked(p.Uid) then "L" else "")
++		return (if hot[p.Uid] then "H" else "") .. (if toy[p.Uid] then "T" else "") .. (if locked(p.Uid) then "L" else "") .. (if (self.favKeep or {})[p.Uid] then "F" else "")
+ 	end, hot, toy, locked
+ end
+ 
+@@ -988,7 +1006,7 @@
+ 		local n = st.Count
+ 		table.insert(items, {
+ 			Key = st.Key,
+-			Title = P.Name(p.Id, p.Variant),
++			Title = (if p.Fav == true then "⭐ " else "") .. P.Name(p.Id, p.Variant),
+ 			Rarity = def.Rarity,
+ 			Color = K.rarityColor(def.Rarity),
+ 			Badge = "Lv" .. p.Level,
+@@ -1025,7 +1043,7 @@
+ 			tostring(equipped < slots),
+ 			tostring(type(cost) == "number" and money >= cost),
+ 			tostring(type(total) == "number" and money >= total),
+-			tostring(it.Hot), tostring(it.Toy), tostring(it.Locked), tostring(it.Count), tostring(it.Pile),
++			tostring(it.Hot), tostring(it.Toy), tostring(it.Locked), tostring(it.Count), tostring(it.Pile), tostring(p.Fav == true),
+ 		}, "|")
+ 	end
+ 	local shown = ItemGrid.render(K, list, {
+@@ -1260,6 +1278,18 @@
+ 			end
+ 		end })
+ 	end
++	-- v2.44: ⭐ FAVOURITE: first in the list, protected from SELL
++	table.insert(specs, { Text = if p.Fav == true then "★ UNFAVOURITE" else "☆ FAVOURITE", Color = if p.Fav == true then K.MUTED else Color3.fromRGB(235, 170, 30), OnClick = function()
++		self.selUid = p.Uid
++		self:_send({ Action = "Favorite", Uid = p.Uid, On = p.Fav ~= true })
++		if self.Sfx then
++			self.Sfx.Play("Click")
++		end
++	end })
++	if p.Fav == true then
++		sellSpec.Enabled = false
++		sellSpec.Text = "⭐ FAVOURITE"
++	end
+ 	table.insert(specs, sellSpec) -- (always the last button)
+ 	-- the whole description of its ability, last in the text box (scroll down to read it)
+ 	local desc = if type(def.Desc) == "string" and def.Desc ~= "" then def.Desc else nil
+--- a/PlotSystem.lua
++++ b/PlotSystem.lua
+@@ -71,6 +71,44 @@
+ 
+ -- v2.8: no "Plot N · free" any more. A taken garden shows a SMALL tag over its gate:
+ -- the owner's avatar on the left and the nickname next to it. A free garden shows nothing.
++-- v2.44: the QUEST GIVER (QuestNpc) and the UPGRADE sign (UpgradeSign) of a yard exist only while
++-- somebody owns it, and only that player may use them: their prompts are switched off here for
++-- good and each CLIENT turns them on for the yard that is its own (LeafRushClient)
++local HELPERS = { QuestNpc = true, UpgradeSign = true }
++local function setHelpers(plot, on)
++	local m = plot and plot.Model
++	if not m then
++		return
++	end
++	for _, d in m:GetDescendants() do
++		if d:IsA("ProximityPrompt") and (d.Name == "QuestNpc" or d.Name == "GardenUpgrade") then
++			d.Enabled = false
++		end
++	end
++	for _, h in m:GetDescendants() do
++		if HELPERS[h.Name] and (h:IsA("Model") or h:IsA("BasePart")) then
++			for _, d in { h, table.unpack(h:GetDescendants()) } do
++				if d:IsA("BasePart") then
++					if d:GetAttribute("OrigT") == nil then
++						d:SetAttribute("OrigT", d.Transparency)
++						d:SetAttribute("OrigC", d.CanCollide)
++					end
++					d.Transparency = if on then d:GetAttribute("OrigT") else 1
++					d.CanCollide = if on then d:GetAttribute("OrigC") else false
++					d.CanTouch = on
++				elseif d:IsA("Decal") or d:IsA("Texture") then
++					if d:GetAttribute("OrigT") == nil then
++						d:SetAttribute("OrigT", d.Transparency)
++					end
++					d.Transparency = if on then d:GetAttribute("OrigT") else 1
++				elseif d:IsA("BillboardGui") or d:IsA("SurfaceGui") or d:IsA("ParticleEmitter") or d:IsA("Light") or d:IsA("Beam") or d:IsA("Trail") then
++					(d :: any).Enabled = on
++				end
++			end
++		end
++	end
++end
++
+ local function refreshSign(plot)
+ 	local label = plot.SignLabel
+ 	if not label then
+@@ -529,6 +567,7 @@
+ 	end
+ 	pcall(fenceGroups, plot) -- v2.40: (a baked yard that needed no layout: its invisible walls get their groups here)
+ 	refreshSign(plot)
++	pcall(setHelpers, plot, false) -- v2.44: nobody lives here yet: no quest giver, no upgrade sign
+ 	return plot
+ end
+ 
+@@ -734,6 +773,7 @@
+ 	plot.Model:SetAttribute("Lane", plot.Lane)
+ 	player:SetAttribute("PlotIndex", plot.Index)
+ 	refreshSign(plot)
++	pcall(setHelpers, plot, true) -- v2.44: the quest giver and the upgrade sign appear for the owner
+ 	local size = ctx.PlotMath.PlotSize(ctx.Config.Plot, data.Plot.Expansion)
+ 	layoutGround(plot, size)
+ 	PlotSystem.PublishYard(player, data)
+@@ -948,6 +988,7 @@
+ 	end
+ 	layoutGround(plot, ctx.Config.Plot.Sizes[0])
+ 	refreshSign(plot)
++	pcall(setHelpers, plot, false) -- v2.44: the yard is free again: they go away
+ end
+ 
+ function PlotSystem.SpawnCFrame(plot)
 --- a/Rarities.lua
 +++ b/Rarities.lua
 @@ -5,6 +5,7 @@
@@ -1138,6 +2292,45 @@
  	local ok, _, stats = pcall(ctx.BroomSystem.Current, player)
  	local need = ctx.Config.Resources.HeavyBroom or { Power = 70, Durability = 60 }
  	return ok and type(stats) == "table" and (stats.Power or 0) >= need.Power and (stats.Durability or 0) >= need.Durability
+--- a/SocialConfig.lua
++++ b/SocialConfig.lua
+@@ -23,14 +23,11 @@
+ end
+ 
+ S.Boards = {
+-	{ Id = "TopCleaners", Display = "Top Cleaners", Icon = "🧹", Unit = "items swept", Value = function(d) return d.Stats.TotalCollected end },
++	{ Id = "TopMoney", Display = "Top Money", Icon = "💰", Unit = "Money earned", Value = function(d) return d.Stats.LVEarned or 0 end },
++	{ Id = "TopTime", Display = "Most Time Played", Icon = "🕐", Unit = "time", Time = true, Value = function(d) return d.Stats.PlayTime or 0 end },
+ 	{ Id = "MostLeaves", Display = "Most Leaves", Icon = "🍂", Unit = "leaves", Value = function(d) return (d.Stats.Collected.Leaf or 0) + (d.Stats.Collected.DarkLeaf or 0) + (d.Stats.Collected.GoldenLeaf or 0) + (d.Stats.Collected.CrownLeaf or 0) end },
+-	{ Id = "MostMutations", Display = "Most Mutations", Icon = "✨", Unit = "mutated drops", Value = function(d) return sum(d.Mutations.Collected) end },
+-	{ Id = "RarestPet", Display = "Rarest Pet", Icon = "🐾", Unit = "rarity score", Value = function(d, ctx) return ctx and ctx.RarestPet and ctx.RarestPet(d) or 0 end },
+ 	{ Id = "MostEggs", Display = "Most Eggs Opened", Icon = "🥚", Unit = "eggs", Value = function(d) return d.Eggs.Opened end },
+-	{ Id = "LargestYard", Display = "Largest Yard", Icon = "📏", Unit = "studs", Value = function(d, ctx) return ctx and ctx.YardSize and ctx.YardSize(d) or 0 end },
+-	{ Id = "ValuableYard", Display = "Most Valuable Yard", Icon = "🏡", Unit = "Money built", Value = function(d, ctx) return ctx and ctx.YardValue and ctx.YardValue(d) or 0 end },
+-	{ Id = "MostGold", Display = "Most Gold", Icon = "🪙", Unit = "gold", Value = function(d) return (d.Stats.Collected.Gold or 0) + (d.Stats.Collected.Coin or 0) end },
++	{ Id = "MostBoxes", Display = "Most Boxes Opened", Icon = "🎁", Unit = "boxes", Value = function(d) return type(d.Boxes) == "table" and tonumber(d.Boxes.Opened) or 0 end },
+ 	{ Id = "MostLiked", Display = "Most Liked Yard", Icon = "❤", Unit = "likes", Value = function(d) return d.Social.Likes end },
+ }
+ S.BoardById = {}
+@@ -74,6 +71,18 @@
+ 	return math.floor((unix or 0) / 86400)
+ end
+ 
++-- "3h 20m" for the play-time board
++function S.Duration(sec)
++	sec = math.max(0, math.floor(tonumber(sec) or 0))
++	local d, h, m = math.floor(sec / 86400), math.floor(sec % 86400 / 3600), math.floor(sec % 3600 / 60)
++	if d > 0 then
++		return string.format("%dd %dh", d, h)
++	elseif h > 0 then
++		return string.format("%dh %dm", h, m)
++	end
++	return string.format("%dm", m)
++end
++
+ -- "1.2K", "3.4M" for board values
+ function S.Short(n)
+ 	n = tonumber(n) or 0
 --- a/ToolConfig.lua
 +++ b/ToolConfig.lua
 @@ -46,6 +46,36 @@
@@ -3787,7 +4980,7 @@
  	-- v2.12: exhaust smoke behind the mower (everyone sees it; the driver's client
  	-- makes it thicker with speed)
  	local exhaust = Instance.new("Attachment")
-@@ -1662,6 +2310,45 @@
+@@ -1662,6 +2310,50 @@
  	local s = S(player)
  	s.Mower, s.MowerId, s.MowerPos, s.MowerT = model, id, chassis.Position, ToolService.Now()
  	setRiding(player, true) -- v2.40: on the mower the fences are a wall (Dismount takes it back)
@@ -3808,8 +5001,13 @@
 +			end
 +			local p = RaycastParams.new()
 +			p.FilterType = Enum.RaycastFilterType.Exclude
-+			p.CollisionGroup = C.Riders or "Default"
++			p.CollisionGroup = "Default" -- (the rider group no longer collides with the world: look as a normal part)
 +			p.RespectCanCollide = true
++			for _, pl in ctx.Players:GetPlayers() do
++				if pl.Character then
++					table.insert(list, pl.Character)
++				end
++			end
 +			local hit
 +			for _ = 1, 6 do
 +				p.FilterDescendantsInstances = list
@@ -3833,7 +5031,7 @@
  	seat.CanTouch = false -- (only the server seats you: nobody else can hop on)
  	seat:Sit(hum)
  	task.delay(0.6, function()
-@@ -1718,12 +2405,23 @@
+@@ -1718,12 +2410,23 @@
  	end
  	local turbo = (player:GetAttribute("TurboUntil") or 0) > serverTime()
  	local mult = if turbo then TC().Consumables.TurboFuel.SpeedMult else 1
@@ -3860,7 +5058,7 @@
  		-- v2.8: riding outside your garden is fine — but nothing is cut there
  		local lp = plot.CFrame:PointToObjectSpace(chassis.Position)
  		if math.max(math.abs(lp.X), math.abs(lp.Z)) > plot.Size / 2 + 1 then
-@@ -1732,11 +2430,15 @@
+@@ -1732,11 +2435,15 @@
  		end
  	else
  		local id = ToolService.Held(player)
@@ -3877,7 +5075,7 @@
  		local root = rootOf(player)
  		if not root then
  			return 0
-@@ -1750,10 +2452,22 @@
+@@ -1750,10 +2457,22 @@
  		return 0
  	end
  	local moved = flat(pos - last)
@@ -3901,7 +5099,7 @@
  	local keys = ctx.GrassService.CellsIn(plot, pos, def.Radius)
  	-- v2.8: no mown stripes are left on the lawn behind the mower
  	return (ctx.GrassService.Cut(player, keys, def.Power))
-@@ -1778,9 +2492,15 @@
+@@ -1778,9 +2497,15 @@
  	elseif a == "Slot" then
  		return ToolService.SetSlot(player, req.Id, req.On == true)
  	elseif a == "Use" then
@@ -3918,7 +5116,7 @@
  	elseif a == "Hotbar" then
  		return ToolService.SetHotbar(player, req.List)
  	elseif a == "RepairPick" then
-@@ -1808,6 +2528,12 @@
+@@ -1808,6 +2533,12 @@
  		ToolService.Whirl(player) -- v2.40: the trimmer's strike-key ability
  	elseif a == "Blow" then
  		ToolService.BlowAt(player, req.Dir, req.Jet == true) -- v1.4 (v2.34: Jet = the gust carries the player)
@@ -3931,7 +5129,7 @@
  	elseif a == "Off" then
  		ToolService.Dismount(player)
  	elseif a == "Hold" then
-@@ -1857,6 +2583,17 @@
+@@ -1857,6 +2588,17 @@
  						warn("[LeafRush] magnet: " .. tostring(errM))
  					end
  				end
@@ -4611,9 +5809,212 @@
 +end
 +
  return W
+--- a/WorldBuilder.lua
++++ b/WorldBuilder.lua
+@@ -63,7 +63,200 @@
+ 	return Vector3.new(s.Position.X, 0, s.Position.Z)
+ end
+ 
++---------------------------------------------------------------- v2.44 MINI PARKOUR on the hub island
++--[[
++	A little staircase of toy-brick platforms on the east side of the plaza (between the road to
++	the event island and the road to Garden 6). Whoever climbs it and steps on the red BUTTON at the
++	top gets ×2 value for LEAVES for 5 minutes — for THEMSELVES only (data.Stats.ParkourUntil,
++	read by EconomyService.ValueOf). After a press the button rests for 15 minutes for EVERYONE.
++]]
++local PARKOUR = {
++	Cooldown = 15 * 60, -- seconds the button rests after anyone used it
++	Boost = 5 * 60, -- seconds of ×2 leaves the presser gets
++	Steps = { -- { x, z, top height } of the platforms (the first is the start, the last carries the button)
++		{ 46, -12, 1.0 }, { 53.5, -15, 3.5 }, { 60.5, -11, 6.0 }, { 67.5, -15, 8.5 }, { 74.5, -11, 11.0 }, { 81.5, -14.5, 13.5 }, { 89, -13, 16.0 },
++	},
++}
++local parkourUntil = 0 -- os.time() the button is ready again
++WorldBuilder.Parkour = PARKOUR
++
++local function buildParkour()
++	local root = WorldBuilder.Root
++	if not root then
++		return
++	end
++	local hub = root:FindFirstChild("HubIsland") or root
++	local old = hub:FindFirstChild("Parkour")
++	if old then
++		old:Destroy()
++	end
++	local folder = Instance.new("Folder")
++	folder.Name = "Parkour"
++	folder.Parent = hub
++	local function brick(name, size, cf, color, studs)
++		local p = Instance.new("Part")
++		p.Name = name
++		p.Anchored = true
++		p.Size = size
++		p.CFrame = cf
++		p.Color = color
++		p.Material = Enum.Material.Plastic
++		p.TopSurface = if studs == false then Enum.SurfaceType.Smooth else Enum.SurfaceType.Studs
++		p.BottomSurface = Enum.SurfaceType.Smooth
++		p.Parent = folder
++		return p
++	end
++	local COLORS = { Color3.fromRGB(255, 120, 120), Color3.fromRGB(255, 190, 80), Color3.fromRGB(250, 230, 90), Color3.fromRGB(120, 220, 120), Color3.fromRGB(90, 190, 255), Color3.fromRGB(190, 130, 255), Color3.fromRGB(255, 255, 255) }
++	local steps = PARKOUR.Steps
++	local first, last
++	for i, st in steps do
++		local big = i == #steps
++		local w = if big then 9 else 6
++		local part = brick(if i == 1 then "Start" else if big then "Top" else "Step" .. i, Vector3.new(w, 1, w), CFrame.new(st[1], st[3] - 0.5, st[2]), COLORS[i] or COLORS[1])
++		-- a column under each platform so it does not float in the air
++		brick("Leg" .. i, Vector3.new(2, st[3] - 1, 2), CFrame.new(st[1], (st[3] - 1) / 2, st[2]), Color3.fromRGB(220, 220, 230), false)
++		if i == 1 then
++			first = part
++		elseif big then
++			last = part
++		end
++	end
++	-- the sign at the start
++	local sx, sz = steps[1][1], steps[1][2]
++	local post = brick("SignPost", Vector3.new(0.6, 5, 0.6), CFrame.new(sx - 4.2, 3.5, sz + 3), Color3.fromRGB(120, 85, 55), false)
++	local board = brick("SignBoard", Vector3.new(7, 3.4, 0.5), CFrame.new(sx - 4.2, 6.2, sz + 3) * CFrame.Angles(0, math.rad(-20), 0), Color3.fromRGB(60, 40, 25), false)
++	local sg = Instance.new("SurfaceGui")
++	sg.Face = Enum.NormalId.Front
++	sg.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
++	sg.PixelsPerStud = 50
++	sg.Parent = board
++	local sl = Instance.new("TextLabel")
++	sl.Size = UDim2.fromScale(1, 1)
++	sl.BackgroundTransparency = 1
++	sl.Font = Enum.Font.LuckiestGuy
++	sl.TextScaled = true
++	sl.TextColor3 = Color3.fromRGB(255, 225, 120)
++	sl.Text = "MINI PARKOUR\nClimb up and press the red button!"
++	sl.Parent = sg
++	post.CanCollide = true
++	-- the button on the top platform
++	local tx, tz, ty = steps[#steps][1], steps[#steps][2], steps[#steps][3]
++	local base = brick("ButtonBase", Vector3.new(0.4, 3.6, 3.6), CFrame.new(tx, ty + 0.2, tz) * CFrame.Angles(0, 0, math.pi / 2), Color3.fromRGB(70, 70, 80), false)
++	base.Shape = Enum.PartType.Cylinder
++	local btn = brick("ParkourButton", Vector3.new(0.5, 2.8, 2.8), CFrame.new(tx, ty + 0.55, tz) * CFrame.Angles(0, 0, math.pi / 2), Color3.fromRGB(235, 50, 50), false)
++	btn.Shape = Enum.PartType.Cylinder
++	btn.Material = Enum.Material.Neon
++	local bb = Instance.new("BillboardGui")
++	bb.Size = UDim2.fromOffset(260, 70)
++	bb.StudsOffset = Vector3.new(0, 4.2, 0)
++	bb.AlwaysOnTop = true
++	bb.MaxDistance = 90
++	bb.Parent = btn
++	local bl = Instance.new("TextLabel")
++	bl.Size = UDim2.fromScale(1, 1)
++	bl.BackgroundTransparency = 1
++	bl.Font = Enum.Font.LuckiestGuy
++	bl.TextScaled = true
++	bl.TextColor3 = Color3.fromRGB(255, 240, 150)
++	bl.TextStrokeTransparency = 0.2
++	bl.Parent = bb
++	local startedAt = {} -- [player] = os.clock() it touched the first platform
++	local said = {} -- [player] = os.clock() of the last "recharging" message
++	local function notify(player, text)
++		if ctx.Net and ctx.Net.Notify then
++			ctx.Net.Notify:FireClient(player, text)
++		end
++	end
++	local function playerOf(hit)
++		local model = hit and hit:FindFirstAncestorOfClass("Model")
++		return model and Players:GetPlayerFromCharacter(model)
++	end
++	first.Touched:Connect(function(hit)
++		local pl = playerOf(hit)
++		if pl then
++			startedAt[pl] = os.clock()
++		end
++	end)
++	btn.Touched:Connect(function(hit)
++		local pl = playerOf(hit)
++		if not pl then
++			return
++		end
++		local data = ctx.PlayerDataService and ctx.PlayerDataService.Get(pl)
++		if not data then
++			return
++		end
++		local t0 = startedAt[pl]
++		if not t0 or os.clock() - t0 < 4 then
++			if os.clock() - (said[pl] or -1e9) > 4 then
++				said[pl] = os.clock()
++				notify(pl, "🏁 Start on the first platform and climb up!")
++			end
++			return
++		end
++		local now = os.time()
++		if now < parkourUntil then
++			if os.clock() - (said[pl] or -1e9) > 4 then
++				said[pl] = os.clock()
++				local left = parkourUntil - now
++				notify(pl, string.format("⏳ The button is recharging: %d:%02d", math.floor(left / 60), left % 60))
++			end
++			return
++		end
++		parkourUntil = now + PARKOUR.Cooldown
++		startedAt[pl] = nil
++		data.Stats.ParkourUntil = now + PARKOUR.Boost
++		pl:SetAttribute("ParkourBoostUntil", now + PARKOUR.Boost)
++		notify(pl, "🍃 ×2 LEAVES for 5 minutes!")
++	end)
++	Players.PlayerRemoving:Connect(function(pl)
++		startedAt[pl], said[pl] = nil, nil
++	end)
++	-- the button's face: ready / recharging (everybody sees the same timer)
++	task.spawn(function()
++		local lastReady
++		while btn.Parent do
++			local left = parkourUntil - os.time()
++			local ready = left <= 0
++			if ready ~= lastReady then
++				lastReady = ready
++				btn.Color = if ready then Color3.fromRGB(235, 50, 50) else Color3.fromRGB(110, 110, 120)
++				btn.Material = if ready then Enum.Material.Neon else Enum.Material.SmoothPlastic
++			end
++			bl.Text = if ready then "🍃 ×2 LEAVES · 5 min" else string.format("⏳ %d:%02d", math.floor(left / 60), left % 60)
++			task.wait(1)
++		end
++	end)
++end
++
++-- a player who joined with the boost still running gets its clock on the HUD
++local function publishBoost(player)
++	local d = ctx.PlayerDataService and ctx.PlayerDataService.Get(player)
++	local u = d and tonumber(d.Stats.ParkourUntil) or 0
++	player:SetAttribute("ParkourBoostUntil", if u > os.time() then u else nil)
++end
++
+ function WorldBuilder.Start()
++	pcall(function()
++		task.defer(function()
++			pcall(buildParkour)
++		end)
++		local function watch(p)
++			task.spawn(function()
++				for _ = 1, 60 do
++					if ctx.PlayerDataService and ctx.PlayerDataService.Get(p) then
++						publishBoost(p)
++						return
++					end
++					task.wait(1)
++				end
++			end)
++		end
++		Players.PlayerAdded:Connect(watch)
++		for _, p in Players:GetPlayers() do
++			watch(p)
++		end
++	end)
+ 	local map = ctx.WorldFolder:FindFirstChild("Map")
+ 	if not map then
+ 		warn("[LeafRush] Workspace.LeafRush.Map is missing — the islands were deleted in Studio?")
 --- a/ru.lua
 +++ b/ru.lua
-@@ -5887,4 +5887,161 @@
+@@ -5887,4 +5887,179 @@
  L.Strings["There is a slab here already — only the same slab fits onto it"] = "Здесь уже лежит плита — на неё можно положить только такую же"
  L.Strings["Trees need a full block — not a slab"] = "Деревьям нужен целый блок, а не плита"
  
@@ -4773,5 +6174,23 @@
 +L.Templates["🔒 CLOSED · opens on island %d"] = "🔒 ЗАКРЫТО · откроется на острове %1"
 +L.Templates["🔒 CLOSED · opens on island %d · %s"] = "🔒 ЗАКРЫТО · откроется на острове %1 · %2"
 +L.Templates["🔒 Closed until you buy the island %d%s. %s"] = "🔒 Закрыто, пока не купишь остров %1%2. %3"
++
++-- v2.44 favourites, parkour, boards, fonts
++L.Strings["⭐ Added to favourites"] = "⭐ Добавлен в избранное"
++L.Strings["Removed from favourites"] = "Убран из избранного"
++L.Strings["☆ FAVOURITE"] = "☆ В ИЗБРАННОЕ"
++L.Strings["★ UNFAVOURITE"] = "★ ИЗ ИЗБРАННОГО"
++L.Strings["⭐ FAVOURITE"] = "⭐ ИЗБРАННЫЙ"
++L.Strings["⭐ It is a favourite — remove the star first"] = "⭐ Это избранный пет — сначала убери звезду"
++L.Strings["🏁 Start on the first platform and climb up!"] = "🏁 Начни с первой платформы и поднимись наверх!"
++L.Strings["🍃 ×2 LEAVES for 5 minutes!"] = "🍃 ×2 за листья на 5 минут!"
++L.Strings["🍃 ×2 LEAVES · 5 min"] = "🍃 ×2 листья · 5 мин"
++L.Strings["MINI PARKOUR\nClimb up and press the red button!"] = "МИНИ-ПАРКУР\nЗалезь наверх и нажми красную кнопку!"
++L.Strings["Top Money"] = "Топ по деньгам"
++L.Strings["Most Time Played"] = "Больше всего времени в игре"
++L.Strings["Most Boxes Opened"] = "Больше всех открыл боксов"
++L.Strings["Most Liked Yard"] = "Самый залайканный сад"
++L.Templates["⏳ The button is recharging: %d:%02d"] = "⏳ Кнопка перезаряжается: %1:%2"
++L.Templates["🍃 ×2 LEAVES  %d:%02d"] = "🍃 ×2 листья  %1:%2"
 +
  return L
