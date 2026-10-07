@@ -3910,7 +3910,7 @@
  	self.dRarity.Text = rarityLine -- (v2.32: the stock is added to this line below)
  	self.dRarity.TextColor3 = rar.Color
  	local how = ({
-@@ -882,21 +982,31 @@
+@@ -882,13 +982,15 @@
  		how = "🖱 Hold + pull toward you · strike key = GATHER into a pile"
  	elseif id == "Blower" then
  		how = "🖱 Hold: leaves fly away from the nozzle"
@@ -3926,26 +3926,9 @@
 -	self.dDesc.Text = def.Description
 +	self.dDesc.Text = if lockTierD then string.format("🔒 Closed until you buy the island %d%s. %s", lockTierD, if lockIsland then " “" .. lockIsland.Display .. "”" else "", def.Description) else def.Description
  	local isItem = TC.Consumables[id] ~= nil
--	self.slotBtn.Visible = isItem
-+	local ownedTool = not isItem and d.OwnedSet[id] == true
-+	self.slotBtn.Visible = isItem or ownedTool
+ 	self.slotBtn.Visible = isItem
  	local top = 212
- 	if isItem then
- 		local inBar = table.find(d.Slots, id) ~= nil
- 		self.slotBtn.Text = if inBar then "✔ IN THE HOTBAR — click to take it out" else "➕ PUT IN THE HOTBAR (slots 6 · 7 · 8)"
- 		self.slotBtn.BackgroundColor3 = if inBar then Color3.fromRGB(110, 80, 170) else Color3.fromRGB(70, 110, 160)
- 		top = 240
-+	elseif ownedTool then
-+		-- v2.43: the usual "＋ HOTBAR" / "− HOTBAR" of every tool you own (the old "IN SLOT 2" button is gone)
-+		local H = self.Hotbar
-+		local onBar = H ~= nil and H:Has("Tool", id)
-+		self.slotBtn.Text = if onBar then "− HOTBAR" else "＋ HOTBAR"
-+		self.slotBtn.BackgroundColor3 = if onBar then Color3.fromRGB(110, 96, 110) else Color3.fromRGB(70, 110, 160)
-+		top = 240
- 	end
- 	self:_drawRows(id, d, self:_rows(id, d), top)
- 	-- v2.40 🤖 AUTO-BUY: the SMALL pill of a one-use item, on the bottom left corner of its
-@@ -922,6 +1032,11 @@
+@@ -922,6 +1024,11 @@
  			self:_send({ Action = "BuyItem", Id = id, Count = 1 }, a)
  		end
  		robuxFor, robuxKind, robuxPayload = price, "Item", { Id = id, Count = 1 }
@@ -3957,7 +3940,7 @@
  	elseif not owned then
  		a.Text = if price > 0 then "BUY · 💰" .. self.fmt(price) else "GET · FREE"
  		a.BackgroundColor3 = if money >= price then GREEN_BUY else Color3.fromRGB(80, 96, 86)
-@@ -933,13 +1048,27 @@
+@@ -933,13 +1040,27 @@
  		end
  	elseif TC.GrassTools[id] then
  		local inSlot = d.Grass == id
@@ -3990,7 +3973,7 @@
  	elseif id == "Vacuum" then
  		local V = TC.Vacuum(d.Up.Vacuum)
  		local used = math.min(self.player:GetAttribute("VacUsed") or 0, V.Capacity)
-@@ -977,6 +1106,24 @@
+@@ -977,6 +1098,24 @@
  				self:_send({ Action = "Recharge" }, a)
  			end
  		end
@@ -4015,6 +3998,37 @@
  	elseif id == "Pickaxe" then
  		-- v2.38: repair its durability for Money (like the vacuum), by how much is missing
  		local tier = TC.PickaxeTier(d.Up.Pickaxe)
+@@ -1001,6 +1140,30 @@
+ 		a.BackgroundColor3 = Color3.fromRGB(70, 110, 84)
+ 		self.onAction = nil
+ 	end
++	if owned and not isItem and string.sub(a.Text, 1, 5) == "OWNED" then
++		-- v2.43: nothing to repair / recharge: the big button puts the tool on the hotbar (or takes it off)
++		local onBar = self.Hotbar ~= nil and self.Hotbar:Has("Tool", id)
++		a.Text = if onBar then "− HOTBAR" else "＋ HOTBAR"
++		a.BackgroundColor3 = if onBar then Color3.fromRGB(110, 96, 110) else Color3.fromRGB(70, 110, 160)
++		self.onAction = function()
++			local H = self.Hotbar
++			if not H then
++				return
++			end
++			if H:Has("Tool", id) then
++				H:Remove("Tool", id)
++			else
++				local okH, whyH = H:Add("Tool", id)
++				if not okH and self.Hud then
++					self.Hud:Toast(whyH or "The hotbar is full", 2.5, true)
++				end
++			end
++			if self.Sfx then
++				self.Sfx.Play("Click")
++			end
++			self:_refresh()
++		end
++	end
+ 	local rb = R and robuxFor and robuxFor > 0 and R.ForMoney(robuxFor)
+ 	local showR = rb ~= nil and rb ~= false and R.Available(rb)
+ 	self.robuxButton.Visible = showR
 --- a/TouchControls.lua
 +++ b/TouchControls.lua
 @@ -221,6 +221,16 @@
