@@ -76,11 +76,20 @@
  		barBg.Name = "Meter"
  		barBg.AnchorPoint = Vector2.new(0.5, 1)
 -		barBg.Position = UDim2.new(0.5, 0, 1, -4)
-+		barBg.Position = UDim2.new(0.5, 0, 1, -13) -- (v2.43: above the cooldown bar)
++		barBg.Position = UDim2.new(0.5, 0, 1, -4) -- (v2.43: the lower strip: energy / durability / fuel)
  		barBg.Size = UDim2.new(1, -14, 0, 5)
  		barBg.BackgroundColor3 = Color3.fromRGB(40, 36, 44)
  		barBg.Visible = false
-@@ -1362,6 +1377,34 @@
+@@ -573,7 +588,7 @@
+ 		local cdBg = Instance.new("Frame")
+ 		cdBg.Name = "Cooldown"
+ 		cdBg.AnchorPoint = Vector2.new(0.5, 1)
+-		cdBg.Position = UDim2.new(0.5, 0, 1, -4)
++		cdBg.Position = UDim2.new(0.5, 0, 1, -13) -- (v2.43: the upper strip: the ability's cooldown / the reload)
+ 		cdBg.Size = UDim2.new(1, -14, 0, 6)
+ 		cdBg.BackgroundColor3 = Color3.fromRGB(40, 36, 44)
+ 		cdBg.Visible = false
+@@ -1362,6 +1377,41 @@
  	self:_tip()
  end
  
@@ -94,9 +103,16 @@
 +	end
 +	for i, e in self.entries do
 +		local s = self.slots[i]
-+		local name = e and e.K == "Tool" and e.Id ~= "Rake" and names[e.Id]
++		local name = e and e.K == "Tool" and e.Id ~= "Rake" and (names[e.Id] or (e.Id == "Blaster" and "Blast"))
 +		if s and name then
-+			local ready, total = self.player:GetAttribute(name .. "Ready"), tonumber(self.player:GetAttribute(name .. "Cd")) or 0
++			local ready, total
++			if e.Id == "Blaster" then
++				-- v2.43: the reload (BlastReloadAt = server time it is over; its length: the blaster's Reload)
++				ready = self.player:GetAttribute("BlastReloadAt")
++				total = self.ToolConfig.Blaster((self:_tools().Up or {}).Blaster).Reload
++			else
++				ready, total = self.player:GetAttribute(name .. "Ready"), tonumber(self.player:GetAttribute(name .. "Cd")) or 0
++			end
 +			if type(ready) == "number" and ready > now and total > 0 then
 +				s.CD.Visible = true
 +				s.CDFill.Size = UDim2.fromScale(math.clamp(1 - (ready - now) / total, 0, 1), 1)
@@ -115,7 +131,7 @@
  function BroomHotbar:_bars()
  	local p = self.player
  	local bat, max = p:GetAttribute("Battery"), p:GetAttribute("BatteryMax")
-@@ -1383,7 +1426,19 @@
+@@ -1383,7 +1433,19 @@
  			s.Meter.Visible = true
  			local f = math.clamp(p:GetAttribute("BlowLeft") / p:GetAttribute("BlowMax"), 0, 1)
  			s.Fill.Size = UDim2.fromScale(f, 1)
@@ -136,15 +152,29 @@
  		elseif e and e.K == "Tool" and e.Id == "Pickaxe" and type(p:GetAttribute("PickUsed")) == "number" and (tonumber(p:GetAttribute("PickCap")) or 0) > 0 then
  			-- v2.38: the pickaxe's durability
  			s.Meter.Visible = true
-@@ -1445,7 +1500,7 @@
+@@ -1445,8 +1507,8 @@
  		end
  		return model
  	elseif e.K == "Tool" or e.K == "Item" then
 -		local tier = if (e.Id == "Blower" or e.Id == "Vacuum" or e.Id == "Pickaxe" or e.Id == "Trimmer") and self.ToolConfig.TierFromState then self.ToolConfig.TierFromState(e.Id, self:_tools()) else 1 -- (v2.38: the pickaxe's tier · v2.41: the trimmer's)
-+		local tier = if (e.Id == "Blower" or e.Id == "Vacuum" or e.Id == "Pickaxe" or e.Id == "Trimmer" or e.Id == "Blaster") and self.ToolConfig.TierFromState then self.ToolConfig.TierFromState(e.Id, self:_tools()) else 1 -- (v2.38: the pickaxe's tier · v2.41: the trimmer's)
- 		return (self.ToolModels.Build(e.Id, nil, tier))
+-		return (self.ToolModels.Build(e.Id, nil, tier))
++		local tier = if e.K == "Tool" and (e.Id == "Pickaxe" or (self.ToolConfig.TieredLook and self.ToolConfig.TieredLook[e.Id])) and self.ToolConfig.TierFromState then self.ToolConfig.TierFromState(e.Id, self:_tools()) else 1 -- (v2.38: the pickaxe's tier · v2.41: the trimmer's)
++		return (self.ToolModels.Build(e.Id, nil, tier, if e.K == "Tool" then (self:_tools().Up or {})[e.Id] else nil))
  	elseif e.K == "Stored" then
  		local s = e.Data or e.Entry or self:_stored()[e.Id]
+ 		if not s then
+@@ -1499,6 +1561,11 @@
+ 			-- (v2.41: so is a new tier of the rake / trimmer / blower / vacuum)
+ 			local okT, tier = pcall(self.ToolConfig.TierFromState, e.Id, self:_tools())
+ 			key ..= ":" .. tostring(if okT then tier else 1)
++			if e.Id == "Blaster" then
++				-- (v2.43: what is at its top shows on the model: the picture follows the levels)
++				local up = (self:_tools().Up or {}).Blaster or {}
++				key ..= string.format(":%d%d%d%d", math.floor(tonumber(up.Power) or 0), math.floor(tonumber(up.Rate) or 0), math.floor(tonumber(up.Size) or 0), math.floor(tonumber(up.Energy) or 0))
++			end
+ 		end
+ 		if s.ModelKey == key then
+ 			continue
 --- a/BroomTypes.lua
 +++ b/BroomTypes.lua
 @@ -70,9 +70,9 @@
@@ -351,6 +381,29 @@
  function Features.Attach(gui, frame, getFeature, top)
  	top = top or 44
  	local cover = Instance.new("TextButton") -- (a button: it swallows every click)
+@@ -273,11 +301,8 @@
+ 		end
+ 		local f = deps.IslandConfig.Features[id]
+ 		local island = tier and (tier.Icon .. " " .. tier.Display) or "?"
+-		if not cover.Visible then
+-			-- (a soft fade-in of the card itself; it is in place from the first frame)
+-			cover.BackgroundTransparency = 0.5
+-			TweenService:Create(cover, TweenInfo.new(0.18), { BackgroundTransparency = 0.04 }):Play()
+-		end
++		-- (v2.43: no fade-in any more: the card is fully there in the very frame the menu shows)
++		cover.BackgroundTransparency = 0.04
+ 		cover.Visible = true
+ 		title.Text = f.Display
+ 		if state == "ready" then
+@@ -310,7 +335,7 @@
+ 			refresh()
+ 		else
+ 			acc += dt
+-			if acc >= 0.5 then
++			if acc >= 0.1 then
+ 				acc = 0
+ 				refresh()
+ 			end
 --- a/GearService.lua
 +++ b/GearService.lua
 @@ -97,6 +97,11 @@
@@ -535,7 +588,7 @@
  			Lines = lines,
 --- a/IslandConfig.lua
 +++ b/IslandConfig.lua
-@@ -141,23 +141,27 @@
+@@ -141,23 +141,28 @@
  	levels, the Editor, the Bestiary.
  ]]
  I.Features = {
@@ -565,6 +618,7 @@
 +	Cosmetics = { Tier = 5, Menu = true, Display = "Cosmetics and boxes" },
 +	Gardens = { Tier = 5, Display = "Saving your garden · more garden saves" },
 +	BoxUpgrades = { Tier = 5, Display = "Garden upgrades: box spots" },
++	Fences = { Tier = 5, Display = "Fence skins" },
 +	-- island 6
 +	PetEvolve = { Tier = 6, Display = "Pet evolution" },
 +	-- island 7
@@ -584,10 +638,25 @@
  	player:SetAttribute("IslandLook", IslandService.LookTier(data))
  	local open = {}
  	for id, on in d.Unlocked do
+@@ -246,6 +249,10 @@
+ 	if not data or not skin then
+ 		return false, "Bad request"
+ 	end
++	local canF, whyF = IslandService.Can(player, "Fences") -- v2.43: fence skins come with island 5
++	if not canF then
++		return false, whyF
++	end
+ 	local d = islandData(data)
+ 	if d.Fences[id] then
+ 		return IslandService.SetFence(player, id)
 --- a/LeafRushClient.lua
 +++ b/LeafRushClient.lua
-@@ -351,10 +351,10 @@
- local toolsUI = ToolsUI.new({ UIKit = UIKit, fmt = Hud.fmt, Hud = hud, Sfx = Sfx, Juice = Juice, Config = Config, ToolConfig = ToolConfig, ToolModels = ToolModels, BroomModel = BroomModel, BroomTypes = BroomTypes, Rarities = Rarities, RobuxUI = RobuxUI, Remote = toolRemote })
+@@ -348,13 +348,13 @@
+ })
+ -- v1.0: the broom slot at the bottom (replaces the Roblox backpack bar)
+ -- v1.2: eight slots — broom, grass tool, rake, blower, vacuum, three one-use items
+-local toolsUI = ToolsUI.new({ UIKit = UIKit, fmt = Hud.fmt, Hud = hud, Sfx = Sfx, Juice = Juice, Config = Config, ToolConfig = ToolConfig, ToolModels = ToolModels, BroomModel = BroomModel, BroomTypes = BroomTypes, Rarities = Rarities, RobuxUI = RobuxUI, Remote = toolRemote })
++local toolsUI = ToolsUI.new({ IslandConfig = IslandConfig, UIKit = UIKit, fmt = Hud.fmt, Hud = hud, Sfx = Sfx, Juice = Juice, Config = Config, ToolConfig = ToolConfig, ToolModels = ToolModels, BroomModel = BroomModel, BroomTypes = BroomTypes, Rarities = Rarities, RobuxUI = RobuxUI, Remote = toolRemote })
  local itemAim = ToolHud.ItemAim.new({ Config = Config, Hud = hud })
  local function useItem(id)
 -	local function use(pos, petUid)
@@ -617,7 +686,25 @@
  	else
  		use(nil)
  	end
-@@ -867,8 +878,6 @@
+@@ -519,6 +530,8 @@
+ 	return egg and pets:_eggModel(egg)
+ end
+ inventory.Hotbar = hotbar
++toolsUI.Hotbar = hotbar -- v2.43: the "＋ HOTBAR" button of SHOP · TOOLS
++toolsUI.items.Hotbar = hotbar
+ inventory.PlotMath = PlotMath
+ hotbar.inEditor = function()
+ 	return build.active and not build.quick
+@@ -644,7 +657,7 @@
+ UIKit.polish(shop.gui)
+ UIKit.polish(toolsUI.gui)
+ -- v2.16: BROOM SHOP · ITEMS (the one-use items, moved out of TOOLS)
+-toolsUI.items = ToolsUI.new({ Mode = "Items", UIKit = UIKit, fmt = Hud.fmt, Hud = hud, Sfx = Sfx, Juice = Juice, Config = Config, ToolConfig = ToolConfig, ToolModels = ToolModels, BroomModel = BroomModel, BroomTypes = BroomTypes, Rarities = Rarities, RobuxUI = RobuxUI, Remote = toolRemote })
++toolsUI.items = ToolsUI.new({ Mode = "Items", IslandConfig = IslandConfig, UIKit = UIKit, fmt = Hud.fmt, Hud = hud, Sfx = Sfx, Juice = Juice, Config = Config, ToolConfig = ToolConfig, ToolModels = ToolModels, BroomModel = BroomModel, BroomTypes = BroomTypes, Rarities = Rarities, RobuxUI = RobuxUI, Remote = toolRemote })
+ UIKit.polish(toolsUI.items.gui)
+ UIKit.polish(build.UI.gui)
+ 
+@@ -867,16 +880,28 @@
  	Features.Attach(toolsUI.gui, toolsUI.frame, always("Tools"), 56)
  	Features.Attach(toolsUI.items.gui, toolsUI.items.frame, always("Items"), 56)
  	win(pets.w, always("Eggs"))
@@ -625,8 +712,10 @@
 -	win(codes.w, always("Codes"))
  	win(upgrades.w, always("Upgrades"))
  	win(garden.w, function()
- 		return if garden.w.tab == "Upgrades" then "GardenUpgrades" else nil
-@@ -877,6 +886,20 @@
+-		return if garden.w.tab == "Upgrades" then "GardenUpgrades" else nil
++		return if garden.w.tab == "Upgrades" then "GardenUpgrades" elseif garden.w.tab == "Fence" then "Fences" else nil -- (v2.43: fence skins: island 5)
+ 	end)
+ 	win(buildShop.w, function()
  		local tab = buildShop.w.tab
  		return if tab == "Buildings" then "Buildings" elseif tab == "Cosmetics" then "Cosmetics" else nil
  	end)
@@ -647,38 +736,187 @@
  end
  local stallPages = {
  	Eggs = {
-@@ -1350,7 +1373,7 @@
+@@ -1349,8 +1374,168 @@
+ 	end
  end)
  
++--[[
++	v2.43 the EFFECTS of the grass tools' abilities (ToolService.Ability sends the kind, who, where,
++	Vector3(size, look.X, look.Z) and, for the mowers, how long it lasts):
++	  Shears        five glowing scissors snap shut on the five spots
++	  Weed Cutter   a wave of blades slides along the strip it cut, leaving leaf bits
++	  Scythe        a huge golden crescent sweeps out over the whole cone
++	  Push Mower    orange speed lines and sparks stream behind the player while Overdrive lasts
++	  Riding Mower  red-hot flames and a blue core burn out of the exhaust while Nitro lasts
++]]
++local function abilityFX(id, uid, center, packed, dur)
++	local Debris, RunService = game:GetService("Debris"), game:GetService("RunService")
++	local size = math.clamp(packed.X, 2, 40)
++	local look = Vector3.new(packed.Y, 0, packed.Z)
++	look = if look.Magnitude > 0.1 then look.Unit else Vector3.new(0, 0, -1)
++	local COL = { Shears = Color3.fromRGB(150, 240, 120), WeedCutter = Color3.fromRGB(110, 230, 255), Scythe = Color3.fromRGB(255, 215, 90), PushMower = Color3.fromRGB(255, 160, 70), RidingMower = Color3.fromRGB(255, 90, 60) }
++	local c = COL[id] or Color3.fromRGB(150, 240, 120)
++	local ground = Vector3.new(center.X, if id == "Shears" then center.Y + 0.15 else center.Y - 2.6, center.Z)
++	local folder = Instance.new("Folder")
++	folder.Name = "LeafToolArc" -- (the aim ray ignores it)
++	folder.Parent = workspace
++	Debris:AddItem(folder, 3)
++	local function neon(sz, cf, transparency)
++		local p = Instance.new("Part")
++		p.Anchored, p.CanCollide, p.CanQuery, p.CanTouch, p.CastShadow = true, false, false, false, false
++		p.Material = Enum.Material.Neon
++		p.Color = c
++		p.Transparency = transparency or 0.2
++		p.Size = sz
++		p.CFrame = cf
++		p.Parent = folder
++		return p
++	end
++	local function run(time, step)
++		local t0 = os.clock()
++		local conn
++		conn = RunService.RenderStepped:Connect(function()
++			local a = (os.clock() - t0) / time
++			if a >= 1 then
++				conn:Disconnect()
++				return
++			end
++			step(a)
++		end)
++	end
++	Juice.Ring(ground, c, size * (if id == "WeedCutter" or id == "Scythe" then 0.35 else 0.9), 0.5)
++	if id == "Shears" then
++		-- five pairs of crossed blades: they open wide, snap shut (a flash) and fade
++		local d = size * 0.55
++		for _, off in { Vector3.zero, Vector3.new(d, 0, 0), Vector3.new(-d, 0, 0), Vector3.new(0, 0, d), Vector3.new(0, 0, -d) } do
++			local at = ground + off + Vector3.new(0, 0.4, 0)
++			local a1 = neon(Vector3.new(2.6, 0.12, 0.3), CFrame.new(at) * CFrame.Angles(0, math.rad(60), 0), 0.1)
++			local a2 = neon(Vector3.new(2.6, 0.12, 0.3), CFrame.new(at) * CFrame.Angles(0, math.rad(-60), 0), 0.1)
++			run(0.5, function(a)
++				local ang = math.rad(60 - 55 * math.min(1, a * 2.2))
++				a1.CFrame = CFrame.new(at + Vector3.new(0, a * 0.8, 0)) * CFrame.Angles(0, ang, 0)
++				a2.CFrame = CFrame.new(at + Vector3.new(0, a * 0.8, 0)) * CFrame.Angles(0, -ang, 0)
++				a1.Transparency, a2.Transparency = 0.1 + 0.9 * a ^ 2, 0.1 + 0.9 * a ^ 2
++			end)
++			Juice.Burst(at, c, 8, 9)
++		end
++	elseif id == "WeedCutter" then
++		-- a wave of blades slides along the strip
++		for k = 0, 4 do
++			task.delay(k * 0.06, function()
++				local blade = neon(Vector3.new(5 - k * 0.5, 0.18, 0.5), CFrame.lookAt(ground + Vector3.new(0, 0.5, 0), ground + look), 0.1)
++				run(0.55, function(a)
++					blade.CFrame = CFrame.lookAt(ground + look * (a * size) + Vector3.new(0, 0.5, 0), ground + look * (a * size + 1) + Vector3.new(0, 0.5, 0))
++					blade.Transparency = 0.1 + 0.9 * a ^ 1.5
++				end)
++			end)
++		end
++		for k = 1, 6 do
++			Juice.Burst(ground + look * (size * k / 6), Color3.fromRGB(110, 190, 70), 6, 9)
++		end
++	elseif id == "Scythe" then
++		-- a golden crescent sweeps out over the cone
++		local segs = {}
++		for k = 0, 10 do
++			segs[k] = neon(Vector3.new(0.5, 0.2, 2.6), CFrame.new(ground), 0.1)
++		end
++		run(0.6, function(a)
++			local radius = size * (0.2 + 0.8 * (1 - (1 - a) ^ 2))
++			for k = 0, 10 do
++				local ang = math.rad(-65 + 130 * k / 10)
++				local dirv = CFrame.Angles(0, ang, 0):VectorToWorldSpace(look)
++				segs[k].CFrame = CFrame.lookAt(ground + Vector3.new(0, 0.6, 0) + dirv * radius, ground + Vector3.new(0, 0.6, 0) + dirv * radius + dirv:Cross(Vector3.yAxis))
++				segs[k].Transparency = 0.1 + 0.9 * a ^ 2
++			end
++		end)
++		for k = 0, 6 do
++			local ang = math.rad(-60 + 120 * k / 6)
++			Juice.Burst(ground + CFrame.Angles(0, ang, 0):VectorToWorldSpace(look) * size * 0.8, Color3.fromRGB(255, 225, 120), 8, 11)
++		end
++	else
++		-- the mowers: an effect that lasts as long as the boost
++		local plr = Players:GetPlayerByUserId(uid)
++		local char = plr and plr.Character
++		local host
++		if id == "RidingMower" then
++			local worldRoot = workspace:FindFirstChild("LeafRush")
++			local mowers = worldRoot and worldRoot:FindFirstChild("Mowers")
++			local model = mowers and mowers:FindFirstChild("Mower_" .. tostring(uid))
++			host = model and model.PrimaryPart
++		else
++			host = char and char:FindFirstChild("HumanoidRootPart")
++		end
++		if host then
++			local life = math.clamp(dur, 2, 20)
++			local function emit(att, props)
++				local e = Instance.new("ParticleEmitter")
++				e.Texture = "rbxasset://textures/particles/sparkles_main.dds"
++				e.LightEmission = 1
++				e.SpreadAngle = Vector2.new(10, 10)
++				for k, v in props do
++					(e :: any)[k] = v
++				end
++				e.Parent = att
++				return e
++			end
++			local att = Instance.new("Attachment")
++			att.Position = if id == "RidingMower" then Vector3.new(0.6, 1.4, 2.4) else Vector3.new(0, -0.5, 1.2)
++			att.Parent = host
++			local att2 = Instance.new("Attachment")
++			att2.Position = if id == "RidingMower" then Vector3.new(-0.6, 1.4, 2.4) else Vector3.new(0.6, 1.5, 0.8)
++			att2.Parent = host
++			local back = Enum.NormalId.Back
++			if id == "RidingMower" then
++				for _, a in { att, att2 } do
++					emit(a, { Color = ColorSequence.new(Color3.fromRGB(255, 240, 160), Color3.fromRGB(255, 70, 30)), Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.2), NumberSequenceKeypoint.new(1, 0) }), Lifetime = NumberRange.new(0.3, 0.55), Speed = NumberRange.new(14, 22), Rate = 90, EmissionDirection = back })
++					emit(a, { Color = ColorSequence.new(Color3.fromRGB(190, 230, 255), Color3.fromRGB(60, 120, 255)), Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.6), NumberSequenceKeypoint.new(1, 0) }), Lifetime = NumberRange.new(0.2, 0.35), Speed = NumberRange.new(10, 16), Rate = 60, EmissionDirection = back })
++				end
++				if uid == player.UserId then
++					Juice.Shake(0.25, 0.4)
++				end
++			else
++				emit(att, { Color = ColorSequence.new(Color3.fromRGB(255, 230, 150), Color3.fromRGB(255, 120, 40)), Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.8), NumberSequenceKeypoint.new(1, 0) }), Lifetime = NumberRange.new(0.35, 0.6), Speed = NumberRange.new(6, 12), SpreadAngle = Vector2.new(25, 25), Rate = 70, EmissionDirection = back })
++				-- speed lines: long thin streaks flying back past the player
++				emit(att2, { Texture = "rbxasset://textures/particles/smoke_main.dds", Color = ColorSequence.new(Color3.fromRGB(255, 200, 120)), Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.6), NumberSequenceKeypoint.new(1, 1) }), Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.5), NumberSequenceKeypoint.new(1, 2) }), Lifetime = NumberRange.new(0.3, 0.5), Speed = NumberRange.new(20, 30), Rate = 30, SpreadAngle = Vector2.new(35, 35), EmissionDirection = Enum.NormalId.Back })
++			end
++			Debris:AddItem(att, life)
++			Debris:AddItem(att2, life)
++			task.delay(life - 0.3, function()
++				for _, a in { att, att2 } do
++					for _, e in a:GetChildren() do
++						if e:IsA("ParticleEmitter") then
++							e.Enabled = false
++						end
++					end
++				end
++			end)
++		end
++		for k = 1, 3 do
++			task.delay(k * 0.12, function()
++				Juice.Ring(ground, c, size * (0.6 + 0.35 * k), 0.45)
++			end)
++		end
++		Juice.Burst(ground + Vector3.new(0, 1, 0), c, 18, 14)
++	end
++end
++
  -- v1.2: someone cut grass near you
 -Remotes:WaitForChild(R.ToolFX).OnClientEvent:Connect(function(kind, uid, _id, center, dir)
 +Remotes:WaitForChild(R.ToolFX).OnClientEvent:Connect(function(kind, uid, _id, center, dir, extra)
  	if kind == "Jet" then
  		-- v2.34: another player's Leaf Blower in JET mode — its air stream behind them
  		if uid ~= player.UserId and typeof(center) == "Vector3" and typeof(dir) == "Vector3" and dir.Magnitude > 0.1 and dir.Magnitude < 2 then
-@@ -1362,6 +1385,39 @@
+@@ -1362,6 +1547,27 @@
  			end
  		end
  		return
 +	end
 +	if kind == "Ability" then
-+		-- v2.43: a grass tool's strike-key ability (ToolService.Ability): a ring and sparks for everybody
++		-- v2.43: a grass tool's strike-key ability (ToolService.Ability): its own effect for everybody
 +		if typeof(center) == "Vector3" and typeof(dir) == "Vector3" then
 +			local acam = workspace.CurrentCamera
 +			if acam and (acam.CFrame.Position - center).Magnitude < 160 then
-+				local COL = { Shears = Color3.fromRGB(150, 240, 120), WeedCutter = Color3.fromRGB(120, 230, 255), Scythe = Color3.fromRGB(255, 220, 90), PushMower = Color3.fromRGB(255, 160, 70), RidingMower = Color3.fromRGB(255, 90, 70) }
-+				local c = COL[_id] or Color3.fromRGB(150, 240, 120)
-+				local size = math.clamp(dir.X, 2, 40)
-+				local look = Vector3.new(dir.Y, 0, dir.Z)
-+				local ground = center - Vector3.new(0, 2.6, 0)
-+				Juice.Ring(ground, c, if _id == "WeedCutter" or _id == "Scythe" then size * 0.4 else size, 0.5)
-+				if (_id == "WeedCutter" or _id == "Scythe") and look.Magnitude > 0.1 then
-+					for k = -2, 2 do
-+						Juice.Burst(ground + look.Unit * (size * 0.5 * k / 2), c, 8, 10)
-+					end
-+				else
-+					Juice.Burst(ground, c, 14, 12)
-+				end
++				pcall(abilityFX, _id, uid, center, dir, tonumber(extra) or 0)
 +			end
 +		end
 +		return
@@ -1087,11 +1325,13 @@
  T.Consumables = {
  	LeafMagnet = {
 -		Display = "Leaf Magnet", Rarity = "Rare", Price = 6000, Icon = "🧲",
+-		Duration = 20, Radius = 12, Pull = 8, Pickup = 4,
 +		Display = "Leaf Magnet", Rarity = "Rare", Price = 9000, Icon = "🧲",
- 		Duration = 20, Radius = 12, Pull = 8, Pickup = 4,
++		Duration = 20, Radius = 12, Pull = 8, -- (v2.43: no Pickup: only the Mega Magnet collects by itself)
  		-- v1.7: it really pulls now (the old drift was eaten by ground friction), and
  		-- whatever reaches you is picked up at once, as if it reached your Collect zone
- 		Description = "20 seconds: leaves near you drift to you, and every leaf that touches you is collected at once.",
+-		Description = "20 seconds: leaves near you drift to you, and every leaf that touches you is collected at once.",
++		Description = "20 seconds: leaves near you drift to you — you still sweep them up yourself. Only the Mega Magnet collects them for you.",
  	},
  	GrassKiller = {
 -		Display = "Grass Killer", Rarity = "Rare", Price = 8000, Icon = "🧴", Target = true,
@@ -2231,7 +2471,73 @@
  -- v2.32 the PICKAXE (breaks the garden's blocks): held like a hammer — the shaft
  -- rises from the hand, leaning forward; a curved steel head with two points
  -- (front and back), a red collar and a leather grip
-@@ -770,6 +815,171 @@
+@@ -412,6 +457,65 @@
+ 	return h
+ end
+ 
++-- v2.43: the Leaf Blaster's battery — a mint power cell with a glowing band, the six little
++-- pips of its drum and a plug (the blaster's colours)
++builders.BlasterBattery = function(m)
++	local h = handlePart(m)
++	local MINT = Color3.fromRGB(70, 190, 140)
++	local GLOW = Color3.fromRGB(190, 240, 255)
++	add(m, "Part", { Name = "Cell", Size = Vector3.new(1.15, 1.35, 0.8), Color = MINT, Material = M.SmoothPlastic }, CFrame.new(0, 0.15, -0.4))
++	add(m, "Part", { Name = "Band", Size = Vector3.new(1.17, 0.26, 0.82), Color = GLOW, Material = M.Neon }, CFrame.new(0, 0.62, -0.4))
++	for k = 0, 5 do
++		local a = math.rad(k * 60)
++		add(m, "Part", { Name = "Pip", Shape = Enum.PartType.Ball, Size = Vector3.new(0.13, 0.13, 0.13), Color = GLOW, Material = M.Neon }, CFrame.new(math.sin(a) * 0.3, 0.05 + math.cos(a) * 0.3, -0.81))
++	end
++	add(m, "Part", { Name = "Core", Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.84, 0.3, 0.3), Color = GLOW, Material = M.Neon }, CFrame.new(0, 0.05, -0.4) * CFrame.Angles(0, math.rad(90), 0))
++	add(m, "Part", { Name = "Bolt", Size = Vector3.new(0.16, 0.34, 0.86), Color = Color3.fromRGB(255, 230, 80), Material = M.Neon }, CFrame.new(0, -0.35, -0.4) * CFrame.Angles(0, 0, math.rad(22)))
++	for sx = -1, 1, 2 do
++		add(m, "Part", { Name = "Pin", Size = Vector3.new(0.14, 0.3, 0.14), Color = STEEL, Material = M.Metal }, CFrame.new(sx * 0.28, 0.98, -0.4))
++	end
++	return h
++end
++
++-- v2.43: Gasoline — a red jerrycan with a spout, a carrying handle, a cap and a flame label
++builders.Gasoline = function(m)
++	local h = handlePart(m)
++	local RED = Color3.fromRGB(205, 45, 40)
++	add(m, "Part", { Name = "Can", Size = Vector3.new(0.7, 1.35, 1.1), Color = RED, Material = M.SmoothPlastic }, CFrame.new(0, 0.2, -0.4))
++	add(m, "Part", { Name = "Ridge", Size = Vector3.new(0.72, 0.1, 1.12), Color = Color3.fromRGB(150, 28, 28), Material = M.SmoothPlastic }, CFrame.new(0, 0.55, -0.4))
++	add(m, "Part", { Name = "Ridge", Size = Vector3.new(0.72, 0.1, 1.12), Color = Color3.fromRGB(150, 28, 28), Material = M.SmoothPlastic }, CFrame.new(0, -0.15, -0.4))
++	add(m, "Part", { Name = "Label", Size = Vector3.new(0.74, 0.55, 0.5), Color = Color3.fromRGB(250, 235, 200), Material = M.SmoothPlastic }, CFrame.new(0, 0.2, -0.4))
++	add(m, "Part", { Name = "Flame", Size = Vector3.new(0.76, 0.34, 0.2), Color = Color3.fromRGB(255, 150, 30), Material = M.Neon }, CFrame.new(0, 0.2, -0.4) * CFrame.Angles(0, 0, math.rad(8)))
++	rod(m, Vector3.new(0, 0.88, -0.78), Vector3.new(0, 1.35, -1.12), 0.2, Color3.fromRGB(240, 200, 50), M.SmoothPlastic, "Spout")
++	add(m, "Part", { Name = "Cap", Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.14, 0.34, 0.34), Color = Color3.fromRGB(40, 40, 46), Material = M.Metal }, CFrame.new(0, 1.37, -1.14) * CFrame.Angles(math.rad(-35), 0, math.pi / 2))
++	rod(m, Vector3.new(0, 0.92, -0.05), Vector3.new(0, 0.92, 0.25), 0.16, DARK, M.Metal, "Carry")
++	rod(m, Vector3.new(0, 0.88, -0.1), Vector3.new(0, 0.88, 0.2), 0.12, STEEL, M.Metal, "Carry")
++	return h
++end
++
++-- v2.43: the Repair Kit — a red toolbox with a handle, silver clasps, a green cross and a wrench
++-- and a hammer sticking out of it
++builders.RepairKit = function(m)
++	local h = handlePart(m)
++	local RED = Color3.fromRGB(215, 55, 50)
++	add(m, "Part", { Name = "Box", Size = Vector3.new(1.5, 0.8, 0.75), Color = RED, Material = M.SmoothPlastic }, CFrame.new(0, 0, -0.4))
++	add(m, "Part", { Name = "Lid", Size = Vector3.new(1.54, 0.12, 0.79), Color = Color3.fromRGB(165, 35, 35), Material = M.SmoothPlastic }, CFrame.new(0, 0.46, -0.4))
++	add(m, "Part", { Name = "Cross", Size = Vector3.new(0.12, 0.42, 0.78), Color = Color3.fromRGB(110, 235, 120), Material = M.Neon }, CFrame.new(0, -0.02, -0.4))
++	add(m, "Part", { Name = "Cross", Size = Vector3.new(0.42, 0.12, 0.78), Color = Color3.fromRGB(110, 235, 120), Material = M.Neon }, CFrame.new(0, -0.02, -0.4))
++	for sx = -1, 1, 2 do
++		add(m, "Part", { Name = "Clasp", Size = Vector3.new(0.2, 0.3, 0.8), Color = STEEL, Material = M.Metal }, CFrame.new(sx * 0.6, 0.35, -0.4))
++	end
++	rod(m, Vector3.new(-0.4, 0.6, -0.4), Vector3.new(0.4, 0.6, -0.4), 0.14, DARK, M.Metal, "Handle")
++	rod(m, Vector3.new(-0.42, 0.5, -0.4), Vector3.new(-0.42, 0.62, -0.4), 0.12, DARK, M.Metal, "HandlePost")
++	rod(m, Vector3.new(0.42, 0.5, -0.4), Vector3.new(0.42, 0.62, -0.4), 0.12, DARK, M.Metal, "HandlePost")
++	-- a wrench and a hammer sticking out of the lid
++	rod(m, Vector3.new(-0.3, 0.45, -0.2), Vector3.new(-0.55, 1.2, -0.05), 0.12, STEEL, M.Metal, "Wrench")
++	add(m, "Part", { Name = "WrenchHead", Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.12, 0.34, 0.34), Color = STEEL, Material = M.Metal }, CFrame.lookAt(Vector3.new(-0.56, 1.24, -0.04), Vector3.new(-0.7, 1.7, 0.02)) * CFrame.Angles(0, math.rad(90), 0))
++	rod(m, Vector3.new(0.3, 0.45, -0.55), Vector3.new(0.5, 1.15, -0.7), 0.12, Color3.fromRGB(150, 104, 62), M.Wood, "HammerShaft")
++	add(m, "Part", { Name = "HammerHead", Size = Vector3.new(0.5, 0.22, 0.22), Color = DARK, Material = M.Metal }, CFrame.new(0.52, 1.2, -0.72))
++	return h
++end
++
+ -- v2.38: the Vacuum's battery — a big violet power cell with a carrying handle, two
+ -- glowing bands and a swirl (the vacuum's colours)
+ builders.VacuumBattery = function(m)
+@@ -770,6 +874,175 @@
  	end
  end
  
@@ -2338,6 +2644,7 @@
 +end
 +
 +local tierPaint = {}
++-- (tier 5 of the Shears / the Weed Cutter / the Push Mower = the "golden" one: every piece is in its tier colour)
 +tierPaint.Shears = function(m, tier)
 +	recolor(m, { Blade = true }, TIER_METAL[tier], M.Metal, 0.1 * tier)
 +	recolor(m, { Grip = true }, TIER_ACCENT[tier])
@@ -2375,7 +2682,10 @@
 +	end
 +end
 +tierPaint.PushMower = function(m, tier)
-+	recolor(m, { Deck = true }, TIER_ACCENT[tier], M.SmoothPlastic)
++	recolor(m, { Deck = true }, TIER_ACCENT[tier], if tier >= 5 then M.Metal else M.SmoothPlastic)
++	if tier >= 5 then
++		sparkle(m:FindFirstChild("Deck"), TIER_GLOW[tier])
++	end
 +	recolor(m, { HandleBar = true }, TIER_METAL[tier], M.Metal)
 +	local deckC = Vector3.new(0, -2.55, -2.9)
 +	if tier >= 3 then
@@ -2403,7 +2713,7 @@
  ---------------------------------------------------------------- API
  function ToolModels.Has(id)
  	return builders[id] ~= nil
-@@ -777,15 +987,31 @@
+@@ -777,15 +1050,31 @@
  
  -- tier (v1.7, optional): the blower's / vacuum's upgrade tier 1…4 (v2.41: the Lawn
  -- Trimmer's too; the Rake's tiers are drawn by BroomModel.Build(…, tier))
@@ -2431,7 +2741,7 @@
 +		if decor[look] then
 +			decor[look](m, kind == "Vehicle", tier) -- (v2.41: + tier, for the trimmer's colours)
 +		end
-+		if tierPaint[id] and tier > 1 and tier < 5 then
++		if tierPaint[id] and tier > 1 and look == id then
 +			tierPaint[id](m, tier, kind == "Vehicle")
 +		end
 +		if id == "Blaster" then
@@ -2514,7 +2824,31 @@
  	pivot.Name = "MowerPivot"
  	local offset = TC().PushOffset
  	model:PivotTo(root.CFrame * offset)
-@@ -398,6 +413,12 @@
+@@ -351,7 +366,7 @@
+ 	-- riding the mower that stays in slot 2: keep that tool (rebuilding it would
+ 	-- make a new mower under you)
+ 	local s = st[player]
+-	local keep = if s and s.Mower and heldId == data.Tools.Grass and heldId == s.MowerId then heldTool else nil
++	local keep = if s and s.Mower and heldId == s.MowerId then heldTool else nil
+ 	for _, container in { backpack, player.Character } do
+ 		if container then
+ 			for _, t in container:GetChildren() do
+@@ -361,7 +376,13 @@
+ 			end
+ 		end
+ 	end
+-	local want = if keep then {} else { { data.Tools.Grass, 2 } }
++	local want = {}
++	for _, gid in TC().GrassOrder do
++		-- v2.43: EVERY grass tool you own is made (the hotbar decides which ones you carry)
++		if data.Tools.Owned[gid] and not (keep and gid == heldId) then
++			table.insert(want, { gid, 2 })
++		end
++	end
+ 	for _, id in TC().HelperOrder do
+ 		if data.Tools.Owned[id] then
+ 			table.insert(want, { id, TC().Helpers[id].Slot })
+@@ -398,6 +419,12 @@
  	if data.Tools.Owned[id] then
  		return false, "You already own it"
  	end
@@ -2527,7 +2861,7 @@
  	local def = TC().Def(id)
  	-- v2.32: tools come with the shop's deliveries (StockService: a restock every 5 minutes)
  	if ctx.StockService then
-@@ -480,6 +501,9 @@
+@@ -480,6 +507,9 @@
  	data.Tools.Up[tool][stat] = lv + 1
  	if tool == "Pickaxe" then
  		data.Tools.PickUsed = 0 -- v2.38: a new head — the better pickaxe comes whole
@@ -2537,7 +2871,7 @@
  	end
  	ToolService.Publish(player)
  	if tool == "Rake" and stat == "Width" then
-@@ -499,6 +523,9 @@
+@@ -499,6 +529,9 @@
  		if tool == "Pickaxe" then
  			return true, "⛏ ✨ " .. TC().TierName(tool, tier1) .. " Pickaxe!" -- v2.38
  		end
@@ -2547,7 +2881,7 @@
  		return true, "⬆ " .. U[stat].Display .. " → Lvl " .. (lv + 1) .. " · ✨ " .. TC().Def(tool).Display .. ": " .. TC().TierName(tool, tier1) .. "!"
  	end
  	return true, "⬆ " .. U[stat].Display .. " → Lvl " .. (lv + 1)
-@@ -554,6 +581,389 @@
+@@ -554,6 +587,391 @@
  	return true, "🔋 Leaf Blower recharged!"
  end
  
@@ -2774,7 +3108,7 @@
 +	local look = flatV(root.CFrame.LookVector)
 +	look = if look.Magnitude > 1e-3 then look.Unit else Vector3.new(0, 0, -1)
 +	local set = {}
-+	local fxPos, fxSize = root.Position, def.Radius
++	local fxPos, fxSize, fxTime = root.Position, def.Radius, 0
 +	if id == "Shears" or id == "WeedCutter" or id == "Scythe" then
 +		if not plot then
 +			abilityRefund(player, id)
@@ -2812,6 +3146,7 @@
 +		ToolService.Wear(player, id, 3)
 +	elseif id == "PushMower" then
 +		local time = ab.Time + t * ab.TimePer
++		fxTime = time
 +		player:SetAttribute("OverdriveUntil", serverTime() + time)
 +		if ctx.GearService then
 +			ctx.GearService.RefreshSpeed(player)
@@ -2824,11 +3159,12 @@
 +		fxSize = def.Radius * ab.Deck
 +	elseif id == "RidingMower" then
 +		local time = ab.Time + t * ab.TimePer
++		fxTime = time
 +		player:SetAttribute("NitroUntil", serverTime() + time)
 +		fxSize = def.Radius * ab.Deck
 +	end
 +	if ctx.Net.ToolFX then
-+		ctx.Net.ToolFX:FireAllClients("Ability", player.UserId, id, fxPos, Vector3.new(fxSize, look.X, look.Z))
++		ctx.Net.ToolFX:FireAllClients("Ability", player.UserId, id, fxPos, Vector3.new(fxSize, look.X, look.Z), fxTime)
 +	end
 +	return true
 +end
@@ -2937,7 +3273,7 @@
  ---------------------------------------------------------------- v2.38 the PICKAXE's durability
  --[[
  	data.Tools.PickUsed = blocks the pickaxe broke since its last repair; its tier
-@@ -855,10 +1265,10 @@
+@@ -855,10 +1273,10 @@
  
  ---------------------------------------------------------------- one-use items
  local function ownsMower(data)
@@ -2950,7 +3286,7 @@
  	local data = ctx.PlayerDataService.Get(player)
  	local def = type(id) == "string" and TC().Consumables[id]
  	if not data or not def then
-@@ -917,6 +1327,52 @@
+@@ -917,6 +1335,52 @@
  		data.Tools.BlowUsed = 0
  		S(player).BlowWarned = nil
  		msg = "🔋 Leaf Blower fully charged!"
@@ -3003,7 +3339,7 @@
  	elseif id == "VacuumBattery" then
  		-- v2.38: the whole capacity back — exactly what ToolService.Repair does (it is
  		-- not used up when there is no vacuum or nothing is worn)
-@@ -964,10 +1420,21 @@
+@@ -964,10 +1428,21 @@
  -- Shears / Weed Cutter / Scythe
  function ToolService.CutAt(player, pos, dir)
  	local id = ToolService.Held(player)
@@ -3026,7 +3362,7 @@
  	local root = rootOf(player)
  	local plot = ctx.PlotSystem.Get(player)
  	if not root or not plot or typeof(pos) ~= "Vector3" then
-@@ -993,6 +1460,7 @@
+@@ -993,6 +1468,7 @@
  	s.LastCut = now
  	local keys = ctx.GrassService.CellsIn(plot, center, def.Radius, if def.Arc then d else nil, def.Arc)
  	local n, clips = ctx.GrassService.Cut(player, keys, def.Power, { Objects = def.CutsObjects, Golden = def.GoldenChance })
@@ -3034,7 +3370,7 @@
  	if ctx.Net.ToolFX then
  		ctx.Net.ToolFX:FireAllClients("Cut", player.UserId, id, center, d)
  	end
-@@ -1134,6 +1602,9 @@
+@@ -1134,6 +1610,9 @@
  	if not root or not data or now - (s.LastBlow or -1e9) < (def.PlayerEvery or 0.35) * 0.8 then
  		return 0
  	end
@@ -3044,7 +3380,7 @@
  	local gap = now - (s.LastBlow or -1e9)
  	s.LastBlow = now
  	-- v2.32 ENERGY: every second of blowing uses a second of it (the client reports
-@@ -1161,6 +1632,7 @@
+@@ -1161,6 +1640,7 @@
  		-- is capped under the movement guard's limit, ToolConfig Jet…). The server keeps
  		-- draining the same energy (above) and shows the stream to everybody else.
  		-- Nothing is blown in this mode: no leaves, no players, no ice.
@@ -3052,7 +3388,7 @@
  		local m = dir.Magnitude
  		if m == m and m > 1e-3 and m < 1e3 and ctx.Net.ToolFX then
  			ctx.Net.ToolFX:FireAllClients("Jet", player.UserId, "Blower", root.Position, dir.Unit)
-@@ -1222,6 +1694,155 @@
+@@ -1222,6 +1702,155 @@
  	return n
  end
  
@@ -3208,7 +3544,19 @@
  function ToolService.RakeAt(player, pos)
  	if ToolService.Held(player) ~= "Rake" or typeof(pos) ~= "Vector3" then
  		return 0
-@@ -1563,7 +2184,8 @@
+@@ -1503,7 +2132,10 @@
+ 	if plot and ctx.GrassService and ctx.GrassService.Loosen then
+ 		pcall(ctx.GrassService.Loosen, player, root.Position, def.Radius or 12)
+ 	end
+-	local reach = def.Pickup or 4
++	local reach = def.Pickup
++	if not reach then
++		return 0 -- v2.43: the Leaf Magnet only PULLS; the Mega Magnet also collects what touches you
++	end
+ 	local got = 0
+ 	for _, g in groups do
+ 		local list = {}
+@@ -1563,7 +2195,8 @@
  end
  
  function ToolService.Mount(player, id)
@@ -3218,7 +3566,7 @@
  	local char = player.Character
  	local hum = char and char:FindFirstChildOfClass("Humanoid")
  	local root = rootOf(player)
-@@ -1572,7 +2194,8 @@
+@@ -1572,7 +2205,8 @@
  	end
  	-- v2.8: you may ride the mower anywhere; it cuts grass only in your own garden
  	ToolService.Dismount(player, true)
@@ -3228,7 +3576,7 @@
  	local look = flat(root.CFrame.LookVector)
  	look = if look.Magnitude > 1e-3 then look.Unit else Vector3.new(0, 0, -1)
  	local groundY = root.Position.Y - hum.HipHeight - root.Size.Y / 2
-@@ -1718,12 +2341,19 @@
+@@ -1718,12 +2352,23 @@
  	end
  	local turbo = (player:GetAttribute("TurboUntil") or 0) > serverTime()
  	local mult = if turbo then TC().Consumables.TurboFuel.SpeedMult else 1
@@ -3247,11 +3595,15 @@
 -		s.Mower:SetAttribute("Speed", def.Speed * mult)
 +		-- (v2.43: no fuel = it doesn't move)
 +		local fuelLeft = ToolService.MeterState(data, mowId)
-+		s.Mower:SetAttribute("Speed", if fuelLeft and fuelLeft <= 0 then 0 else def.Speed * mult)
++		s.Mower:SetAttribute("Speed", if fuelLeft and fuelLeft <= 0 then def.Speed * 0.25 else def.Speed * mult)
++		if fuelLeft and fuelLeft <= 0 and ToolService.Now() - (s.FuelSaid or -1e9) > 6 then
++			s.FuelSaid = ToolService.Now()
++			notify(player, "⛽ Out of fuel — the tractor crawls. Fill the tank with Gasoline or in SHOP · TOOLS")
++		end
  		-- v2.8: riding outside your garden is fine — but nothing is cut there
  		local lp = plot.CFrame:PointToObjectSpace(chassis.Position)
  		if math.max(math.abs(lp.X), math.abs(lp.Z)) > plot.Size / 2 + 1 then
-@@ -1732,11 +2362,15 @@
+@@ -1732,11 +2377,15 @@
  		end
  	else
  		local id = ToolService.Held(player)
@@ -3268,7 +3620,7 @@
  		local root = rootOf(player)
  		if not root then
  			return 0
-@@ -1754,6 +2388,15 @@
+@@ -1754,6 +2403,15 @@
  	if moved.Magnitude / dt > maxSpeed or moved.Magnitude < 0.05 then
  		return 0 -- teleported (or standing still: nothing new under the deck)
  	end
@@ -3284,7 +3636,7 @@
  	local keys = ctx.GrassService.CellsIn(plot, pos, def.Radius)
  	-- v2.8: no mown stripes are left on the lawn behind the mower
  	return (ctx.GrassService.Cut(player, keys, def.Power))
-@@ -1778,9 +2421,15 @@
+@@ -1778,9 +2436,15 @@
  	elseif a == "Slot" then
  		return ToolService.SetSlot(player, req.Id, req.On == true)
  	elseif a == "Use" then
@@ -3301,7 +3653,7 @@
  	elseif a == "Hotbar" then
  		return ToolService.SetHotbar(player, req.List)
  	elseif a == "RepairPick" then
-@@ -1808,6 +2457,12 @@
+@@ -1808,6 +2472,12 @@
  		ToolService.Whirl(player) -- v2.40: the trimmer's strike-key ability
  	elseif a == "Blow" then
  		ToolService.BlowAt(player, req.Dir, req.Jet == true) -- v1.4 (v2.34: Jet = the gust carries the player)
@@ -3314,7 +3666,7 @@
  	elseif a == "Off" then
  		ToolService.Dismount(player)
  	elseif a == "Hold" then
-@@ -1857,6 +2512,17 @@
+@@ -1857,6 +2527,17 @@
  						warn("[LeafRush] magnet: " .. tostring(errM))
  					end
  				end
@@ -3379,7 +3731,51 @@
  		end
  	end
  
-@@ -501,8 +501,9 @@
+@@ -398,7 +398,24 @@
+ 	self.slotBtn = button(detail, { Position = UDim2.fromOffset(10, 204), Size = UDim2.fromOffset(456, 26), TextSize = 15, Visible = false })
+ 	self.slotBtn.Activated:Connect(function()
+ 		local d = self:_data()
+-		self:_send({ Action = "Slot", Id = self.sel, On = not table.find(d.Slots, self.sel) }, self.slotBtn)
++		if self.ToolConfig.Consumables[self.sel] then
++			self:_send({ Action = "Slot", Id = self.sel, On = not table.find(d.Slots, self.sel) }, self.slotBtn)
++		elseif self.Hotbar then
++			-- v2.43: a tool: the hotbar's own add / remove (like in the Inventory)
++			local H = self.Hotbar
++			if H:Has("Tool", self.sel) then
++				H:Remove("Tool", self.sel)
++			else
++				local ok, why = H:Add("Tool", self.sel)
++				if not ok and self.Hud then
++					self.Hud:Toast(why or "The hotbar is full", 2.5, true)
++				end
++			end
++			if self.Sfx then
++				self.Sfx.Play("Click")
++			end
++			self:_refresh()
++		end
+ 	end)
+ 	-- stat rows are rebuilt for each tool
+ 	self.statsFrame = Instance.new("Frame")
+@@ -497,12 +514,27 @@
+ 	return string.format("%.1f", v)
+ end
+ 
++-- v2.43: the island a tool is closed until (the Pickaxe: island 3, IslandConfig.Features.Pickaxe)
++-- -> tier number, the island's table | nil when it is open
++function ToolsUI:_lock(id)
++	local IC = self.IslandConfig
++	local f = id == "Pickaxe" and IC and IC.Features and IC.Features.Pickaxe
++	if not f then
++		return nil
++	end
++	if (tonumber(self.player:GetAttribute("IslandTier")) or 1) >= f.Tier then
++		return nil
++	end
++	return f.Tier, IC.Tiers[f.Tier]
++end
++
+ -- rows = { { Name, Color, Value, Max, Mine?, Text?, Up? (stat) } }
  function ToolsUI:_rows(id, d)
  	local TC = self.ToolConfig
  	local rows = {}
@@ -3391,7 +3787,7 @@
  	local C = { Power = Color3.fromRGB(255, 110, 80), Width = Color3.fromRGB(90, 200, 255), Speed = Color3.fromRGB(255, 220, 70), Reach = Color3.fromRGB(120, 230, 120), Extra = Color3.fromRGB(190, 150, 255) }
  	local function speedOf(g)
  		if g.Kind == "Ride" then
-@@ -530,13 +531,44 @@
+@@ -530,13 +562,44 @@
  		return if value and value > 0 then value else fallback
  	end
  	if TC.GrassTools[id] and id ~= "Trimmer" then
@@ -3437,7 +3833,7 @@
  	elseif id == "Trimmer" then
  		local T = TC.Trimmer(d.Up.Trimmer)
  		local TM = TC.Trimmer(topLevels("Trimmer")) -- (v2.39: the bars' maximum = fully upgraded)
-@@ -595,6 +627,22 @@
+@@ -595,6 +658,22 @@
  			local left = math.clamp(tonumber(self.player:GetAttribute("BlowLeft")) or energy, 0, energy)
  			table.insert(rows, { "Charge", Color3.fromRGB(110, 230, 100), left, energy, nil, math.floor(left) .. " s left" })
  		end
@@ -3460,7 +3856,21 @@
  	elseif id == "Vacuum" then
  		local V = TC.Vacuum(d.Up.Vacuum)
  		local used = math.min(self.player:GetAttribute("VacUsed") or 0, V.Capacity)
-@@ -829,6 +877,12 @@
+@@ -798,6 +877,13 @@
+ 			c.tag.TextColor3 = if money >= def.Price then Color3.fromRGB(255, 220, 120) else Color3.fromRGB(200, 120, 110)
+ 		end
+ 		c.card.BackgroundColor3 = if id == self.sel then SELECTED else BG
++		local lockTier = if d.OwnedSet[id] then nil else self:_lock(id)
++		if lockTier then
++			-- v2.43: closed for now: a dark card with a lock and the island that opens it
++			c.tag.Text = "🔒 ISLAND " .. lockTier
++			c.tag.TextColor3 = Color3.fromRGB(190, 160, 120)
++			c.card.BackgroundColor3 = if id == self.sel then Color3.fromRGB(70, 60, 54) else Color3.fromRGB(36, 33, 32)
++		end
+ 		-- v2.32: in stock / OUT OF STOCK (a tool you own doesn't depend on the stock)
+ 		Stock.Card(c, if TC.Consumables[id] then "Consumables" else "Tools", id, not TC.Consumables[id] and d.OwnedSet[id] == true)
+ 	end
+@@ -829,6 +915,12 @@
  		if tc and tc.sw and tc.icam and TC.TierFromState then
  			local okT, tier = pcall(TC.TierFromState, tid, d)
  			tier = if okT and d.OwnedSet[tid] and type(tier) == "number" then tier else 1
@@ -3473,7 +3883,7 @@
  			if (tc.tier or 1) ~= tier then -- (like the pickaxe: a card nobody has checked yet counts as tier 1)
  				tc.tier = tier
  				pcall(function()
-@@ -857,10 +911,11 @@
+@@ -857,16 +949,24 @@
  	local def = TC.Def(id)
  	local rar = rarityOf(self, def)
  	self:_preview(id)
@@ -3487,7 +3897,21 @@
  		local okT, tierNow = pcall(TC.TierFromState, id, d)
  		if okT and type(tierNow) == "number" and tierNow > 1 then
  			self.dName.Text = def.Display .. " · " .. TC.TierName(id, tierNow)
-@@ -882,10 +937,12 @@
+ 		end
+ 	end
+-	local rarityLine = def.Rarity .. (if TC.GrassTools[id] then " · slot 2" elseif TC.Helpers[id] then " · slot " .. TC.Helpers[id].Slot else " · one-use (slots 6-8)")
++	local rarityLine = def.Rarity .. (if TC.GrassTools[id] then "" elseif TC.Helpers[id] then " · slot " .. TC.Helpers[id].Slot else " · one-use (slots 6-8)")
++	local lockTierD, lockIsland
++	if not d.OwnedSet[id] then
++		lockTierD, lockIsland = self:_lock(id)
++	end
++	if lockTierD then
++		rarityLine = "🔒 CLOSED · opens on island " .. lockTierD .. (if lockIsland then " · " .. lockIsland.Icon .. " " .. lockIsland.Display else "")
++	end
+ 	self.dRarity.Text = rarityLine -- (v2.32: the stock is added to this line below)
+ 	self.dRarity.TextColor3 = rar.Color
+ 	local how = ({
+@@ -882,21 +982,31 @@
  		how = "🖱 Hold + pull toward you · strike key = GATHER into a pile"
  	elseif id == "Blower" then
  		how = "🖱 Hold: leaves fly away from the nozzle"
@@ -3500,8 +3924,41 @@
 +		how = if def.Target then "🎯 Use, then click a spot in your garden" elseif def.PetTarget then "🧸 Use, then pick one of your equipped pets" elseif def.ToolTarget then "🧰 Use, then pick the tool to repair (the ones in your hotbar)" else "⚡ Use it from the hotbar (6 · 7 · 8)"
  	end
  	self.dTrait.Text = how or ""
- 	self.dDesc.Text = def.Description
-@@ -933,11 +990,29 @@
+-	self.dDesc.Text = def.Description
++	self.dDesc.Text = if lockTierD then string.format("🔒 Closed until you buy the island %d%s. %s", lockTierD, if lockIsland then " “" .. lockIsland.Display .. "”" else "", def.Description) else def.Description
+ 	local isItem = TC.Consumables[id] ~= nil
+-	self.slotBtn.Visible = isItem
++	local ownedTool = not isItem and d.OwnedSet[id] == true
++	self.slotBtn.Visible = isItem or ownedTool
+ 	local top = 212
+ 	if isItem then
+ 		local inBar = table.find(d.Slots, id) ~= nil
+ 		self.slotBtn.Text = if inBar then "✔ IN THE HOTBAR — click to take it out" else "➕ PUT IN THE HOTBAR (slots 6 · 7 · 8)"
+ 		self.slotBtn.BackgroundColor3 = if inBar then Color3.fromRGB(110, 80, 170) else Color3.fromRGB(70, 110, 160)
+ 		top = 240
++	elseif ownedTool then
++		-- v2.43: the usual "＋ HOTBAR" / "− HOTBAR" of every tool you own (the old "IN SLOT 2" button is gone)
++		local H = self.Hotbar
++		local onBar = H ~= nil and H:Has("Tool", id)
++		self.slotBtn.Text = if onBar then "− HOTBAR" else "＋ HOTBAR"
++		self.slotBtn.BackgroundColor3 = if onBar then Color3.fromRGB(110, 96, 110) else Color3.fromRGB(70, 110, 160)
++		top = 240
+ 	end
+ 	self:_drawRows(id, d, self:_rows(id, d), top)
+ 	-- v2.40 🤖 AUTO-BUY: the SMALL pill of a one-use item, on the bottom left corner of its
+@@ -922,6 +1032,11 @@
+ 			self:_send({ Action = "BuyItem", Id = id, Count = 1 }, a)
+ 		end
+ 		robuxFor, robuxKind, robuxPayload = price, "Item", { Id = id, Count = 1 }
++	elseif lockTierD and not owned then
++		-- v2.43: closed: say so (no price, nothing to press)
++		a.Text = "🔒 OPENS ON ISLAND " .. lockTierD
++		a.BackgroundColor3 = Color3.fromRGB(80, 70, 64)
++		self.onAction = nil
+ 	elseif not owned then
+ 		a.Text = if price > 0 then "BUY · 💰" .. self.fmt(price) else "GET · FREE"
+ 		a.BackgroundColor3 = if money >= price then GREEN_BUY else Color3.fromRGB(80, 96, 86)
+@@ -933,13 +1048,27 @@
  		end
  	elseif TC.GrassTools[id] then
  		local inSlot = d.Grass == id
@@ -3518,8 +3975,8 @@
 +				needAction, needText, needCost = "Refuel", "⛽ REFUEL", TC.FuelCost(id, mm - ml)
 +			else
 +				needAction, needText, needCost = "RepairTool", "🔧 REPAIR", TC.WearRepairCost(id, TC.GrassTierOf(id, d.Up[id]), mm - ml)
-+			end
-+		end
+ 			end
+ 		end
 +		if needAction and needCost > 0 then
 +			a.Text = needText .. " · 💰" .. self.fmt(needCost)
 +			a.BackgroundColor3 = if money >= needCost then Color3.fromRGB(220, 140, 50) else Color3.fromRGB(80, 96, 86)
@@ -3527,16 +3984,14 @@
 +				self:_send({ Action = needAction, Id = id }, a)
 +			end
 +		else
-+			a.Text = if inSlot then "IN SLOT 2" else "PUT IN SLOT 2"
-+			a.BackgroundColor3 = if inSlot then Color3.fromRGB(70, 110, 84) else Color3.fromRGB(70, 150, 90)
-+			self.onAction = function()
-+				if not inSlot then
-+					self:_send({ Action = "Equip", Id = id }, a)
-+				end
- 			end
- 		end
++			a.Text = "OWNED"
++			a.BackgroundColor3 = Color3.fromRGB(70, 110, 84)
++			self.onAction = nil
++		end
  	elseif id == "Vacuum" then
-@@ -977,6 +1052,24 @@
+ 		local V = TC.Vacuum(d.Up.Vacuum)
+ 		local used = math.min(self.player:GetAttribute("VacUsed") or 0, V.Capacity)
+@@ -977,6 +1106,24 @@
  				self:_send({ Action = "Recharge" }, a)
  			end
  		end
@@ -3879,7 +4334,7 @@
  return W
 --- a/ru.lua
 +++ b/ru.lua
-@@ -5887,4 +5887,147 @@
+@@ -5887,4 +5887,161 @@
  L.Strings["There is a slab here already — only the same slab fits onto it"] = "Здесь уже лежит плита — на неё можно положить только такую же"
  L.Strings["Trees need a full block — not a slab"] = "Деревьям нужен целый блок, а не плита"
  
@@ -4025,5 +4480,19 @@
 +L.Templates["%s: the tool you pick is repaired completely"] = "%1: выбранный предмет чинится полностью"
 +L.Templates["Durability %d / %d"] = "Прочность %1 / %2"
 +L.Templates["%s /s"] = "%1 /с"
++
++
++-- v2.43 (round 3): the closed pickaxe, the magnet, fences, fuel
++L.Strings["20 seconds: leaves near you drift to you — you still sweep them up yourself. Only the Mega Magnet collects them for you."] = "20 секунд: листья рядом дрейфуют к тебе — собирать их всё равно придётся самому. Сами собирает только Мега-магнит."
++L.Strings["⛽ Out of fuel — the tractor crawls. Fill the tank with Gasoline or in SHOP · TOOLS"] = "⛽ Кончилось топливо — трактор еле ползёт. Заправь бак бензином или в SHOP · TOOLS"
++L.Strings["Fence skins"] = "Скины забора"
++L.Strings["＋ HOTBAR"] = "＋ В ХОТБАР"
++L.Strings["− HOTBAR"] = "− ИЗ ХОТБАРА"
++L.Strings["OWNED"] = "ЕСТЬ"
++L.Templates["🔒 ISLAND %d"] = "🔒 ОСТРОВ %1"
++L.Templates["🔒 OPENS ON ISLAND %d"] = "🔒 ОТКРОЕТСЯ НА ОСТРОВЕ %1"
++L.Templates["🔒 CLOSED · opens on island %d"] = "🔒 ЗАКРЫТО · откроется на острове %1"
++L.Templates["🔒 CLOSED · opens on island %d · %s"] = "🔒 ЗАКРЫТО · откроется на острове %1 · %2"
++L.Templates["🔒 Closed until you buy the island %d%s. %s"] = "🔒 Закрыто, пока не купишь остров %1%2. %3"
 +
  return L

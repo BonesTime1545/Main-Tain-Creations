@@ -51,4 +51,12 @@ print("blower gauge:", bn.GaugeBack, bn.Seg1, bn.Seg5)
 local g = ToolModels.Build("Scythe", nil, 5)
 local gn = {} for _, c in g:GetChildren() do gn[c.Name] = true end
 print("scythe tier5 uses golden builder (Snath, Blade):", gn.Snath, gn.Blade)
+for _, id in { "BlasterBattery", "Gasoline", "RepairKit", "BlowerBattery", "VacuumBattery" } do
+	local mm = ToolModels.Build(id)
+	print((#mm:GetChildren() >= 6 and "PASS " or "FAIL ") .. id .. " is a real model (" .. #mm:GetChildren() .. " parts, not a white cube)")
+end
+for _, id in { "Shears", "WeedCutter", "PushMower" } do
+	local t1, t5 = ToolModels.Build(id, nil, 1), ToolModels.Build(id, nil, 5)
+	print((#t5:GetChildren() > #t1:GetChildren() and "PASS " or "FAIL ") .. id .. " tier 5 looks different from tier 1 (" .. #t1:GetChildren() .. " -> " .. #t5:GetChildren() .. " parts)")
+end
 print("built ok:", builtOk)

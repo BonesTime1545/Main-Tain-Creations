@@ -29,4 +29,6 @@ local almost = T.Blaster({ Power = 5, Rate = 5, Size = 5, Energy = 4 })
 print("blaster maxed:", top.Maxed, top.IceDamage, top.StoneNudge, " | one short:", almost.Maxed, almost.IceDamage, almost.StoneNudge)
 print("blaster reload s:", T.Blaster({}).Reload, "->", top.Reload)
 if not (top.Maxed and top.IceDamage == 1 and top.StoneNudge) or almost.Maxed or almost.IceDamage or almost.StoneNudge or top.Reload < 2 then fails += 1 end
+print("leaf magnet collects by itself?", T.Consumables.LeafMagnet.Pickup, " mega magnet:", T.Consumables.MegaMagnet.Pickup)
+if T.Consumables.LeafMagnet.Pickup ~= nil or not T.Consumables.MegaMagnet.Pickup then fails += 1 end
 print(fails == 0 and "LADDER OK" or ("FAILURES: " .. fails))
