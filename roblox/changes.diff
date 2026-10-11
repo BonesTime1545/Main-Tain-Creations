@@ -802,6 +802,56 @@
  			Secrets = (function()
  				local n = 0
  				for _ in data.Secrets do
+--- a/BestiaryUI.lua
++++ b/BestiaryUI.lua
+@@ -174,6 +174,7 @@
+ 		Tr = if all or tab == "Trees" or tab == "Items" then s.Trees else nil, -- (ITEMS names the trees that drop an item)
+ 		Br = if all or tab == "Brooms" then s.Brooms else nil,
+ 		P = if all or tab == "Pets" then s.Pets else nil,
++		PD = if tab == "Pets" then Players.LocalPlayer:GetAttribute("PetData") else nil, -- (petinfo: the card shows your best copy)
+ 		W = if all or tab == "Weather" then s.Weather else nil,
+ 		Now = if tab == "Weather" then workspace:GetAttribute("Weather") else nil,
+ 		C = s.Collection,
+@@ -703,6 +704,30 @@
+ 	return string.format("<font color='#8C6440'>%s</font>  %s", label, value)
+ end
+ 
++-- petinfo: a pet card's text. Lvl 1 of the plain pet (exact); for a pet YOU own, what its best copy
++-- (highest form, then level) gives now
++function BestiaryUI:_petBody(id)
++	local PC = self.PetConfig
++	local best
++	for _, p in decode(Players.LocalPlayer:GetAttribute("PetData")) do
++		if type(p) == "table" and p.Id == id then
++			local vi, lv = PC.VariantIndex[p.Variant or "Normal"] or 1, math.floor(tonumber(p.Level) or 1)
++			if not best or vi > best.vi or (vi == best.vi and lv > best.lv) then
++				best = { vi = vi, lv = lv, v = p.Variant or "Normal" }
++			end
++		end
++	end
++	local base = PC.Text(id, "Normal", 1)
++	if not best then
++		return row("Lvl 1", base)
++	end
++	if best.vi == 1 and best.lv <= 1 then
++		return row("Bonus", base)
++	end
++	local tag = string.format("Lvl %d", best.lv) .. (if best.vi > 1 then " · " .. PC.Variants[best.vi].Display else "")
++	return row("Lvl 1", base) .. "\n" .. row("Yours · " .. tag, PC.Text(id, best.v, best.lv))
++end
++
+ ---------------------------------------------------------------- STATS (a list)
+ local function timeText(sec)
+ 	sec = math.floor(tonumber(sec) or 0)
+@@ -1307,7 +1332,7 @@
+ 			if s.Pets[id] then
+ 				local egg = PC.EggOf and PC.EggOf(id)
+ 				-- (v2.36: the round area shows the pet itself in 3-D)
+-				self:_pv(K.card(list, i, self:_gift("Pets", id, { Title = def.Display, Tag = def.Rarity, TagColor = PC.Rarities[def.Rarity].Color, Icon = "🐾", IconSize = PV_SIZE, IconColor = def.Color, Body = row("Bonus", def.Desc) .. "\n" .. row("From", if egg then PC.Eggs[egg].Display else "special (event / reward)") })), "Pets", id)
++				self:_pv(K.card(list, i, self:_gift("Pets", id, { Title = def.Display, Tag = def.Rarity, TagColor = PC.Rarities[def.Rarity].Color, Icon = "🐾", IconSize = PV_SIZE, IconColor = def.Color, Body = self:_petBody(id) .. "\n" .. row("From", if egg then PC.Eggs[egg].Display else "special (event / reward)") })), "Pets", id)
+ 			else
+ 				K.card(list, i, { Title = "???", Tag = def.Rarity, TagColor = PC.Rarities[def.Rarity].Color, Icon = "❔", IconColor = K.MUTED, Body = LOCK })
+ 			end
 --- a/BlockConfig.lua
 +++ b/BlockConfig.lua
 @@ -2,7 +2,7 @@
@@ -6227,6 +6277,15 @@
  function EconomyService.TreeUpgradeCost(treeDef, level)
 --- a/EggOpening.lua
 +++ b/EggOpening.lua
+@@ -500,7 +500,7 @@
+ 	self.nameLabel.TextStrokeColor3 = Color3.fromRGB(40, 25, 10)
+ 	self.nameScale.Scale = 0.3
+ 	TweenService:Create(self.nameScale, TweenInfo.new(0.45, Enum.EasingStyle.Back), { Scale = 1 }):Play()
+-	self.subLabel.Text = string.format("<font color='#%s'>%s</font>   %s\n<font size='16'>tap anywhere to continue</font>", rarity.Color:ToHex(), string.upper(def.Rarity), def.Desc or "")
++	self.subLabel.Text = string.format("<font color='#%s'>%s</font>   %s\n<font size='16'>tap anywhere to continue</font>", rarity.Color:ToHex(), string.upper(def.Rarity), P.Text(petId, variant, level or 1))
+ 	if self.Sfx then
+ 		self.Sfx.Play("EggHatch")
+ 		if rarity.Order >= 4 then
 @@ -513,6 +513,55 @@
  	end)
  end
@@ -6344,7 +6403,7 @@
 +		Glow = tierColor,
 +		PrizeId = pet.Id,
 +		Title = (if pet.Pity then "🎯 GUARANTEED!  " else "🐣 ") .. P.Name(pet.Id, pet.Variant),
-+		Desc = def.Desc or "",
++		Desc = P.Text(pet.Id, pet.Variant, pet.Level or 1),
 +		New = false,
 +	}
 +	function spec.Build(model, base)
@@ -8204,7 +8263,7 @@
  	if ctx.BlockService and ctx.BlockService.Water then
  		local okW, water = pcall(ctx.BlockService.Water, plot)
  		if okW and type(water) == "table" then
-@@ -155,32 +182,347 @@
+@@ -155,32 +182,395 @@
  	if g.Size ~= plot.Size then
  		-- the yard changed size: the grid moved, start with a fresh lawn
  		g.Cells = {}
@@ -8308,6 +8367,31 @@
 +			end
 +		end
 +	end
++	-- v2.63: an Earth block put into a DUG cell of the pit at level 0 shows a green top too (the column
++	-- above it, if any, decides whether the top is open)
++	if type(blocks.Pit) == "table" then
++		for k, p in blocks.Pit do
++			if type(p) == "string" then
++				local code = string.sub(p, 1, 1)
++				local sx, sz = string.match(k, "^(%d+),(%d+)$")
++				local cx, cz = tonumber(sx), tonumber(sz)
++				if (code == "D" or code == "d") and cx and cz and cx < n and cz < n then
++					local col = blocks[k]
++					local up = if type(col) == "string" then string.sub(col, 1, 1) else ""
++					if up == "" or (not BC.IsSolid(up) and up ~= "W") then
++						table.insert(out, {
++							Cx = cx,
++							Cz = cz,
++							Level = 0,
++							Key = cx .. "," .. cz .. ",0",
++							Y = (if code == "d" then BC.SlabHeight or BC.Height / 2 else BC.Height) - BC.Height,
++							Bare = GrassService.IsBare(data, cx, cz, 0),
++						})
++					end
++				end
++			end
++		end
++	end
 +	return out
 +end
 +
@@ -8379,6 +8463,19 @@
 +					grow(pick, r:NextInteger(g.NewGrowth[1], g.NewGrowth[2]))
 +					seeded += 1
 +				end
++			end
++		end
++	end
++	-- v2.63: GRASS ON A SINGLE BLOCK. Grass spreads only to the neighbour of a grown top ON THE SAME LEVEL
++	-- (or by one random pick among ALL tops): a lone block, a floating block, a tower top or a block over
++	-- a hole has no such neighbour and almost never got grass. Such a spot is seeded here by itself.
++	for _, t in list do
++		if (tops[t.Key] or 0) == 0 then
++			local lv = "," .. t.Level
++			local a, b = valid[(t.Cx + 1) .. "," .. t.Cz .. lv], valid[(t.Cx - 1) .. "," .. t.Cz .. lv]
++			local c, d = valid[t.Cx .. "," .. (t.Cz + 1) .. lv], valid[t.Cx .. "," .. (t.Cz - 1) .. lv]
++			if not ((a and not a.Bare) or (b and not b.Bare) or (c and not c.Bare) or (d and not d.Bare)) and r:NextNumber() < 0.6 then
++				grow(t, r:NextInteger(g.NewGrowth[1], g.NewGrowth[2]))
 +			end
 +		end
 +	end
@@ -8550,12 +8647,22 @@
 +			end
 +		end
 +	end
++	local pit = if BC and type(data.Plot.Blocks) == "table" then data.Plot.Blocks.Pit else nil
++	local p0 = if type(pit) == "table" and type(pit[cx .. "," .. cz]) == "string" then string.sub(pit[cx .. "," .. cz], 1, 1) else ""
++	if p0 == "D" or p0 == "d" then
++		local top = (if p0 == "d" then BC.SlabHeight or BC.Height / 2 else BC.Height) - BC.Height
++		local y = plot.CFrame:PointToObjectSpace(pos).Y
++		if y >= top - (below or 1.5) and y <= top + (above or 2.4) then
++			local k = cx .. "," .. cz .. ",0"
++			return topsOf(data, plot)[k] or 0, k, top
++		end
++	end
 +	local k = GrassService.Key(cx, cz)
 +	return cells(data, plot)[k] or 0, k, 0
  end
  
  ---------------------------------------------------------------- publish
-@@ -254,14 +596,60 @@
+@@ -254,14 +644,60 @@
  		return 0
  	end)
  	s.StripesExpire = nextExpire -- (the loop republishes when the stripes fade)
@@ -8620,7 +8727,7 @@
  end
  
  -- one growth step for a player's lawn (called every TickEvery seconds)
-@@ -276,6 +664,10 @@
+@@ -276,6 +712,10 @@
  	if (data.Stats.LVEarned or 0) < g.StartAfterEarned then
  		return 0
  	end
@@ -8631,7 +8738,7 @@
  	-- v2.16: grass only starts to grow with island 2 (IslandConfig.Features.Grass)
  	if ctx.IslandService and not ctx.IslandService.HasTier(player, "Grass") then
  		return 0
-@@ -301,10 +693,7 @@
+@@ -301,10 +741,7 @@
  			end
  		end
  	end
@@ -8643,7 +8750,7 @@
  	local changed = 0
  	local function grow(k, amount)
  		local v = c[k] or 0
-@@ -331,11 +720,31 @@
+@@ -331,11 +768,31 @@
  	-- existing grass keeps growing (most spots, not all, every step)
  	for _, cell in grown do
  		if r:NextNumber() < 0.7 then
@@ -8676,7 +8783,7 @@
  	for _ = 1, new do
  		local cx, cz
  		if #grown > 0 and r:NextNumber() < g.Spread then
-@@ -353,6 +762,12 @@
+@@ -353,6 +810,12 @@
  			end
  		end
  	end
@@ -8689,7 +8796,7 @@
  	if changed > 0 then
  		st(player).Dirty = true
  		-- the first time the grass gets tall in a session: tell the player what to do
-@@ -383,6 +798,28 @@
+@@ -383,6 +846,28 @@
  		ldir = if ldir.Magnitude > 1e-3 then ldir.Unit else nil
  	end
  	local cosHalf = if ldir then math.cos(math.rad(arc / 2)) else -2
@@ -8718,7 +8825,7 @@
  	for cx = 0, n - 1 do
  		for cz = 0, n - 1 do
  			local x, z = GrassService.CellCenter(plot, cx, cz)
-@@ -413,19 +850,23 @@
+@@ -413,19 +898,23 @@
  	end
  	local g = G()
  	local r = opts.R or rng
@@ -8745,7 +8852,7 @@
  			local cx, cz = string.match(k, "^(%d+),(%d+)$")
  			cx, cz = tonumber(cx), tonumber(cz)
  			local d = plot.CFrame:VectorToObjectSpace(opts.Stripe)
-@@ -472,12 +913,26 @@
+@@ -472,12 +961,26 @@
  
  -- clippings fall where the grass was
  function GrassService._drop(_player, plot, key, typeId, units, r)
@@ -8775,7 +8882,7 @@
  	end
  end
  
-@@ -497,7 +952,7 @@
+@@ -497,7 +1000,7 @@
  -- low (down in the grass, not in the air above it) and has (almost) stopped. A leaf
  -- just spawned high up drops first — it no longer freezes in mid-air.
  GrassService.LandHeight = 1.8 -- studs above the lawn (tall grass is up to ~1.4 high)
@@ -8784,7 +8891,7 @@
  	local ok, lp = pcall(function()
  		return plot.CFrame:PointToObjectSpace(part.Position)
  	end)
-@@ -505,7 +960,7 @@
+@@ -505,7 +1008,7 @@
  		return true
  	end
  	local half = if typeof(part.Size) == "Vector3" then math.min(part.Size.X, part.Size.Y, part.Size.Z) / 2 else 0
@@ -8793,7 +8900,7 @@
  		return false
  	end
  	local v = part.AssemblyLinearVelocity
-@@ -521,23 +976,43 @@
+@@ -521,23 +1024,43 @@
  	if not data or not plot or not RS or not RS.AliveIn then
  		return
  	end
@@ -8842,7 +8949,7 @@
  			-- roll once per spot (a leaf resting in thick grass isn't re-rolled every second)
  			if rolled[part] ~= k or lvl == 4 then
  				rolled[part] = k
-@@ -558,11 +1033,9 @@
+@@ -558,11 +1081,9 @@
  	if not data or not plot or not RS or not RS.AliveIn then
  		return
  	end
@@ -8855,7 +8962,7 @@
  			if lvl < 3 then
  				RS.SetStuck(part, false)
  			end
-@@ -578,13 +1051,11 @@
+@@ -578,13 +1099,11 @@
  	if not data or not plot then
  		return 0
  	end
@@ -8870,7 +8977,7 @@
  			if lvl < 4 then
  				RS.SetStuck(part, false)
  				freeUntil[part] = until_
-@@ -607,8 +1078,17 @@
+@@ -607,8 +1126,17 @@
  GrassService.ClearPlayer = GrassService.Clear_
  
  function GrassService.Start()
@@ -8889,7 +8996,7 @@
  		acc += dt
  		stuckAcc += dt
  		if acc < 0.25 then
-@@ -624,7 +1104,7 @@
+@@ -624,7 +1152,7 @@
  			if ctx.PlayerDataService.IsLoaded(player) and ctx.PlotSystem.Get(player) then
  				local s = st(player)
  				if now >= s.NextTick then
@@ -12032,7 +12139,7 @@
  		if not LeaderboardService.ShuttingDown then
 --- a/LeafRushClient.lua
 +++ b/LeafRushClient.lua
-@@ -170,6 +170,10 @@
+@@ -170,8 +170,13 @@
  
  -- v1.0: key bindings + language first (every window below uses them)
  local settingRemote = Remotes:WaitForChild(R.UpdateSetting)
@@ -12042,8 +12149,11 @@
 +require(script:WaitForChild("Prefs")).LevelFn = Quality.Level
  Controls.Init(ControlsConfig, settingRemote)
  Loc.Init(Locales)
++PetConfig.Lang = Loc.Language -- (petinfo: P.Text writes the pet texts in the player's language)
  local function applyLanguage()
-@@ -292,6 +296,21 @@
+ 	local id = player:GetAttribute("Setting_Language")
+ 	if type(id) ~= "string" then
+@@ -292,6 +297,21 @@
  	return eggOpening.playing == true
  end
  local pets = PetsUI.new({ UIKit = UIKit, ItemGrid = ItemGrid, ItemModels = ItemModels, TreeTypes = TreeTypes, RobuxUI = RobuxUI, fmt = Hud.fmt, Config = Config, PetConfig = PetConfig, PetFollow = PetFollow, ZoneConfig = ZoneConfig, IslandConfig = IslandConfig, Remote = Remotes:WaitForChild(R.PetRequest), Hud = hud, Juice = Juice, Sfx = Sfx, EggOpening = eggOpening })
@@ -12065,7 +12175,7 @@
  -- v1.10: a pet levelled up -> a celebration (world + the pet panel)
  require(script:WaitForChild("PetLevelFX")).Start({
  	Juice = Juice,
-@@ -337,6 +356,7 @@
+@@ -337,6 +357,7 @@
  	Sfx = Sfx,
  	MetaConfig = MetaConfig,
  	Remote = settingRemote,
@@ -12073,7 +12183,7 @@
  	Controls = Controls,
  	ControlsConfig = ControlsConfig,
  	Locales = Locales,
-@@ -348,13 +368,13 @@
+@@ -348,13 +369,13 @@
  })
  -- v1.0: the broom slot at the bottom (replaces the Roblox backpack bar)
  -- v1.2: eight slots — broom, grass tool, rake, blower, vacuum, three one-use items
@@ -12090,7 +12200,7 @@
  			end)
  			if not ok then
  				hud:Toast("Connection problem, try again", 2)
-@@ -397,6 +417,17 @@
+@@ -397,6 +418,17 @@
  		if not okP then
  			warn("[LeafRush] toy picker: " .. tostring(err))
  		end
@@ -12108,7 +12218,7 @@
  	else
  		use(nil)
  	end
-@@ -519,6 +550,7 @@
+@@ -519,6 +551,7 @@
  	return egg and pets:_eggModel(egg)
  end
  inventory.Hotbar = hotbar
@@ -12116,7 +12226,7 @@
  inventory.PlotMath = PlotMath
  hotbar.inEditor = function()
  	return build.active and not build.quick
-@@ -538,7 +570,7 @@
+@@ -538,7 +571,7 @@
  Controls.Changed:Connect(function()
  	hotbar:RefreshKey()
  end)
@@ -12125,7 +12235,7 @@
  local garden = GardenUI.new({ UIKit = UIKit, fmt = Hud.fmt, Hud = hud, Sfx = Sfx, RobuxUI = RobuxUI, IslandConfig = IslandConfig, EndgameConfig = EndgameConfig, TreeTypes = TreeTypes, IslandRemote = Remotes:WaitForChild(R.IslandRequest), BuildRemote = Remotes:WaitForChild(R.BuildRequest) })
  local buildShop = BuildShopUI.new({ UIKit = UIKit, ItemGrid = ItemGrid, fmt = Hud.fmt, Hud = hud, Sfx = Sfx, RobuxUI = RobuxUI, Config = Config, Economy = Economy, TreeTypes = TreeTypes, DecorTypes = DecorTypes, ModelBuilder = ModelBuilder, IslandConfig = IslandConfig, ResourceTypes = ResourceTypes, Remote = Remotes:WaitForChild(R.BuildRequest) })
  -- what you buy at the Build Shop also lands on your hotbar (when there is room)
-@@ -555,12 +587,6 @@
+@@ -555,12 +588,6 @@
  trade.Popup = function(...)
  	friends:Popup(...)
  end
@@ -12138,7 +12248,7 @@
  social.OnHome = function()
  	hud:_fire("Home")
  end
-@@ -644,7 +670,7 @@
+@@ -644,7 +671,7 @@
  UIKit.polish(shop.gui)
  UIKit.polish(toolsUI.gui)
  -- v2.16: BROOM SHOP · ITEMS (the one-use items, moved out of TOOLS)
@@ -12147,7 +12257,7 @@
  UIKit.polish(toolsUI.items.gui)
  UIKit.polish(build.UI.gui)
  
-@@ -656,7 +682,7 @@
+@@ -656,7 +683,7 @@
  	shop = shop, bestiary = bestiary, codes = codes, pets = pets,
  	quests = quests, wheel = wheel,
  	inventory = inventory, settings = settings, upgrades = upgrades, social = social, admin = admin, tools = toolsUI, items = toolsUI.items,
@@ -12156,7 +12266,7 @@
  }
  local function isOpen(w)
  	if w.w then
-@@ -867,16 +893,28 @@
+@@ -867,16 +894,28 @@
  	Features.Attach(toolsUI.gui, toolsUI.frame, always("Tools"), 56)
  	Features.Attach(toolsUI.items.gui, toolsUI.items.frame, always("Items"), 56)
  	win(pets.w, always("Eggs"))
@@ -12188,7 +12298,7 @@
  end
  local stallPages = {
  	Eggs = {
-@@ -983,7 +1021,6 @@
+@@ -983,7 +1022,6 @@
  end)
  shopHubRef = shopHub
  playersHub = UIKit.hub("LeafRushPlayersHub", "PLAYERS", "👥", "Players", {
@@ -12196,7 +12306,7 @@
  	winPage("Visit", "Visit", "🏡", social),
  	winPage("Trade", "Trade", "🔁", trade),
  })
-@@ -997,6 +1034,38 @@
+@@ -997,6 +1035,38 @@
  end
  -- v1.1: PLACE IN GARDEN -> click a spot (EggPlacer)
  eggPlacer = EggPlacer.new({ PetConfig = PetConfig, Remote = Remotes:WaitForChild(R.PetRequest), Hud = hud, Juice = Juice, Sfx = Sfx })
@@ -12235,7 +12345,7 @@
  pets.onPlace = function(eggId)
  	shopHub.Close()
  	inventory:Toggle(false) -- (v2.11: eggs you own are placed from Inventory · PETS)
-@@ -1050,6 +1119,46 @@
+@@ -1050,6 +1120,46 @@
  	Sfx.Play("Click")
  end
  
@@ -12282,7 +12392,7 @@
  -- v2.0: the three shops on the hub island (press E at a counter)
  game:GetService("ProximityPromptService").PromptTriggered:Connect(function(prompt, who)
  	if who ~= player then
-@@ -1064,13 +1173,135 @@
+@@ -1064,13 +1174,135 @@
  			shopHub.Open(page)
  		end
  	elseif prompt.Name == "GardenUpgrade" then
@@ -12418,7 +12528,7 @@
  ---------------------------------------------------------------- raycast ignore list for the broom
  local function rebuildIgnore()
  	local list = { visuals }
-@@ -1290,8 +1521,6 @@
+@@ -1290,8 +1522,6 @@
  	local free = not build.active -- Build Mode has its own keys (Play-only actions wait)
  	if isInput("Shop", input) then
  		shopHub.Toggle()
@@ -12427,7 +12537,7 @@
  	elseif isInput("Bestiary", input) then
  		bestiary:Toggle()
  	elseif isInput("Pets", input) then
-@@ -1349,8 +1578,168 @@
+@@ -1349,8 +1579,168 @@
  	end
  end)
  
@@ -12597,7 +12707,7 @@
  	if kind == "Jet" then
  		-- v2.34: another player's Leaf Blower in JET mode — its air stream behind them
  		if uid ~= player.UserId and typeof(center) == "Vector3" and typeof(dir) == "Vector3" and dir.Magnitude > 0.1 and dir.Magnitude < 2 then
-@@ -1363,6 +1752,27 @@
+@@ -1363,6 +1753,27 @@
  		end
  		return
  	end
@@ -12625,7 +12735,7 @@
  	if kind ~= "Cut" or uid == player.UserId or typeof(center) ~= "Vector3" then
  		return
  	end
-@@ -1447,7 +1857,7 @@
+@@ -1447,7 +1858,7 @@
  		Juice.Pillar(model:GetPivot().Position, Color3.fromRGB(200, 120, 255), 16)
  		Juice.Burst(top, Color3.fromRGB(220, 150, 255), 30, 10)
  		Juice.Chime(Config.FX.UiSoundId, 1.4, 0.35)
@@ -12634,7 +12744,7 @@
  	end
  	if shaking[model] then
  		return
-@@ -1510,12 +1920,6 @@
+@@ -1510,12 +1921,6 @@
  		-- (v2.13: the daily window never opens by itself — see SHOP · DAILY)
  	elseif kind == "TutorialDone" then
  		welcome:OnDone(payload)
@@ -12647,7 +12757,7 @@
  	elseif kind == "EggOpen" and type(payload) == "table" then
  		-- v1.1: your egg in the garden opened — the tap-to-crack show (the pet is yours already)
  		for _, w in windows do
-@@ -1558,6 +1962,7 @@
+@@ -1558,6 +1963,7 @@
  	-- Shop · COSMETICS, put in the garden like eggs, opened with a show of their own
  	local ok, err = pcall(function()
  		local DecorBoxes = require(script:WaitForChild("DecorBoxes"))
@@ -12655,7 +12765,7 @@
  		DecorBoxes.Start({
  			UIKit = UIKit,
  			Hud = hud,
-@@ -1578,6 +1983,9 @@
+@@ -1578,6 +1984,9 @@
  		NestFX.Busy = function()
  			return eggOpening.playing == true or DecorBoxes.playing == true
  		end
@@ -12665,7 +12775,7 @@
  		-- one thing in the hand at a time: an egg OR a box
  		if eggPlacer then
  			local startEgg = eggPlacer.Start
-@@ -2096,9 +2504,12 @@
+@@ -2096,9 +2505,12 @@
  	end
  	local lp = floor.CFrame:PointToObjectSpace(root.Position)
  	local half = floor.Size.X / 2 + 4
@@ -13928,6 +14038,329 @@
  		return math.min(v * P.LevelMult(L), 1)
  	elseif key == "SlideSpeed" then
  		return v * P.LevelMult(L) -- (v2.32 fix: it was capped at 1 like a chance, so a levelled snail's slime was SLOWER)
+@@ -902,4 +926,322 @@
+ 	return out
+ end
+ 
++---------------------------------------------------------------- PET TEXTS (round 10)
++--[[
++	P.Text(petId, variant, level, boost, lang) -> the sentence that says what THIS pet gives RIGHT NOW:
++	its form (Normal / Golden / Diamond / Rainbow), its level (1..10) and — when `boost` is given — the
++	pet toy on it. Every number comes from P.AbilityValue (the same function the game logic uses:
++	PetPowers / PetAbilityService read them through it) and is capped exactly like the logic caps it
++	(`cap` below = the min(...) in PetPowers / PetAbilityService; mutation chances: PetPowers MUT_CAP 0.9).
++	There are NO ability names in these texts. lang = "en" / "ru" (default: P.Lang(), which the client
++	sets to Loc.Language; the server uses English). Pets of an unknown kind give "".
++	Templates: {Key:kind} = the live ability number (kinds: p percent · d time · x multiplier ·
++	m money · i whole number · n:noun number + word), {name} = a number worked out in `calc`,
++	{@Mutation} = "GOLDEN ×25" / «Золотой» ×25 (P.TextMutations has the multipliers).
++]]
++P.Lang = function()
++	return "en"
++end
++
++-- id = { multiplier, English name, Russian name } (the multipliers are MutationConfig's; the test checks them)
++local MUTW = {
++	Golden = { 25, "GOLDEN", "Золотой" }, Rabid = { 25, "RABID", "Бешеный" }, Frozen = { 30, "FROZEN", "Ледяной" }, Frost = { 15, "FROST", "Мороз" },
++	Burning = { 20, "BURNING", "Горящий" }, Molten = { 75, "MOLTEN", "Расплавленный" }, Sunkissed = { 5, "SUNKISSED", "Солнечный" }, Wet = { 2, "WET", "Мокрый" },
++	Soaked = { 6, "SOAKED", "Промокший" }, Windstruck = { 7, "WINDSTRUCK", "Ветреный" }, Stormcharged = { 75, "STORMCHARGED", "Грозовой" }, Bloom = { 8, "BLOOM", "Цветущий" },
++	Verdant = { 9, "VERDANT", "Зеленеющий" }, Lucky = { 77, "LUCKY", "Удачливый" }, Toxic = { 35, "TOXIC", "Токсичный" }, Glitched = { 325, "GLITCH", "Глюк" },
++	Moonlit = { 10, "MOONLIT", "Лунный" }, Bloodlit = { 10, "BLOODLIT", "Кровавый" }, Nebula = { 13, "NEBULA", "Туманность" }, Star = { 90, "STAR", "Звёздный" },
++	Celestial = { 100, "CELESTIAL", "Небесный" }, Cosmic = { 250, "COSMIC", "Космический" }, Void = { 150, "VOID", "Пустота" }, Honey = { 12, "HONEY", "Медовый" },
++	Electric = { 50, "ELECTRIC", "Электрический" }, Aurora = { 40, "AURORA", "Сияние" },
++}
++P.TextMutations = MUTW
++
++local NOUNS = {
++	item = { { "item", "items" }, { "предмет", "предмета", "предметов" } },
++	stream = { { "stream", "streams" }, { "поток", "потока", "потоков" } },
++	bolt = { { "lightning bolt", "lightning bolts" }, { "молнию", "молнии", "молний" } },
++	best = { { "most valuable item", "most valuable items" }, { "самым ценным предметом", "самыми ценными предметами" } },
++	bestA = { { "most valuable item", "most valuable items" }, { "самый ценный предмет", "самых ценных предмета", "самых ценных предметов" } },
++}
++
++local function trimZeros(s)
++	return (string.gsub(string.gsub(s, "(%..-)0+$", "%1"), "%.$", ""))
++end
++local function fmtPct(x)
++	return trimZeros(string.format("%.1f", math.floor(x * 1000 + 0.5) / 10)) .. "%"
++end
++local function fmtDur(x, ru)
++	local sec, min = if ru then "с" else "s", if ru then "мин" else "min"
++	if x < 60 then
++		return trimZeros(string.format("%.1f", x)) .. " " .. sec
++	end
++	local total = math.floor(x + 0.5)
++	local m, s = total // 60, total % 60
++	if s == 0 then
++		return m .. " " .. min
++	end
++	return m .. " " .. min .. " " .. s .. " " .. sec
++end
++local function fmtMoney(x, ru)
++	local s = tostring(math.floor(x + 0.5))
++	local out = ""
++	while #s > 3 do
++		out = (if ru then "\u{A0}" else ",") .. string.sub(s, -3) .. out
++		s = string.sub(s, 1, #s - 3)
++	end
++	return "💰" .. s .. out
++end
++local function fmtNoun(n, forms, ru)
++	local f = forms[if ru then 2 else 1]
++	local pick
++	if ru and #f == 3 then
++		local m10, m100 = n % 10, n % 100
++		pick = if m10 == 1 and m100 ~= 11 then 1 elseif m10 >= 2 and m10 <= 4 and (m100 < 12 or m100 > 14) then 2 else 3
++	elseif ru then
++		pick = if n % 10 == 1 and n % 100 ~= 11 then 1 else 2
++	else
++		pick = if n == 1 then 1 else 2
++	end
++	return n .. " " .. f[pick]
++end
++
++local function render(tpl, V, calc, ru)
++	return (string.gsub(tpl, "{([^{}]+)}", function(spec)
++		if string.sub(spec, 1, 1) == "@" then
++			local m = MUTW[string.sub(spec, 2)]
++			if not m then
++				return "?"
++			end
++			return (if ru then "«" .. m[3] .. "»" else m[2]) .. " ×" .. m[1]
++		end
++		local key, kind, arg = string.match(spec, "^([%w_]+):?(%a*):?(.*)$")
++		local v = if calc and calc[key] ~= nil then calc[key] else V(key)
++		if type(v) ~= "number" or v ~= v then
++			return "?"
++		end
++		if kind == "p" then
++			return fmtPct(v)
++		elseif kind == "d" then
++			return fmtDur(v, ru)
++		elseif kind == "x" then
++			return "×" .. trimZeros(string.format("%.2f", v))
++		elseif kind == "m" then
++			return fmtMoney(v, ru)
++		elseif kind == "i" then
++			return tostring(math.floor(v + 0.5))
++		elseif kind == "n" then
++			local forms = NOUNS[arg]
++			return if forms then fmtNoun(math.floor(v + 0.5), forms, ru) else "?"
++		end
++		return trimZeros(string.format("%.1f", v))
++	end))
++end
++
++local function fallEN(mut, key)
++	return "Every item that falls gets an extra {" .. (key or "Chance") .. ":p} chance to become {@" .. mut .. "}"
++end
++local function fallRU(mut, key)
++	return "Каждый упавший предмет получает мутацию {@" .. mut .. "} с дополнительным шансом {" .. (key or "Chance") .. ":p}"
++end
++
++-- one entry per pet: en / ru template, `cap` = { key = max } (as the game logic caps it), `calc` = extra numbers
++local T: any = {}
++T.GardenBunny = { cap = { Chance = 0.5 },
++	en = "Each item you turn in has a {Chance:p} chance to give a free copy of itself",
++	ru = "Каждый сданный предмет с шансом {Chance:p} даёт бесплатную копию" }
++T.LeafLadybug = { cap = { Chance = 0.6 },
++	en = "A plain leaf you turn in has a {Chance:p} chance to become {@Golden}",
++	ru = "Обычный лист при сдаче с шансом {Chance:p} получает мутацию {@Golden}" }
++T.LittleSquirrel = {
++	en = "In your garden, every {Every:d} carries {Count:n:item} near you to your Collect zone",
++	ru = "В твоём саду раз в {Every:d} относит в зону сбора {Count:n:item} рядом с тобой" }
++T.GardenSnail = { calc = function(_V, a) return { Trail = a.TrailTime or 8, Slip = a.Slippery or 10 } end,
++	en = "Every {Every:d} leaves a slime trail for {Trail:d}: items on it turn slippery for {Slip:d} and slide to your Collect zone (speed {SlideSpeed:i})",
++	ru = "Раз в {Every:d} оставляет слизь на {Trail:d}: предметы на ней становятся скользкими на {Slip:d} и едут в зону сбора (скорость {SlideSpeed:i})" }
++T.Sproutling = {
++	en = "Every {Every:d} cuts {Cut:d} off the build or upgrade time of a tree near you",
++	ru = "Раз в {Every:d} сокращает на {Cut:d} стройку или улучшение дерева рядом с тобой" }
++T.ForestFox = { cap = { Chance = 0.6 },
++	en = "When a tree drops an item, there is a {Chance:p} chance the fox catches it and doubles it",
++	ru = "Когда с дерева падает предмет, с шансом {Chance:p} лиса ловит его и удваивает" }
++T.TinyDeer =
++	{ en = "When you strike with your broom (Q), the deer charges ahead, scattering items and shoving other players. Can charge once every {Every:d}",
++	ru = "Когда ты бьёшь метлой (Q), олень мчится вперёд, раскидывая предметы и отталкивая игроков. Рывок раз в {Every:d}" }
++T.RollHedgehog = {
++	en = "Every {Every:d} rolls {Count:n:item} from the biggest pile into your Collect zone; they sell for {Pay:p} more",
++	ru = "Раз в {Every:d} закатывает в зону сбора {Count:n:item} из самой большой кучи; они продаются на {Pay:p} дороже" }
++T.MushroomBuddy = {
++	en = "Every {Every:d} puffs spores over a pile of items worth less than {Value:m}: up to 14 of them turn into Spore Mushrooms worth {Value:m} each (mutations are kept)",
++	ru = "Раз в {Every:d} пускает споры над кучей предметов дешевле {Value:m}: до 14 из них превращаются в грибы по {Value:m} (мутации сохраняются)" }
++T.AncientSprout = {
++	en = "Trees within 28 studs of you grow {Mult:x} faster while being built or upgraded",
++	ru = "Деревья в 28 стадах от тебя строятся и улучшаются {Mult:x} быстрее" }
++T.Firefly = { calc = function(_V, a) return { Bonus = a.Bonus or 0.5 } end,
++	en = "Every {Every:d} lights up {Count:n:item}: each sells for {Bonus:p} more when you turn it in",
++	ru = "Раз в {Every:d} подсвечивает {Count:n:item}: при сдаче каждый стоит на {Bonus:p} дороже" }
++T.WiseOwl = { cap = { XP = 1 }, calc = function(V) return { Night = math.min(V("XP") or 0, 1) * 2 } end,
++	en = "You get +{XP:p} XP for what you turn in (+{Night:p} at night)",
++	ru = "Ты получаешь +{XP:p} опыта за сданное (ночью +{Night:p})" }
++T.MoonWolf = { cap = { Chance = 1, Speed = 0.4 },
++	en = "Moonlit and Bloodlit items show up {Chance:p} more often in their weather; you walk {Speed:p} faster",
++	ru = "Лунные и Кровавые предметы выпадают на {Chance:p} чаще в своей погоде; ты бежишь на {Speed:p} быстрее" }
++T.RabidBat = {
++	en = fallEN("Rabid") .. ". Rabid items run around your garden: stun one with a broom strike (Q) and sweep it in",
++	ru = fallRU("Rabid") .. ". Бешеные предметы бегают по саду: оглуши такой ударом метлы (Q) и замети его в зону" }
++T.EclipseMoth = { calc = function(_V, a) return { Dur = a.Duration or 30, Blood = a.Chance2 or 0.1 } end,
++	en = "Every {Every:d} the moon goes dark over your garden for {Dur:d}: every item that falls is {@Moonlit} ({Blood:p} of them {@Bloodlit}), and at the end {@Void} lands on {Count:n:item}",
++	ru = "Раз в {Every:d} луна над твоим садом гаснет на {Dur:d}: каждый упавший предмет получает мутацию {@Moonlit} ({Blood:p} из них {@Bloodlit}), а в конце {@Void} достаётся {Count:n:item}" }
++T.TinyPenguin = {
++	en = "Every {Every:d} slides across your garden, pushing items toward your Collect zone and leaving ice that keeps them sliding; {Chance:p} of the items it touches turn {@Frost}",
++	ru = "Раз в {Every:d} скользит по саду, толкая предметы к зоне сбора и оставляя лёд, по которому они едут дальше; {Chance:p} задетых предметов получают {@Frost}" }
++T.SnowHare = {
++	en = "Every {Every:d} rolls up to {Count:n:item} into one snowball that bursts open in your Collect zone",
++	ru = "Раз в {Every:d} скатывает до {Count:n:item} в один снежный ком, который лопается в зоне сбора" }
++T.PolarCub = {
++	en = "Every {Every:d} catches an Ice Fish worth {Value:m} from the water in your garden (half as often without water)",
++	ru = "Раз в {Every:d} ловит ледяную рыбу за {Value:m} в воде твоего сада (без воды вдвое реже)" }
++T.SnowSpirit = {
++	en = fallEN("Frozen") .. ". Ice breaks with one strike while it is with you",
++	ru = fallRU("Frozen") .. ". Пока он с тобой, лёд разбивается одним ударом" }
++T.IceMammoth = { calc = function(_V, a) return { Dur = a.Duration or 60, Aur = a.Chance2 or 0.1 } end,
++	en = "Every {Every:d} a blizzard covers your garden for {Dur:d}: {Chance:p} of the items that fall turn {@Frost}, and {Aur:p} of the Frost items already lying there turn {@Aurora}",
++	ru = "Раз в {Every:d} метель накрывает твой сад на {Dur:d}: {Chance:p} упавших предметов получают {@Frost}, а {Aur:p} уже лежащих мороженых предметов получают {@Aurora}" }
++T.FireBunny = { cap = { Chance = 0.9 },
++	en = "An item next to it has a {Chance:p} chance (rolled again every 6 s) to catch {@Burning}; it also burns away the tall grass under it",
++	ru = "Предмет рядом с ним с шансом {Chance:p} (бросок каждые 6 с) получает мутацию {@Burning}; он также выжигает высокую траву под собой" }
++T.Salamander = {
++	en = "Melts the ice on frozen items within 12 studs. " .. fallEN("Sunkissed"),
++	ru = "Растапливает лёд на замороженных предметах в 12 стадах. " .. fallRU("Sunkissed") }
++T.PhoenixChick = {
++	cap = { Chance = 0.6 },
++	en = fallEN("Burning", "MutChance") .. ". A BURNING item you turn in comes back to your garden with a {Chance:p} chance",
++	ru = fallRU("Burning", "MutChance") .. ". Сданный ГОРЯЩИЙ предмет с шансом {Chance:p} возвращается в твой сад" }
++T.MagmaGolem = { en = fallEN("Burning"), ru = fallRU("Burning") }
++T.BurningBear = { en = fallEN("Molten"), ru = fallRU("Molten") }
++T.CargoDrone = {
++	en = "Every {Every:d} drops the {Count:n:item} farthest from your Collect zone right into it; they sell for {Pay:p} more",
++	ru = "Раз в {Every:d} отправляет прямо в зону сбора {Count:n:item}, самые дальние от неё; они продаются на {Pay:p} дороже" }
++T.MiniBot = {
++	en = "Every {Every:d} tunes the nearest robot: it works {Boost:p} faster for {Duration:d}",
++	ru = "Раз в {Every:d} настраивает ближайшего робота: он работает на {Boost:p} быстрее в течение {Duration:d}" }
++T.RoboBee = { cap = { Hasten = 0.9 },
++	en = "Every {Every:d} a random tree drops its next item {Hasten:p} sooner. " .. fallEN("Honey"),
++	ru = "Раз в {Every:d} случайное дерево роняет следующий предмет на {Hasten:p} раньше. " .. fallRU("Honey") }
++T.RoboDog = {
++	en = "Every {Every:d} sends a free robot after your {Count:n:best}. " .. fallEN("Electric"),
++	ru = "Раз в {Every:d} посылает свободных роботов за {Count:n:best}. " .. fallRU("Electric") }
++T.RoboGardener = {
++	en = "Every {Every:d}, if there is room, buys and plants a sapling of the tree you bought last; it grows {Speed:x} faster",
++	ru = "Раз в {Every:d}, если есть место, покупает и сажает саженец последнего купленного тобой дерева; он растёт {Speed:x} быстрее" }
++T.CoinCat = { cap = { Chance = 0.5 },
++	en = "An item you turn in has a {Chance:p} chance to become {@Golden}",
++	ru = "Сданный предмет с шансом {Chance:p} получает мутацию {@Golden}" }
++T.TreasureHamster = { cap = { Chance = 0.9 }, calc = function(V) return { PayX = 1 + (V("Pay") or 0) } end,
++	en = "An item you turn in has a {Chance:p} chance to sell for {PayX:x} its value",
++	ru = "Сданный предмет с шансом {Chance:p} продаётся с множителем {PayX:x}" }
++T.Scarab = { cap = { Chance = 0.9 },
++	en = "An item that comes close to it has a {Chance:p} chance to become {@Golden} (each item only once)",
++	ru = "Предмет, подошедший к нему вплотную, с шансом {Chance:p} получает мутацию {@Golden} (каждый предмет только один раз)" }
++T.NuggetSprout = { en = fallEN("Golden"), ru = fallRU("Golden") }
++T.MidasBunny = {
++	en = "Every {Every:d} drops a golden carrot for {Duration:d}: items that touch it turn {@Golden}. " .. fallEN("Golden"),
++	ru = "Раз в {Every:d} роняет золотую морковь на {Duration:d}: предметы, коснувшиеся её, получают мутацию {@Golden}. " .. fallRU("Golden") }
++T.RainFrog = { en = fallEN("Wet"), ru = fallRU("Wet") }
++T.RainDuck = {
++	en = "Every {Every:d} sends {Count:n:stream} of water across your garden, carrying items to your Collect zone. " .. fallEN("Wet"),
++	ru = "Раз в {Every:d} пускает по саду {Count:n:stream} воды, перенося предметы к зоне сбора. " .. fallRU("Wet") }
++T.RainAxolotl = { en = fallEN("Soaked"), ru = fallRU("Soaked") }
++T.RainCloud = {
++	en = "Every {Every:d} rains on a patch of your garden for {Duration:d}: each second {Chance:p} of the items there turn {@Wet}, and your rain pets work as in the rain and {Boost:p} stronger. " .. fallEN("Windstruck", "MutChance"),
++	ru = "Раз в {Every:d} поливает дождём участок сада на {Duration:d}: каждую секунду {Chance:p} предметов там получают {@Wet}, а твои дождевые питомцы работают как в дождь и на {Boost:p} сильнее. " .. fallRU("Windstruck", "MutChance") }
++T.StormSpirit = {
++	en = "While it rains or storms, every {Every:d} calls {Count:n:bolt} down on your garden: the items they hit turn {@Stormcharged}",
++	ru = "Пока идёт дождь или гроза, раз в {Every:d} вызывает {Count:n:bolt} на твой сад: предметы, в которые они попали, получают {@Stormcharged}" }
++T.PetalButterfly = { cap = { Chance = 0.9 },
++	en = "An item near it has a {Chance:p} chance (rolled again every 12 s) to turn {@Bloom}",
++	ru = "Предмет рядом с ней с шансом {Chance:p} (бросок каждые 12 с) получает мутацию {@Bloom}" }
++T.FlowerBug = {
++	en = "Every {Every:d} plants a flower; after {Grow:d} it becomes an item worth {Value:m} ({Chance2:p} chance: {@Bloom})",
++	ru = "Раз в {Every:d} сажает цветок; через {Grow:d} он становится предметом за {Value:m} (с шансом {Chance2:p} он {@Bloom})" }
++T.BlossomBunny = { cap = { Chance = 0.6 },
++	en = "When a tree drops an item, there is a {Chance:p} chance a flower grows beside it and becomes an item worth {Value:m} ({Chance2:p} chance: {@Bloom})",
++	ru = "Когда с дерева падает предмет, с шансом {Chance:p} рядом вырастает цветок и становится предметом за {Value:m} (с шансом {Chance2:p} он {@Bloom})" }
++T.FlowerFairy = { en = fallEN("Bloom"), ru = fallRU("Bloom") }
++T.BlossomDragon = {
++	calc = function(_V, a, RAW)
++		local c = RAW("Chance") or 0
++		local function ch(id)
++			return math.min(c * (a.Muts and a.Muts[id] or 0), 0.9)
++		end
++		return { B = ch("Bloom"), W = ch("Windstruck"), Ve = ch("Verdant"), L = ch("Lucky") }
++	end,
++	en = "Every item that falls has an extra chance to turn {@Bloom} ({B:p}), {@Windstruck} ({W:p}), {@Verdant} ({Ve:p}) or {@Lucky} ({L:p})",
++	ru = "Каждый упавший предмет с дополнительным шансом получает мутацию {@Bloom} ({B:p}), {@Windstruck} ({W:p}), {@Verdant} ({Ve:p}) или {@Lucky} ({L:p})" }
++T.ToxicSlime = { en = fallEN("Toxic"), ru = fallRU("Toxic") }
++T.MutantCaterpillar = {
++	en = "Every item that falls gets an extra {Chance:p} chance to hatch with a random mutation",
++	ru = "Каждый упавший предмет с дополнительным шансом {Chance:p} получает случайную мутацию" }
++T.GlitchFrog = {
++	en = "Every {Every:d} teleports your {Count:n:bestA} into your Collect zone; they sell for {Pay:p} more and {Chance2:p} of them turn {@Glitched}",
++	ru = "Раз в {Every:d} телепортирует в зону сбора {Count:n:bestA}; они продаются на {Pay:p} дороже, а {Chance2:p} из них получают {@Glitched}" }
++T.MutationMimic = {
++	en = "Every item that falls gets an extra {Chance:p} chance to copy a mutation that another item in your garden already has",
++	ru = "Каждый упавший предмет с дополнительным шансом {Chance:p} копирует мутацию, которая уже есть у другого предмета в твоём саду" }
++T.MutationBeast = { cap = { Chance = 0.5 },
++	en = "When an item near you gets a mutation, there is a {Chance:p} chance it spreads to {Count:n:item} next to it",
++	ru = "Когда предмет рядом с тобой получает мутацию, с шансом {Chance:p} она переходит на {Count:n:item} рядом с ним" }
++T.MoonCat = { en = fallEN("Moonlit"), ru = fallRU("Moonlit") }
++T.GalaxyOwl = { en = fallEN("Nebula"), ru = fallRU("Nebula") }
++T.Starlet = { en = fallEN("Star"), ru = fallRU("Star") }
++T.Saturn = { calc = function(_V, a) return { Dur = a.Duration or 20 } end,
++	en = "Every {Every:d} lifts up to {Count:n:item} near you into orbit for {Dur:d}: carry them to your Collect zone and they drop right in, worth {Pay:p} more. " .. fallEN("Celestial"),
++	ru = "Раз в {Every:d} поднимает на орбиту до {Count:n:item} рядом с тобой на {Dur:d}: донеси их до зоны сбора, и они упадут прямо в неё, на {Pay:p} дороже. " .. fallRU("Celestial") }
++T.CelestialDragon = { calc = function(_V, a) return { Dur = a.Duration or 180 } end,
++	en = "Every {Every:d}, for {Dur:d}, night falls on your garden: every {Star:d} a star turns an item {@Celestial} (every tenth: {@Cosmic}), and your trees drop items {Trees:x} as often",
++	ru = "Раз в {Every:d} на {Dur:d} над садом наступает ночь: каждые {Star:d} звезда даёт предмету мутацию {@Celestial} (каждая десятая — {@Cosmic}), а деревья роняют предметы чаще: {Trees:x}" }
++P.TextTemplates = T
++
++function P.Text(petId: string, variant: string?, level: number?, boost: number?, lang: string?): string
++	local def = P.Pets[petId]
++	local a = def and def.Ability
++	local entry = T[petId]
++	if not (a and entry) then
++		return ""
++	end
++	local lv: number = math.clamp(math.floor(tonumber(level) or 1), 1, P.MaxLevel)
++	local variantId = variant or "Normal"
++	local boostN = if type(boost) == "number" and boost > 0 then boost else nil
++	if lang == nil then
++		local okL, l = pcall(P.Lang)
++		lang = if okL then l else "en"
++	end
++	local ru = lang == "ru"
++	local mutKey = if a.Mut or a.Muts then (a.MutKey or "Chance") else nil
++	local function RAW(key)
++		return P.AbilityValue(petId, variantId, key, lv, boostN)
++	end
++	local function V(key)
++		local v = RAW(key)
++		if type(v) == "number" then
++			local cap = entry.cap and entry.cap[key]
++			if cap == nil and key == mutKey then
++				cap = 0.9 -- (PetPowers MUT_CAP: the extra chance of ONE mutation)
++			end
++			if cap and v > cap then
++				v = cap
++			end
++		end
++		return v
++	end
++	local calc = if entry.calc then entry.calc(V, a, RAW) else nil
++	return render(if ru then entry.ru else entry.en, V, calc, ru)
++end
++
++-- (the old static line: the Lvl 1 Normal sentence in English, for any code that still reads Desc)
++for id, def in P.Pets do
++	local okT, t = pcall(P.Text, id, "Normal", 1, nil, "en")
++	if okT and t ~= "" then
++		def.Desc = t
++	end
++end
++
+ return P
 --- a/PetFX.lua
 +++ b/PetFX.lua
 @@ -770,43 +770,21 @@
@@ -14020,7 +14453,7 @@
  	local model = self:_myPlot()
  	local floor = model and model:FindFirstChild("Floor")
  	local res = model and model:FindFirstChild("Resources")
-@@ -1804,4 +1785,1022 @@
+@@ -1804,4 +1785,978 @@
  	pcall(self._runStep, self)
  end
  
@@ -14401,11 +14834,9 @@
 +		PW:CloseDetail()
 +	end)
 +	local dBody, dEdge = paper(detail, UDim2.fromOffset(10, 46), UDim2.new(1, -20, 1, -56), DW - 20, 520)
-+	local dInfo = K.label(dBody, { Position = UDim2.fromOffset(10, 102), Size = UDim2.new(1, -20, 0, 34), TextSize = 15 })
-+	local dToy = K.label(dBody, { Position = UDim2.fromOffset(10, 138), Size = UDim2.new(1, -20, 0, 18), TextSize = 15, TextWrapped = false })
-+	K.label(dBody, { Position = UDim2.fromOffset(10, 158), Size = UDim2.new(1, -20, 0, 14), TextSize = 12, TextColor3 = K.INK_SOFT, Text = "ABILITY COOLDOWN", TextWrapped = false })
-+	local dBar = makeBar(dBody, UDim2.fromOffset(10, 173), UDim2.new(1, -20, 0, 22), 15)
-+	local scrollBox = paper(dBody, UDim2.fromOffset(10, 202), UDim2.new(1, -20, 0, 112), DW - 40, 112)
++	local dInfo = K.label(dBody, { Position = UDim2.fromOffset(10, 102), Size = UDim2.new(1, -20, 0, 22), TextSize = 15, TextWrapped = false })
++	local dToy = K.label(dBody, { Position = UDim2.fromOffset(10, 126), Size = UDim2.new(1, -20, 0, 18), TextSize = 15, TextWrapped = false })
++	local scrollBox = paper(dBody, UDim2.fromOffset(10, 150), UDim2.new(1, -20, 0, 164), DW - 40, 164)
 +	scrollBox.BackgroundColor3 = Color3.fromRGB(250, 236, 208)
 +	scrollBox.BackgroundTransparency = 0.1
 +	local scroll = Instance.new("ScrollingFrame")
@@ -14486,52 +14917,11 @@
 +		return nil
 +	end
 +
++	-- petinfo: ONLY what this pet gives right now (its form, level and the toy on it — live), no ability name,
++	-- no "Right now" block, no next-level line (the toy line above says how strong the toy is)
 +	local function bodyText(e, boost)
-+		local a = e.Def.Ability
-+		local out = {}
-+		if a then
-+			table.insert(out, "<b>" .. escRich(a.Name or "Ability") .. "</b>" .. (if a.Passive then " · PASSIVE" else ""))
-+		end
-+		if type(e.Def.Desc) == "string" and e.Def.Desc ~= "" then
-+			table.insert(out, escRich(e.Def.Desc))
-+		end
-+		if a then
-+			local rows = {}
-+			for _, key in STAT_ORDER do
-+				if a[key] ~= nil then
-+					local base = P.AbilityValue(e.Id, e.Variant, key, e.Level)
-+					if type(base) == "number" then
-+						local live = if boost > 0 then P.AbilityValue(e.Id, e.Variant, key, e.Level, boost) else base
-+						local bt, lt = statText(key, base), statText(key, live)
-+						if boost > 0 and lt ~= bt then
-+							table.insert(rows, "<b>" .. STAT_NAME[key] .. "</b>: <font color='#2E8B3E'><b>" .. lt .. "</b></font> <font color='#8C6440'>(" .. bt .. ")</font>")
-+						else
-+							table.insert(rows, "<b>" .. STAT_NAME[key] .. "</b>: " .. bt)
-+						end
-+					end
-+				end
-+			end
-+			if #rows > 0 then
-+				table.insert(out, "")
-+				table.insert(out, "<b>Right now</b>" .. (if boost > 0 then " · <font color='#2E8B3E'>with the toy</font>" else ""))
-+				for _, r in rows do
-+					table.insert(out, r)
-+				end
-+			end
-+		elseif d.Pets and d.Pets.BonusText then
-+			local okB, t = pcall(d.Pets.BonusText, d.Pets, e.Id, e.Variant, e.Level, false)
-+			if okB and t ~= "" then
-+				table.insert(out, escRich(t))
-+			end
-+		end
-+		if e.Level < P.MaxLevel and d.Pets and d.Pets.BonusText then
-+			local okN, t = pcall(d.Pets.BonusText, d.Pets, e.Id, e.Variant, e.Level + 1, true)
-+			if okN and type(t) == "string" and t ~= "" then
-+				table.insert(out, "")
-+				table.insert(out, "<font color='#2E8B3E'><b>Lvl " .. (e.Level + 1) .. "</b>  " .. t .. "</font>")
-+			end
-+		end
-+		return table.concat(out, "\n")
++		local t = P.Text(e.Id, e.Variant, e.Level, if boost > 0 then boost else nil)
++		return escRich(t)
 +	end
 +
 +	-- the buttons that fit now stand in rows of two (an odd one first: full width)
@@ -14592,7 +14982,7 @@
 +		lvlBadge.TextColor3 = if e.Level >= P.MaxLevel then Color3.fromRGB(255, 215, 80) else K.TEXT
 +		starBtn.BackgroundColor3 = if e.Fav then Color3.fromRGB(255, 185, 30) else Color3.fromRGB(150, 150, 160)
 +		starStroke.Color = if e.Fav then Color3.fromRGB(255, 240, 170) else WHITE
-+		local info = string.format("<font color='#%s'><b>%s</b></font>%s%s\n<font color='#2E8B3E'><b>✔ Following you</b></font>", K.shade(K.rarityColor(def.Rarity), 0.7):ToHex(), def.Rarity, if def.Class then " · " .. def.Class else "", if vi > 1 then " · " .. P.Variants[vi].Display else "")
++		local info = string.format("<font color='#%s'><b>%s</b></font>%s%s", K.shade(K.rarityColor(def.Rarity), 0.7):ToHex(), def.Rarity, if def.Class then " · " .. def.Class else "", if vi > 1 then " · " .. P.Variants[vi].Display else "")
 +		if dInfo.Text ~= info then
 +			dInfo.Text = info
 +		end
@@ -14601,7 +14991,6 @@
 +		if dToy.Text ~= toy then
 +			dToy.Text = toy
 +		end
-+		setBar(dBar, e)
 +		local body = bodyText(e, boost)
 +		if body ~= lastBody then
 +			lastBody = body
@@ -16206,7 +16595,20 @@
  end
 --- a/PetsUI.lua
 +++ b/PetsUI.lua
-@@ -817,7 +817,20 @@
+@@ -212,6 +212,12 @@
+ 	local k = P.LevelMult(level) * v.Mult
+ 	-- v1.3: Starter Egg pets have an ability (its numbers depend on the variant)
+ 	local a = def.Ability
++	if a and P.Text then -- petinfo: one accurate sentence for (pet, form, level), no ability name
++		local okT, text = pcall(P.Text, petId, variant, level)
++		if okT and text ~= "" then
++			return text
++		end
++	end
+ 	if a then
+ 		local V = function(key)
+ 			return P.AbilityValue(petId, variant, key, level) -- (v1.4: the level counts too)
+@@ -817,7 +823,20 @@
  			end
  		end
  	end
@@ -16227,7 +16629,7 @@
  		if a.Eq ~= b.Eq then
  			return a.Eq
  		end
-@@ -841,6 +854,89 @@
+@@ -841,6 +860,89 @@
  	return arr, same, equipped
  end
  
@@ -16317,7 +16719,7 @@
  -- v2.39 STACKS: what keeps two otherwise identical pets APART (besides following you or
  -- not): on the hotbar "H", boosted by a toy "T", in your open trade offer "L".
  -- -> markOf(p) -> string, and the three sets (for the panel's text)
-@@ -872,7 +968,7 @@
+@@ -872,7 +974,7 @@
  		return ok and on == true
  	end
  	return function(p)
@@ -16326,7 +16728,7 @@
  	end, hot, toy, locked
  end
  
-@@ -884,7 +980,21 @@
+@@ -884,7 +986,21 @@
  	local K, P, fmt = self.UIKit, self.PetConfig, self.fmt
  	local ItemGrid = self.ItemGrid
  	local arr, same, equipped = self:_pets()
@@ -16348,7 +16750,7 @@
  	local extra = self.player:GetAttribute("PetExtraSlots") or 0
  	local money = self:_money()
  	local nextSlot = P.Slots.ExtraCosts[extra + 1]
-@@ -980,6 +1090,7 @@
+@@ -980,6 +1096,7 @@
  		self.petPage = math.clamp(math.ceil(selIdx / PET_PAGE), 1, pages) -- (the pet you just changed: its page)
  	end
  	local firstIdx = (self.petPage - 1) * PET_PAGE
@@ -16356,7 +16758,7 @@
  	for idx = firstIdx + 1, math.min(#stacks, firstIdx + PET_PAGE) do
  		local st = stacks[idx]
  		local p = member[st.Key] or st.Pets[1]
-@@ -988,7 +1099,7 @@
+@@ -988,7 +1105,7 @@
  		local n = st.Count
  		table.insert(items, {
  			Key = st.Key,
@@ -16365,7 +16767,7 @@
  			Rarity = def.Rarity,
  			Color = K.rarityColor(def.Rarity),
  			Badge = "Lv" .. p.Level,
-@@ -1003,6 +1114,7 @@
+@@ -1003,6 +1120,7 @@
  				return self.PetFollow.Build(P, p.Id, p.Variant, p.Level)
  			end,
  			Pet = p,
@@ -16373,7 +16775,7 @@
  			Count = n,
  			Pile = st.Pile,
  			Hot = hotSet[p.Uid] == true,
-@@ -1010,6 +1122,9 @@
+@@ -1010,6 +1128,9 @@
  			Locked = lockedFn(p.Uid),
  		})
  	end
@@ -16383,7 +16785,7 @@
  	-- v2.40: everything the pet panel shows, as one string — while it stays the same the
  	-- panel is not touched at all (its text keeps its scroll, SELL keeps its "SURE?")
  	local function detailSig(it)
-@@ -1025,13 +1140,26 @@
+@@ -1025,13 +1146,26 @@
  			tostring(equipped < slots),
  			tostring(type(cost) == "number" and money >= cost),
  			tostring(type(total) == "number" and money >= total),
@@ -16412,7 +16814,7 @@
  		-- (v2.12: more pet slots are bought at the UPGRADE sign next to your garden)
  		-- v2.39: ◀ page / pages ▶ (ItemGrid's pager) instead of the one PAGE button that
  		-- only went forward; the arrows are grey at the first / last page
-@@ -1057,6 +1185,10 @@
+@@ -1057,6 +1191,10 @@
  		-- (v2.39: selling one pet of a PILE keeps the pile selected while pets are left)
  		noAutoSelect = self.selected == false,
  		onSelect = function(key)
@@ -16423,7 +16825,7 @@
  			self.selected = key
  			self.selUid = nil -- (v2.39: picked by hand — nothing to follow)
  			if self.Sfx then
-@@ -1115,6 +1247,36 @@
+@@ -1115,24 +1253,44 @@
  		     ends above them — its height is what the buttons leave free
  	]]
  	self.detailView = ItemGrid.view(panel, it, 92) -- (v1.10: PetLevelFX celebrates over it)
@@ -16460,10 +16862,12 @@
  	self.detailUid = p.Uid
  	-- v1.10: short and simple — what it does now, what the next level gives
  	local lines = {
-@@ -1124,15 +1286,9 @@
- 	if cost then
- 		table.insert(lines, string.format("<font color='#2E8B3E'><b>Lvl %d</b>  %s</font>", p.Level + 1, self:BonusText(p.Id, p.Variant, p.Level + 1, true)))
- 	end
+ 		string.format("<font color='#%s'><b>%s</b></font> · Lvl %d/%d%s", K.shade(K.rarityColor(def.Rarity), 0.7):ToHex(), def.Rarity, p.Level, P.MaxLevel, if vi > 1 then " · " .. P.Variants[vi].Display else ""),
+-		"<b>Now</b>  " .. self:BonusText(p.Id, p.Variant, p.Level, true),
+ 	}
+-	if cost then
+-		table.insert(lines, string.format("<font color='#2E8B3E'><b>Lvl %d</b>  %s</font>", p.Level + 1, self:BonusText(p.Id, p.Variant, p.Level + 1, true)))
+-	end
 -	if nextV then
 -		table.insert(lines, string.format("<b>Evolve</b>  %d/%d same pets at Lvl %d", count, P.EvolveCount, evolveLvl))
 -	end
@@ -16477,7 +16881,7 @@
  	if it.Locked then
  		table.insert(lines, "<font color='#8C6440'>🔁 In your trade offer</font>")
  	end
-@@ -1140,7 +1296,7 @@
+@@ -1140,7 +1298,7 @@
  	local armed = false
  	local equipSpec
  	if p.Eq then
@@ -16486,7 +16890,7 @@
  			self.selUid = p.Uid -- (v2.39: the selection follows this pet out of its pile)
  			self:_send({ Action = "Unequip", Uid = p.Uid })
  		end }
-@@ -1167,7 +1323,7 @@
+@@ -1167,7 +1325,7 @@
  			self:_send({ Action = "Upgrade", Uid = p.Uid })
  		end })
  	elseif nextV ~= nil and p.Level >= evolveLvl then
@@ -16495,7 +16899,7 @@
  			self.selUid = p.Uid
  			self:_send({ Action = "Evolve", Uid = p.Uid }, function(msg)
  				self.Hud:Toast(msg, 3)
-@@ -1260,6 +1416,9 @@
+@@ -1260,9 +1418,13 @@
  			end
  		end })
  	end
@@ -16504,7 +16908,12 @@
 +	end
  	table.insert(specs, sellSpec) -- (always the last button)
  	-- the whole description of its ability, last in the text box (scroll down to read it)
- 	local desc = if type(def.Desc) == "string" and def.Desc ~= "" then def.Desc else nil
+-	local desc = if type(def.Desc) == "string" and def.Desc ~= "" then def.Desc else nil
++	local descNow = P.Text(p.Id, p.Variant, p.Level) -- (petinfo: what it gives at ITS form and level)
++	local desc = if descNow ~= "" then descNow elseif type(def.Desc) == "string" and def.Desc ~= "" then def.Desc else nil
+ 	self:_detailLayout(panel, P.Name(p.Id, p.Variant), if vi > 1 then K.shade(P.Variants[vi].Color, 0.75) else K.shade(K.rarityColor(def.Rarity), 0.7), lines, desc, specs)
+ end
+ 
 --- a/Pickaxe.lua
 +++ b/Pickaxe.lua
 @@ -164,6 +164,23 @@
@@ -22920,6 +23329,15 @@
  
  		local okM, model = pcall(function()
  			return deps.PetFollow and deps.PetFollow.Build(P, pet.Id, pet.Variant, pet.Level)
+@@ -229,7 +252,7 @@
+ 		local lim = Instance.new("UITextSizeConstraint")
+ 		lim.MaxTextSize = 18
+ 		lim.Parent = name
+-		local line = if not has then "No ability to boost" elseif better then "Already has a better toy" else (def.Ability.Name or def.Class or "")
++		local line = if not has then "No ability to boost" elseif better then "Already has a better toy" else (def.Class or "")
+ 		K.label(row, { Position = UDim2.fromOffset(64, 31), Size = UDim2.new(1, -170, 0, 22), TextSize = 13, Font = K.BODY, TextColor3 = if usable then K.INK_SOFT else K.BAD, Text = line })
+ 
+ 		-- right side: the toy it has now (with its time), or "GIVE"
 @@ -260,10 +283,43 @@
  				end
  				return
@@ -25261,7 +25679,7 @@
  		ball:Destroy()
 --- a/ru.lua
 +++ b/ru.lua
-@@ -5887,4 +5887,589 @@
+@@ -5887,4 +5887,590 @@
  L.Strings["There is a slab here already — only the same slab fits onto it"] = "Здесь уже лежит плита — на неё можно положить только такую же"
  L.Strings["Trees need a full block — not a slab"] = "Деревьям нужен целый блок, а не плита"
  
@@ -25850,4 +26268,5 @@
 +
 +L.Strings["Show speed panel"] = "Показывать панель скорости"
 +L.Strings["the ⚡ speed multiplier on the left (grows with pet / gear speed bonuses)"] = "множитель скорости ⚡ слева (растёт от бонусов скорости питомцев и снаряжения)"
++L.Strings["Yours"] = "У тебя"
  return L
