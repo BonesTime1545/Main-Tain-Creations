@@ -9748,7 +9748,7 @@
 +		if PrefsM.Get("LowGraphics") == true or Quality.Level() <= 1 then
 +			return 0.35
 +		end
-+		return if Quality.Touch then 0.6 else 1
++		return 1
 +	end
 +	local function apply(em: ParticleEmitter)
 +		local m = mult()
@@ -14316,9 +14316,9 @@
 +	            Beams/Trails/Fire/Smoke/Sparkles off; world emitters at 35% rate and cut beyond
 +	            Range(); BillboardGuis capped by MaxDistance; thinner Atmosphere (no glare);
 +	            Terrain.Decoration off; SkyFX/StarfallFX/WeatherFX use their smallest versions
-+	  Medium    (touch: like Low for lights, shadows, Bloom/SunRays/DoF/Blur, billboard caps)
-+	            DepthOfField + SunRays off on every device; emitters at 70% (touch 50%)
++	  Medium    lights, glow, shadows stay on (v2.52); emitters at 70% (touch 50%)
 +	  High      everything as built (touch devices never go above Medium in Auto)
++	  (v2.52: the glow is toned down on every level - lights x0.6, bloom / sun rays / glare x0.55)
  ]]
  
  local CollectionService = game:GetService("CollectionService")
@@ -14339,19 +14339,19 @@
  function Quality.Level()
  	return level
  end
-@@ -52,22 +65,357 @@
+@@ -52,22 +65,373 @@
  	return Quality.Ranges[level]
  end
  
 +---------------------------------------------------------------- policy
 +local function lightsOff()
-+	return level <= 1 or TOUCH
++	return level <= 1
 +end
 +local function shadowsOff()
-+	return level <= 1 or TOUCH
++	return level <= 1
 +end
 +local function cheap()
-+	return level <= 1 or TOUCH
++	return level <= 1
 +end
 +local function pfxOff()
 +	return level <= 1
@@ -14372,7 +14372,7 @@
 +	if class == "BloomEffect" or class == "BlurEffect" then
 +		return cheap()
 +	elseif class == "SunRaysEffect" or class == "DepthOfFieldEffect" then
-+		return level <= 2 or TOUCH
++		return level <= 1
 +	end
 +	return false
 +end
@@ -14394,7 +14394,7 @@
 +		"Particles: " .. math.floor(Quality.Scales[level] * 100 + 0.5) .. "% · effects cut beyond " .. Quality.Ranges[level] * 1.6 .. " studs",
 +		"Lights: " .. (if lights then "on" else "off"),
 +		"Shadows: " .. (if shadows then "on" else "off"),
-+		"Bloom / blur: " .. (if cheap() then "off" else "on") .. " · sun rays / depth of field: " .. (if Quality.PostFxOff("SunRaysEffect") then "off" else "on"),
++		"Glow (bloom / sun rays / blur): " .. (if cheap() then "off" else "on"),
 +		"Beams / trails / fire / smoke: " .. (if pfxOff() then "off" else "on"),
 +		"Weather atmosphere: " .. (if level <= 1 then "thin" else "full"),
 +	}
@@ -14587,9 +14587,25 @@
 +	end
 +end
 +
++local softened = setmetatable({}, { __mode = "k" })
++Quality.GlowMul = 0.6
++local function soften(inst)
++	if softened[inst] then
++		return
++	end
++	softened[inst] = true
++	pcall(function()
++		inst.Brightness = inst.Brightness * Quality.GlowMul
++		inst.Range = inst.Range * 0.85
++	end)
++end
++
 +local function process(inst)
 +	local cn = inst.ClassName
 +	if LIGHT[cn] then
++		if inWorld(inst) then
++			soften(inst)
++		end
 +		local off = lightsOff()
 +		if (off or mine[inst] ~= nil) and inWorld(inst) then
 +			enforce(inst, off)
@@ -14701,7 +14717,7 @@
  	changed:Fire(level)
  end
  
-@@ -88,9 +436,6 @@
+@@ -88,9 +452,6 @@
  end
  
  ---------------------------------------------------------------- LOD
@@ -14711,7 +14727,7 @@
  local function effectsOf(part)
  	local list = {}
  	for _, d in part:GetChildren() do
-@@ -110,13 +455,6 @@
+@@ -110,13 +471,6 @@
  		local fx = effectsOf(part)
  		if #fx > 0 then
  			tracked[part] = { effects = fx, on = true }
@@ -14725,7 +14741,7 @@
  		end
  	end)
  end
-@@ -128,9 +466,10 @@
+@@ -128,9 +482,10 @@
  	entry.on = on
  	for _, e in entry.effects do
  		if e.Parent then
@@ -14739,7 +14755,7 @@
  		end
  	end
  end
-@@ -149,34 +488,57 @@
+@@ -149,34 +504,57 @@
  			setOn(entry, (part.Position - from).Magnitude <= range)
  		end
  	end
@@ -14807,19 +14823,19 @@
  			end
 +			w.base = rate
 +			w.last = rate
- 		end
++		end
 +		local p = e.Parent
 +		local pos = if p:IsA("BasePart") then p.Position elseif p:IsA("Attachment") then p.WorldPosition else nil
 +		local far = pos ~= nil and (pos - from).Magnitude > farDist
 +		local target = if far then 0 else w.base * k
 +		if math.abs(target - rate) > 0.001 then
 +			e.Rate = target
-+		end
+ 		end
 +		w.last = target
  	end
  end
  
-@@ -184,10 +546,8 @@
+@@ -184,10 +562,8 @@
  function Quality.Start(config)
  	local player = Players.LocalPlayer
  	level = deviceDefault()
@@ -14832,7 +14848,7 @@
  	local function applySetting()
  		Quality.SetSetting(if player:GetAttribute("Setting_LowGraphics") == true then "Low" else "Auto")
  	end
-@@ -201,23 +561,59 @@
+@@ -201,23 +577,59 @@
  	CollectionService:GetInstanceRemovedSignal(tag):Connect(function(p)
  		tracked[p] = nil
  	end)
@@ -14899,7 +14915,7 @@
  			end
  		end
  	end)
-@@ -227,6 +623,12 @@
+@@ -227,6 +639,12 @@
  			pcall(lodStep)
  		end
  	end)
@@ -20663,7 +20679,7 @@
  	-- v1.0: the bar changes colour smoothly with the weather
  	local th = barTheme(cur)
  	self.barTheme = th
-@@ -519,13 +562,35 @@
+@@ -519,13 +562,38 @@
  	if not first then
  		-- a little pop of the icon when the weather changes
  		self.wIcon.TextSize = 40
@@ -20688,19 +20704,22 @@
 +	local rich = Prefs.On("Effects") and Quality.Level() > 1
 +	local b = if rich and fx.Bloom then fx.Bloom else B.Bloom
 +	local r = if rich and fx.Rays then fx.Rays else B.Rays
++	-- v2.52: subtler glow
++	b = { b[1] * 0.55, b[2] * 0.85, b[3] }
++	r = { r[1] * 0.55, r[2] }
 +	local info = TweenInfo.new(t, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
 +	TweenService:Create(self.bloom, info, { Intensity = b[1], Size = b[2], Threshold = b[3] }):Play()
 +	TweenService:Create(self.rays, info, { Intensity = r[1], Spread = r[2] }):Play()
 +	TweenService:Create(Lighting, info, { OutdoorAmbient = fx.Ambient or B.Ambient, ColorShift_Top = fx.Shift or B.Shift }):Play()
 +	local aD, aH, aG = Quality.AtmoScale()
-+	TweenService:Create(self.atmo, info, { Decay = fx.Decay or B.Decay, Glare = (fx.Glare or B.Glare) * aG, Offset = fx.Offset or B.Offset, Density = (vis.Density or self.atmo.Density) * aD, Haze = (vis.Haze or self.atmo.Haze) * aH }):Play()
++	TweenService:Create(self.atmo, info, { Decay = fx.Decay or B.Decay, Glare = (fx.Glare or B.Glare) * aG * 0.55, Offset = fx.Offset or B.Offset, Density = (vis.Density or self.atmo.Density) * aD, Haze = (vis.Haze or self.atmo.Haze) * aH }):Play()
 +	TweenService:Create(self.cc, info, { Contrast = fx.Contrast or 0 }):Play()
 +end
 +
  function WeatherFX:_banner(def)
  	self.bannerId += 1
  	local id = self.bannerId
-@@ -562,6 +627,218 @@
+@@ -562,6 +630,218 @@
  	return math.clamp((now() - start) / math.max(self.W.Transition, 0.01), 0, 1)
  end
  
@@ -20919,7 +20938,7 @@
  function WeatherFX:Update(dt)
  	local cur, prev, start, finish = self:_state()
  	local k = self:Blend()
-@@ -573,8 +850,10 @@
+@@ -573,8 +853,10 @@
  	local flat = Vector3.new(cf.LookVector.X, 0, cf.LookVector.Z)
  	flat = if flat.Magnitude > 0.01 then flat.Unit else Vector3.new(0, 0, -1)
  	local frame = CFrame.lookAt(Vector3.zero, flat)
@@ -20931,7 +20950,7 @@
  		L.emitter.Rate = L.def.Rate * amount
  		L.emitter.Enabled = amount > 0.01
  		local off = Vector3.new(L.def.Side or 0, L.def.Height, 0)
-@@ -619,6 +898,34 @@
+@@ -619,6 +901,34 @@
  		end
  	end
  
@@ -20966,7 +20985,7 @@
  	-- lightning
  	local bolt = cur.Visual.Lightning
  	if bolt and k >= 1 then
-@@ -644,6 +951,15 @@
+@@ -644,6 +954,15 @@
  	self.flash = math.max(self.flash - dt * 3, 0)
  	self.flashCC.Brightness = self.flash * 0.45
  	self.flashCC.Contrast = self.flash * 0.2
@@ -20982,7 +21001,7 @@
  
  	-- the top bar (text changes at most once a second)
  	local left = math.max(finish - now(), 0)
-@@ -666,8 +982,9 @@
+@@ -666,8 +985,9 @@
  		s.f.Position = UDim2.fromScale(s.x, s.y + math.sin(tt * 5 + s.x * 9) * 0.12)
  		s.f.BackgroundTransparency = 0.25 + math.abs(math.sin(tt * 2 + s.x * 6)) * 0.5
  	end
