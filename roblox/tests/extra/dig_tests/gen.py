@@ -4,7 +4,7 @@
 import os, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.environ['SRC']
-real = ['BlockConfig', 'BlockMath', 'WaterFlow', 'PlotMath', 'BlockService', 'BlockFX']
+real = ['BlockConfig', 'BlockMath', 'WaterFlow', 'PlotMath', 'BlockService', 'BlockFX', 'EndgameConfig', 'UpgradeService']
 out = [open(HERE + '/prelude.lua').read()]
 if os.environ.get('ROT'):
     out.append(open(HERE + '/island1.lua').read())

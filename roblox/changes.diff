@@ -2033,7 +2033,7 @@
  function BlockMath.IsEntrance(cx, cz, plotSize, cellSize)
  	cellSize = cellSize or 5
  	local n = PlotMath.GridN(plotSize, cellSize)
-@@ -511,6 +794,46 @@
+@@ -511,13 +794,55 @@
  end
  
  --[[
@@ -2080,7 +2080,17 @@
  	May the block `code` be put into cell (cx, cz, level) — or, with code = nil, may
  	the block there be broken? objects = the garden's objects (id -> record).
  	-> ok, reason, put
-@@ -530,14 +853,22 @@
+ 	v2.41: put = the code that ends up in the cell (the same slab onto a slab makes the
+ 	full block: code "d" -> put "D"); a slab needs the same support as a block.
++	v2.71: maxLevel (optional) = the player's BUILD HEIGHT: a NEW block above it is refused (breaking and the
++	pit are never limited; blocks built higher before stay). nil = no limit besides BlockConfig.MaxLevels.
+ ]]
+-function BlockMath.CheckChange(blocks, objects, cx, cz, level, code, plotSize, cellSize)
++function BlockMath.CheckChange(blocks, objects, cx, cz, level, code, plotSize, cellSize, maxLevel)
+ 	cellSize = cellSize or 5
+ 	blocks = blocks or {}
+ 	local n = PlotMath.GridN(plotSize, cellSize)
+@@ -530,14 +855,25 @@
  	if cx < 0 or cz < 0 or cx >= n or cz >= n then
  		return false, "Outside your yard"
  	end
@@ -2092,6 +2102,9 @@
  	if level > Cfg.MaxLevels then
  		return false, string.format("Blocks stack only %d high", Cfg.MaxLevels)
  	end
++	if code ~= nil and type(maxLevel) == "number" and level > maxLevel then
++		return false, string.format("Blocks stack only %d high — upgrade BUILD HEIGHT", math.floor(maxLevel :: number))
++	end
  	local cur = BlockMath.Get(blocks, cx, cz, level)
  	local put = code -- (v2.41: what ends up in the cell)
 +	if level <= 0 then
@@ -2105,7 +2118,7 @@
  	if code ~= nil then
  		if not Cfg.Types[code] then
  			return false, "Unknown block"
-@@ -552,43 +883,37 @@
+@@ -552,43 +888,37 @@
  				return false, "There is a block here already"
  			end
  		end
@@ -2172,7 +2185,7 @@
  					end
  				end
  			end
-@@ -612,4 +937,146 @@
+@@ -612,4 +942,146 @@
  	return blocks
  end
  
@@ -3087,11 +3100,20 @@
  			if ok and keep == false then
  				return false
  			end
-@@ -648,11 +1170,17 @@
+@@ -648,11 +1170,26 @@
  	return false
  end
  
 -function BlockService.Place(player, cx, cz, level, code)
++-- v2.71: how high may this player's NEW blocks go (BUILD HEIGHT upgrade; nil = no limit known)
++function BlockService.HeightLimit(data)
++	local U = ctx.UpgradeService
++	if U and U.BuildHeightLimit and ctx.EndgameConfig then
++		return U.BuildHeightLimit(data)
++	end
++	return nil
++end
++
 +function BlockService.Place(player, cx, cz, level, code, variant)
  	local data, plot, size = garden(player)
  	if not data then
@@ -3106,7 +3128,7 @@
  	if type(cx) ~= "number" or type(cz) ~= "number" or type(level) ~= "number" or type(code) ~= "string" then
  		return false, "Invalid cell"
  	end
-@@ -660,6 +1188,11 @@
+@@ -660,6 +1197,11 @@
  	if not def then
  		return false, "Unknown block"
  	end
@@ -3118,7 +3140,16 @@
  	if ctx.BuildService and ctx.BuildService.InYard and ctx.BuildService.InYard(player, plot) == false then
  		return false, "Go to your garden to build"
  	end
-@@ -680,10 +1213,10 @@
+@@ -670,7 +1212,7 @@
+ 	end
+ 	local blocks = data.Plot.Blocks
+ 	-- (v2.41: put = what ends up in the cell — the same slab onto a slab makes the full block)
+-	local ok, why, put = BM.CheckChange(blocks, data.Plot.Objects, cx, cz, level, code, size, cellSize())
++	local ok, why, put = BM.CheckChange(blocks, data.Plot.Objects, cx, cz, level, code, size, cellSize(), BlockService.HeightLimit(data))
+ 	if not ok then
+ 		return false, why
+ 	end
+@@ -680,10 +1222,10 @@
  	local merged = put ~= code
  	-- v2.34: eggs stand ON blocks now — a block may not appear in / over an egg, or
  	-- change the height of the spot it stands on
@@ -3131,7 +3162,7 @@
  		return false, "A cosmetic box is unpacking here" -- v2.34
  	end
  	if def.Solid then
-@@ -699,7 +1232,12 @@
+@@ -699,7 +1241,12 @@
  			return false, "Somebody is standing there"
  		end
  	end
@@ -3145,7 +3176,7 @@
  	if put == "S" and not data.Plot.HadSand then
  		data.Plot.HadSand = true -- (the Cactus is sold from now on)
  		if ctx.BuildService and ctx.BuildService.PublishSlots then
-@@ -710,19 +1248,34 @@
+@@ -710,19 +1257,34 @@
  		data.Grass.Cells[BM.Key(cx, cz)] = nil -- (no grass under blocks)
  	end
  	touch(plot, level)
@@ -3182,7 +3213,7 @@
  -- v2.38: the pickaxe of this save — its tier (ToolConfig.PickaxeTiers: Reach, HitEvery,
  -- Smash …) and how many blocks it can still break before it is broken
  local FALLBACK_PICK = { Index = 1, HitEvery = 0.34, Reach = 14, Durability = math.huge, Smash = 90 }
-@@ -766,7 +1319,7 @@
+@@ -766,7 +1328,7 @@
  	if type(cx) ~= "number" or type(cz) ~= "number" or type(level) ~= "number" then
  		return
  	end
@@ -3191,7 +3222,7 @@
  		return
  	end
  	if not (data.Tools and data.Tools.Owned and data.Tools.Owned.Pickaxe) then
-@@ -786,6 +1339,7 @@
+@@ -786,6 +1348,7 @@
  	if not def then
  		return
  	end
@@ -3199,7 +3230,7 @@
  	-- reach: from you to the nearest point of the block
  	local cell, H = cellSize(), BC.Height
  	local x, z = ctx.PlotMath.CellCenter(cx, cz, size, cell)
-@@ -825,13 +1379,13 @@
+@@ -825,13 +1388,13 @@
  	s.N += 1
  	local need = pickHits(pick, code, def)
  	if s.N < need then
@@ -3215,7 +3246,7 @@
  		if now - s.Warned > 1.5 then
  			s.Warned = now
  			notify(player, "⛏ " .. tostring(why or "This block can't be broken"))
-@@ -840,7 +1394,7 @@
+@@ -840,7 +1403,7 @@
  	end
  	-- v2.34: a block an incubating egg stands on can't be broken (like under a tree)
  	if not nestsKeep(data, cx, cz, level, nil, size) then
@@ -3224,7 +3255,7 @@
  		if now - s.Warned > 1.5 then
  			s.Warned = now
  			notify(player, "⛏ An egg stands on this block — open it first")
-@@ -849,7 +1403,7 @@
+@@ -849,7 +1412,7 @@
  	end
  	-- v2.34: …and a block a cosmetic box stands on
  	if not boxesKeep(data, cx, cz, level, nil, size) then
@@ -3233,7 +3264,7 @@
  		if now - s.Warned > 1.5 then
  			s.Warned = now
  			notify(player, "⛏ A cosmetic box stands on this block — open it first")
-@@ -857,8 +1411,9 @@
+@@ -857,8 +1420,9 @@
  		return
  	end
  	BM.Set(blocks, cx, cz, level, nil)
@@ -3244,7 +3275,7 @@
  	-- v2.38: every block broken wears the pickaxe (water is only scooped up: free)
  	-- (v2.41: a slab wears it like a block — 1 — it only takes fewer swings)
  	if code ~= "W" and ctx.ToolService and ctx.ToolService.PickWear then
-@@ -888,7 +1443,7 @@
+@@ -888,7 +1452,7 @@
  	if type(cx) ~= "number" or type(cz) ~= "number" or type(level) ~= "number" then
  		return
  	end
@@ -3253,7 +3284,7 @@
  		return
  	end
  	if not (data.Tools and data.Tools.Owned and data.Tools.Owned.Pickaxe) then
-@@ -965,9 +1520,11 @@
+@@ -965,9 +1529,11 @@
  		if code and BC.Types[code] then
  			local ok = BM.CheckChange(blocks, data.Plot.Objects, bx, bz, bl, nil, size, cell)
  			if ok and nestsKeep(data, bx, bz, bl, nil, size) and boxesKeep(data, bx, bz, bl, nil, size) then
@@ -3266,7 +3297,7 @@
  				if code ~= "W" then
  					wear += 1
  				end
-@@ -1005,13 +1562,42 @@
+@@ -1005,13 +1571,42 @@
  	end
  end
  
@@ -3310,7 +3341,7 @@
  	end
  	return false, "Unknown action"
  end
-@@ -1020,7 +1606,168 @@
+@@ -1020,7 +1615,168 @@
  	hits[player] = nil
  end
  
@@ -3479,7 +3510,7 @@
  	ctx.Net.BlockRequest.OnServerInvoke = function(player, req)
  		return BlockService.Handle(player, req)
  	end
-@@ -1033,6 +1780,16 @@
+@@ -1033,6 +1789,16 @@
  	end)
  	ctx.Players.PlayerRemoving:Connect(function(player)
  		hits[player] = nil
@@ -3701,12 +3732,9 @@
  end
  
  -- v2.39: a COSMETIC BOX is a slot kind too ({ K = "Box", Id = box id } — like an egg: its
-@@ -98,16 +116,39 @@
- 		end
- 	end)
+@@ -100,14 +118,37 @@
  	self:_build()
--	for _, a in { "BroomId", "BroomData", "Tools", "Hotbar", "HotbarSet", "Stored", "EggsOwned", "PetData", "BoxesOwned" } do -- (v2.39: + the cosmetic boxes)
-+	for _, a in { "BroomId", "BroomData", "Tools", "Hotbar", "HotbarSet", "Stored", "EggsOwned", "PetData", "BoxesOwned", "Broom_Speed" } do -- (v2.39: + the cosmetic boxes)
+ 	for _, a in { "BroomId", "BroomData", "Tools", "Hotbar", "HotbarSet", "Stored", "EggsOwned", "PetData", "BoxesOwned" } do -- (v2.39: + the cosmetic boxes)
  		self.player:GetAttributeChangedSignal(a):Connect(function()
 -			self:_refresh()
 +			-- perf: the server sets several of these in a row -> one redraw (<= 10 Hz)
@@ -3744,80 +3772,7 @@
  	self.player.CharacterAdded:Connect(function(char)
  		self:_setHeld(nil)
  		self:_watch(char)
-@@ -306,6 +347,72 @@
- 	return nil
- end
- 
-+-- the speed stat an entry shows on its slot (nil = none): a broom's Speed (with gear / tokens), a mower's speed
-+function BroomHotbar:_speedOf(e, cache)
-+	if e.K == "Broom" then
-+		local defs = self.BroomTypes.Defs
-+		local def = defs and defs[e.Id]
-+		local base = def and def.Stats and def.Stats.Speed
-+		if type(base) ~= "number" then
-+			return nil
-+		end
-+		local cur = self.player:GetAttribute("Broom_Speed")
-+		local curDef = defs[self.player:GetAttribute("BroomId") or "Basic"]
-+		if type(cur) == "number" and curDef and curDef.Stats and type(curDef.Stats.Speed) == "number" then
-+			base += cur - curDef.Stats.Speed -- (gear / Leaf Tokens add the same points to every broom)
-+		end
-+		return base
-+	elseif e.K == "Tool" and self.ToolConfig.GrassStats then
-+		local ok, st = pcall(self.ToolConfig.GrassStats, e.Id, ((cache.toolState or {}).Up or {})[e.Id])
-+		if ok and type(st) == "table" and type(st.Speed) == "number" then
-+			return st.Speed
-+		end
-+	end
-+	return nil
-+end
-+
-+-- draw the chips (cheap: only writes what changed; runs after a refresh and at 8 Hz for the Overdrive / Nitro boost)
-+function BroomHotbar:_speedChips()
-+	local now
-+	for i, s in self.slots do
-+		local chip = s.Spd
-+		local e = self.entries[i]
-+		if chip then
-+			local txt, boosted
-+			if e and e.Speed then
-+				txt = "⚡ " .. tostring(math.floor(e.Speed + 0.5))
-+				local attr = if e.Id == "PushMower" then "OverdriveUntil" elseif e.Id == "RidingMower" then "NitroUntil" else nil
-+				local until_ = attr and e.K == "Tool" and self.player:GetAttribute(attr)
-+				if type(until_) == "number" then
-+					if now == nil then
-+						local okT, t = pcall(function()
-+							return workspace:GetServerTimeNow()
-+						end)
-+						now = if okT then t else false
-+					end
-+					local ab = self.ToolConfig.Abilities and self.ToolConfig.Abilities[e.Id]
-+					local m = ab and (if e.Id == "PushMower" then ab.Walk else ab.Boost)
-+					if now and until_ > now and type(m) == "number" and m > 1 then
-+						txt = "⚡ ×" .. tostring(math.floor(m * 100 + 0.5) / 100)
-+						boosted = true
-+					end
-+				end
-+			end
-+			if txt ~= s.SpdTxt then
-+				s.SpdTxt = txt
-+				chip.Visible = txt ~= nil
-+				if txt then
-+					chip.Text = txt
-+				end
-+			end
-+			if txt and boosted ~= s.SpdBoost then
-+				s.SpdBoost = boosted
-+				chip.BackgroundColor3 = if boosted then Color3.fromRGB(255, 120, 40) else Color3.fromRGB(255, 190, 40)
-+			end
-+		end
-+	end
-+end
-+
- function BroomHotbar:_cache()
- 	local t = self:_tools()
- 	local tools = {}
-@@ -540,6 +647,77 @@
+@@ -540,6 +581,45 @@
  		cst.Color = Color3.new(1, 1, 1)
  		cst.Thickness = 1.5
  		cst.Parent = count
@@ -3860,42 +3815,10 @@
 +		lvlNum.ZIndex = 8
 +		lvlNum:SetAttribute("NoTranslate", true)
 +		lvlNum.Parent = lvl
-+		-- ⚡ SPEED chip (top-right corner): a broom's Speed stat / a mower's speed; orange ×N while Overdrive / Nitro runs
-+		local spd = Instance.new("TextLabel")
-+		spd.Name = "Speed"
-+		spd.AnchorPoint = Vector2.new(1, 0)
-+		spd.BackgroundColor3 = Color3.fromRGB(255, 190, 40)
-+		spd.Position = UDim2.new(1, 5, 0, -5)
-+		spd.Size = UDim2.fromOffset(0, 20)
-+		spd.AutomaticSize = Enum.AutomaticSize.X
-+		spd.Font = FONT
-+		spd.TextSize = 12
-+		spd.TextXAlignment = Enum.TextXAlignment.Center
-+		spd.TextColor3 = Color3.new(1, 1, 1)
-+		spd.TextStrokeColor3 = Color3.fromRGB(120, 70, 0)
-+		spd.TextStrokeTransparency = 0.2
-+		spd.ZIndex = 6
-+		spd.Text = ""
-+		spd.Visible = false
-+		spd:SetAttribute("NoTranslate", true)
-+		spd.Parent = slot
-+		corner(spd, 10)
-+		local spdMin = Instance.new("UISizeConstraint")
-+		spdMin.MinSize = Vector2.new(20, 20)
-+		spdMin.Parent = spd
-+		local spdPad = Instance.new("UIPadding")
-+		spdPad.PaddingLeft = UDim.new(0, 4)
-+		spdPad.PaddingRight = UDim.new(0, 4)
-+		spdPad.Parent = spd
-+		local spdSt = Instance.new("UIStroke")
-+		spdSt.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-+		spdSt.Color = Color3.new(1, 1, 1)
-+		spdSt.Thickness = 1.5
-+		spdSt.Parent = spd
  		local state = Instance.new("TextLabel")
  		state.Name = "State"
  		state.BackgroundTransparency = 1
-@@ -556,7 +734,7 @@
+@@ -556,7 +636,7 @@
  		local barBg = Instance.new("Frame")
  		barBg.Name = "Meter"
  		barBg.AnchorPoint = Vector2.new(0.5, 1)
@@ -3904,7 +3827,7 @@
  		barBg.Size = UDim2.new(1, -14, 0, 5)
  		barBg.BackgroundColor3 = Color3.fromRGB(40, 36, 44)
  		barBg.Visible = false
-@@ -573,7 +751,7 @@
+@@ -573,7 +653,7 @@
  		local cdBg = Instance.new("Frame")
  		cdBg.Name = "Cooldown"
  		cdBg.AnchorPoint = Vector2.new(0.5, 1)
@@ -3913,36 +3836,16 @@
  		cdBg.Size = UDim2.new(1, -14, 0, 6)
  		cdBg.BackgroundColor3 = Color3.fromRGB(40, 36, 44)
  		cdBg.Visible = false
-@@ -586,7 +764,7 @@
+@@ -586,7 +666,7 @@
  		cdFill.ZIndex = 6
  		cdFill.Parent = cdBg
  		corner(cdFill, 3)
 -		self.slots[i] = { Button = slot, Stroke = st, VP = vp, Cam = cam, Key = key, Count = count, State = state, Meter = barBg, Fill = fill, CD = cdBg, CDFill = cdFill }
-+		self.slots[i] = { Lvl = lvl, LvlNum = lvlNum, Button = slot, Stroke = st, VP = vp, Cam = cam, Key = key, Count = count, Spd = spd, State = state, Meter = barBg, Fill = fill, CD = cdBg, CDFill = cdFill }
++		self.slots[i] = { Lvl = lvl, LvlNum = lvlNum, Button = slot, Stroke = st, VP = vp, Cam = cam, Key = key, Count = count, State = state, Meter = barBg, Fill = fill, CD = cdBg, CDFill = cdFill }
  		slot.MouseEnter:Connect(function()
  			self.hover = i
  			st.Transparency = 0
-@@ -1221,6 +1399,9 @@
- 	if e.Count then
- 		text ..= " ×" .. tostring(e.Count)
- 	end
-+	if e.Speed then
-+		text ..= " · Speed " .. tostring(math.floor(e.Speed + 0.5))
-+	end
- 	self.tip.Text = text
- 	self.tip.Visible = true
- end
-@@ -1257,6 +1438,9 @@
- 	end
- 	self.entries = entries
- 	self.cache = cache
-+	for _, e in entries do
-+		e.Speed = self:_speedOf(e, cache)
-+	end
- 	-- a broom / tool you just got goes on the bar by itself (when you arranged the
- 	-- bar yourself and there is room)
- 	if self.player:GetAttribute("BroomData") ~= nil and self.player:GetAttribute("Tools") ~= nil then
-@@ -1354,14 +1538,58 @@
+@@ -1354,6 +1434,13 @@
  		s.VP.ImageTransparency = if inHand then 0 else 0.15
  		s.Count.Text = if e.Count then tostring(e.Count) else ""
  		s.Count.Visible = e.Count ~= nil
@@ -3955,15 +3858,12 @@
 +		end
  	end
  	self.bar.Size = UDim2.fromOffset(math.max(x - GAP, SIZE), SIZE)
-+	self:_speedChips()
  	if self.scale then
- 		self:_fit()
- 	end
+@@ -1362,6 +1449,41 @@
  	self:_tip()
  end
  
 +function BroomHotbar:_abilityBars()
-+	self:_speedChips()
 +	local names = self.ToolConfig.AbilityAttr
 +	local okT, now = pcall(function()
 +		return workspace:GetServerTimeNow()
@@ -4001,7 +3901,7 @@
  function BroomHotbar:_bars()
  	local p = self.player
  	local bat, max = p:GetAttribute("Battery"), p:GetAttribute("BatteryMax")
-@@ -1383,7 +1611,19 @@
+@@ -1383,7 +1505,19 @@
  			s.Meter.Visible = true
  			local f = math.clamp(p:GetAttribute("BlowLeft") / p:GetAttribute("BlowMax"), 0, 1)
  			s.Fill.Size = UDim2.fromScale(f, 1)
@@ -4022,7 +3922,7 @@
  		elseif e and e.K == "Tool" and e.Id == "Pickaxe" and type(p:GetAttribute("PickUsed")) == "number" and (tonumber(p:GetAttribute("PickCap")) or 0) > 0 then
  			-- v2.38: the pickaxe's durability
  			s.Meter.Visible = true
-@@ -1445,8 +1685,8 @@
+@@ -1445,8 +1579,8 @@
  		end
  		return model
  	elseif e.K == "Tool" or e.K == "Item" then
@@ -4033,7 +3933,7 @@
  	elseif e.K == "Stored" then
  		local s = e.Data or e.Entry or self:_stored()[e.Id]
  		if not s then
-@@ -1499,6 +1739,11 @@
+@@ -1499,6 +1633,11 @@
  			-- (v2.41: so is a new tier of the rake / trimmer / blower / vacuum)
  			local okT, tier = pcall(self.ToolConfig.TierFromState, e.Id, self:_tools())
  			key ..= ":" .. tostring(if okT then tier else 1)
@@ -4302,6 +4202,15 @@
  	if self.mode ~= "idle" then
  		self:Cancel()
  	elseif self.wantStack then
+@@ -1247,7 +1380,7 @@
+ 			end
+ 		end
+ 	end
+-	local ok, why = BM.CheckChange(self:_tiles(), self:_records(), cx, cz, level, code, size, cs)
++	local ok, why = BM.CheckChange(self:_tiles(), self:_records(), cx, cz, level, code, size, cs, Players.LocalPlayer:GetAttribute("BuildHeightMax")) -- (v2.71: the BUILD HEIGHT limit)
+ 	if ok and (Players.LocalPlayer:GetAttribute("IslandTier") or 1) < (def.Tier or 1) then
+ 		ok, why = false, def.Display .. " comes with a later island"
+ 	end
 @@ -1259,6 +1392,10 @@
  	if not self.active then
  		return
@@ -5027,7 +4936,7 @@
 +	end
  	-- (v2.41: after the tiles of the slabs; the note tells what a slab is)
 -	local note = label(self.list, { Size = UDim2.fromOffset(330, TILE_H), LayoutOrder = #BCfg.Order + 4, TextScaled = false, TextSize = 12, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = Color3.fromRGB(255, 240, 220), Text = "Pick a block, then click in your garden — hold and drag for a row. Up to 5 high. Blocks are free; break them with the Pickaxe (SHOP · TOOLS). Water flows! A SLAB is half a block: two slabs of one kind make a block — build stairs with them." })
-+	local note = label(self.list, { Size = UDim2.fromOffset(330, TILE_H), LayoutOrder = #BCfg.Order + 4, TextScaled = false, TextSize = 12, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = Color3.fromRGB(255, 240, 220), Text = "Pick a block, then click in your garden — hold and drag for a row. Build as high as you like. Blocks are free; break them with the Pickaxe (SHOP · TOOLS). Water flows - also in the pit! A SLAB is half a block: two slabs of one kind make a block — build stairs with them." })
++	local note = label(self.list, { Size = UDim2.fromOffset(330, TILE_H), LayoutOrder = #BCfg.Order + 4, TextScaled = false, TextSize = 12, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = Color3.fromRGB(255, 240, 220), Text = "Pick a block, then click in your garden — hold and drag for a row. Blocks stack as high as your BUILD HEIGHT (raise it in SHOP · UPGRADES). Blocks are free; break them with the Pickaxe (SHOP · TOOLS). Water flows - also in the pit! A SLAB is half a block: two slabs of one kind make a block — build stairs with them." })
  	note.ZIndex = 3
  end
  
@@ -5104,7 +5013,27 @@
  	MaxDecor = 80, -- v2.2: the base limit; more with DecorUpgrades (below)
  	-- v2.2 MORE DECORATIONS: 80 -> 160 -> 320 -> 640 for 💎 Gems, then +160 per Robux
  	-- purchase (up to RobuxMax). Level = data.Plot.DecorLevel (0 = 80).
-@@ -185,7 +185,7 @@
+@@ -163,6 +163,19 @@
+ 	return math.rad(g.Rot or 0)
+ end
+ 
++-- v2.62 (straight): by how much the BAKED island body of garden `index` is turned at server start (radians around +Y,
++-- about the island centre). The body is baked axis-aligned; the yard is turned by Rot, so on the diagonal islands
++-- (Rot not a multiple of 90) the body takes the yard's Rot (the square body then lies parallel to the yard).
++-- 0 = the island is left as baked (islands 2 and 5).
++function Config.IslandBodyRotation(index)
++	local g = Config.Islands.Gardens[index] or Config.Islands.Gardens[1]
++	local deg = g.Rot or 0
++	if deg % 90 == 0 then
++		return 0
++	end
++	return math.rad(deg)
++end
++
+ -- v1.0 BUILD SLOTS: how many trees can be built / upgraded at the same time.
+ -- 1 is free, more are bought with Gems (BuildService "BuySlot"); Costs[n] = the nth extra
+ -- v2.12: how much 💰 Money one 💎 Gem is worth when a garden upgrade is paid with the
+@@ -185,7 +198,7 @@
  	-- and never spawn closer than SpawnMargin (+ their own radius) to it
  	SpawnMargin = 1.2,
  	BarrierHeight = 14,
@@ -5199,7 +5128,7 @@
  		-- v1.2 one-use items: Owned[id] = count, Slots = up to 3 ids shown in the hotbar
  		Consumables = { Owned = {}, Slots = {} },
  		-- v1.2 the lawn: Cells["3,5"] = growth 0…100 (grid of the yard at size Size)
-@@ -151,12 +151,35 @@
+@@ -151,12 +151,36 @@
  			SFX = true,
  			Ambient = true,
  			Effects = true,
@@ -5233,10 +5162,11 @@
 +			ShowReadyBadges = true,
 +			ShowHints = true,
 +			ShowSaveWarning = true,
++			ShowSpeedPanel = true,
  			-- v2.36 the player menu (optional: an old save gets them from Reconcile, a wrong
  			-- type becomes the default again). The SERVER obeys them: GiftService, TradeService.
  			ShowStats = true, -- other players may open my statistics
-@@ -182,12 +205,12 @@
+@@ -182,12 +206,12 @@
  			-- v0.8
  			BestPile = 0,
  			Piles = {}, -- ["Mega"] = n
@@ -5250,7 +5180,7 @@
  			SweepTime = 0, -- seconds with the broom in hand
  			TreesPlanted = 0,
  			TreesGrown = 0, -- builds finished (and the Bush growing up)
-@@ -573,6 +596,7 @@
+@@ -573,6 +597,7 @@
  			Ambient = true,
  			Effects = true,
  			LowGraphics = old.GraphicsQuality == "Low",
@@ -5258,7 +5188,7 @@
  			HideOthersFX = false,
  			UIScale = tonumber(old.UIScale) or 1,
  			CameraShake = true,
-@@ -772,6 +796,15 @@
+@@ -772,6 +797,15 @@
  -- saves need nothing). Only a Decor record keeps it, as a sane number; the allowed
  -- steps and each kind's maximum are applied when it is used (DecorTypes.ScaleOf).
  local function cleanScale(rec)
@@ -5274,7 +5204,7 @@
  	if rec.Scale == nil then
  		return
  	end
-@@ -843,6 +876,8 @@
+@@ -843,6 +877,8 @@
  			rec.Rot = cleanNumber(rec.Rot, 0) % 360
  			rec.Spent = math.floor(cleanNumber(rec.Spent, 0))
  			cleanScale(rec) -- v2.32
@@ -5283,7 +5213,7 @@
  			if rec.Type == "Tree" then
  				-- (a missing / broken level is 1; a real 0 is a tree being built — keep it)
  				cleanTreeFields(rec)
-@@ -860,6 +895,7 @@
+@@ -860,6 +896,7 @@
  			data.Currencies.Gems = (tonumber(data.Currencies.Gems) or 0) + 150
  		else
  			p.Level = math.clamp(math.floor(cleanNumber(p.Level, 1)), 1, 10)
@@ -5291,7 +5221,7 @@
  			-- v1.1 variants (old ids are renamed; anything unknown becomes Normal)
  			local v = if type(p.Variant) == "string" then p.Variant else "Normal"
  			v = ({ Fire = "Golden", RainbowFire = "Diamond", Ancient = "Rainbow" })[v] or v
-@@ -882,7 +918,7 @@
+@@ -882,7 +919,7 @@
  			data.Eggs.Owned[k] = nil
  		end
  	end
@@ -5300,7 +5230,7 @@
  		data.Stats[k] = cleanNumber(data.Stats[k], 0)
  	end
  	for k, v in data.Stats.Collected do
-@@ -1035,12 +1071,13 @@
+@@ -1035,12 +1072,13 @@
  			so.Rated[k] = nil
  		end
  	end
@@ -5316,7 +5246,7 @@
  	local rb = data.Rebirth
  	rb.Count = math.clamp(math.floor(cleanNumber(rb.Count, 0)), 0, 1000)
  	rb.RunEarned = cleanNumber(rb.RunEarned, 0)
-@@ -1058,9 +1095,8 @@
+@@ -1058,9 +1096,8 @@
  			data.Plot.Stored[id] = nil
  		end
  	end
@@ -5328,7 +5258,7 @@
  	for k, v in data.Stats.Piles do
  		if type(k) ~= "string" then
  			data.Stats.Piles[k] = nil
-@@ -1077,6 +1113,9 @@
+@@ -1077,6 +1114,9 @@
  	if st.CameraMode ~= "Aim" and st.CameraMode ~= "FirstPerson" then
  		st.CameraMode = "Aim"
  	end
@@ -5338,7 +5268,7 @@
  	-- anything the whitelist doesn't know (old keys) is dropped
  	local defaults = Schema.Defaults().Settings
  	for k in st do
-@@ -1122,6 +1161,7 @@
+@@ -1122,6 +1162,7 @@
  			nest.Z = math.clamp(cleanNumber(nest.Z, 0), -60, 60)
  			nest.Ready = cleanNumber(nest.Ready, 0)
  			nest.Total = math.max(cleanNumber(nest.Total, 0), 0)
@@ -5346,7 +5276,20 @@
  		end
  	end
  	E.NextNest = math.max(math.floor(cleanNumber(E.NextNest, 1)), 1)
-@@ -1190,18 +1230,45 @@
+@@ -1185,23 +1226,58 @@
+ 		end
+ 	end
+ 	R.Spent = math.max(cleanNumber(R.Spent, 0), 0)
++	if type(R.PendingHeight) ~= "table" or type(R.PendingHeight.T) ~= "number" then
++		R.PendingHeight = nil -- (v2.71: an open unlimited-height purchase)
++	end
++	-- v2.71: BUILD HEIGHT level (data.Rebirth.Upgrades.BuildHeight): 0 = 5 blocks; clamped again where it is used
++	local ups = type(data.Rebirth) == "table" and data.Rebirth.Upgrades
++	if type(ups) == "table" and ups.BuildHeight ~= nil then
++		ups.BuildHeight = math.clamp(math.floor(cleanNumber(ups.BuildHeight, 0)), 0, 20)
++	end
+ 	data.Robux = R
+ end
  
  -- v1.2: tools, one-use items, the lawn
  local TOOL_IDS = {
@@ -5395,7 +5338,7 @@
  	for id, v in T.Owned do
  		if not TOOL_IDS[id] or v ~= true then
  			T.Owned[id] = nil
-@@ -1212,7 +1279,7 @@
+@@ -1212,7 +1288,7 @@
  		T.Grass = "Shears"
  	end
  	T.Up = if type(T.Up) == "table" then T.Up else {}
@@ -5404,7 +5347,7 @@
  		local u = if type(T.Up[tool]) == "table" then T.Up[tool] else {}
  		for k, v in u do
  			if type(k) ~= "string" or #k > 16 then
-@@ -1224,7 +1291,7 @@
+@@ -1224,7 +1300,7 @@
  		T.Up[tool] = u
  	end
  	for k in T.Up do
@@ -5413,7 +5356,7 @@
  			T.Up[k] = nil
  		end
  	end
-@@ -1235,6 +1302,29 @@
+@@ -1235,6 +1311,29 @@
  	T.VacUsed = math.clamp(math.floor(cleanNumber(T.VacUsed, 0)), 0, 100000)
  	-- v2.32: seconds of Leaf Blower energy used since its last recharge (old saves: 0 = full)
  	T.BlowUsed = math.clamp(cleanNumber(T.BlowUsed, 0), 0, 1000)
@@ -5443,7 +5386,7 @@
  	local C = data.Consumables
  	for id, n in C.Owned do
  		if not ITEM_IDS[id] then
-@@ -1264,6 +1354,20 @@
+@@ -1264,6 +1363,20 @@
  			G.Cells[k] = if g > 0 then g else nil
  		end
  	end
@@ -5464,7 +5407,7 @@
  	for _, k in { "GrassCut", "ItemsUsed", "VacuumItems" } do
  		data.Stats[k] = math.floor(cleanNumber(data.Stats[k], 0))
  	end
-@@ -1283,7 +1387,7 @@
+@@ -1283,7 +1396,7 @@
  		else
  			local clean, count = {}, 0
  			for id, rec in g.Objects do
@@ -5473,7 +5416,7 @@
  					clean[id] = rec
  					count += 1
  				end
-@@ -1307,7 +1411,7 @@
+@@ -1307,7 +1420,7 @@
  	local keys = 0
  	for action, key in st.Keys do
  		keys += 1
@@ -5482,7 +5425,7 @@
  			st.Keys[action] = nil
  		end
  	end
-@@ -1340,7 +1444,7 @@
+@@ -1340,7 +1453,7 @@
  				local sx, sz = string.match(k, "^(%d+),(%d+)$")
  				local cx, cz = tonumber(sx), tonumber(sz)
  				if cx and cz and cx < 20 and cz < 20 then
@@ -5491,7 +5434,7 @@
  					col = string.gsub(col, "%-+$", "")
  					if col ~= "" then
  						blocks[string.format("%d,%d", cx, cz)] = col
-@@ -1350,7 +1454,60 @@
+@@ -1350,7 +1463,60 @@
  			end
  		end
  	end
@@ -5552,7 +5495,7 @@
  	data.Plot.Tiles = nil -- (the old ground tiles are blocks now)
  	data.Plot.HadSand = data.Plot.HadSand == true
  	data.Plot.LastTree = if type(data.Plot.LastTree) == "string" and #data.Plot.LastTree <= 30 then data.Plot.LastTree else ""
-@@ -1460,6 +1617,8 @@
+@@ -1460,6 +1626,8 @@
  						Total = math.clamp(cleanNumber(nest.Total, 0), 0, 1e7),
  						-- (the garden size X / Z belong to: BoxService shifts Z when the garden grew; 0 = unknown)
  						S = math.clamp(cleanNumber(nest.S, 0), 0, 1000),
@@ -6757,6 +6700,50 @@
  	if level % 10 == 0 then
  		return { Gems = 10 + level // 2, Spins = 1 }
  	elseif level % 5 == 0 then
+@@ -152,6 +165,43 @@
+ 	E.UnlockById[u.Id] = u
+ end
+ 
++--[[
++	v2.71 BUILD HEIGHT — blocks stack only Base (5) high at first. Level L (0..#Steps) = Steps[L].Limit;
++	the LAST level (Max = #Steps + 1) is UNLIMITED height, sold for Robux (RobuxConfig.BuildHeightRobux).
++	The level is kept in data.Rebirth.Upgrades.BuildHeight (so it is saved/sanitised with the other upgrades;
++	missing = 0 = 5 blocks). Blocks already built higher are never removed: only NEW blocks are refused.
++	Gems: 60 + 120 + 200 + 320 + 500 + 800 + 1200 = 3200 💎 for 5 -> 64.
++]]
++E.BuildHeight = {
++	Id = "BuildHeight",
++	Display = "Build Height",
++	Icon = "🏗",
++	Base = 5,
++	Unlimited = 256, -- (= BlockConfig.MaxLevels, the engine-safe ceiling)
++	Steps = {
++		{ Limit = 8, Gems = 60 },
++		{ Limit = 12, Gems = 120 },
++		{ Limit = 16, Gems = 200 },
++		{ Limit = 24, Gems = 320 },
++		{ Limit = 32, Gems = 500 },
++		{ Limit = 48, Gems = 800 },
++		{ Limit = 64, Gems = 1200 },
++	},
++}
++E.BuildHeight.Max = #E.BuildHeight.Steps + 1
++-- how many blocks high may NEW blocks be put at this upgrade level
++function E.BuildHeightLimit(level)
++	local BH = E.BuildHeight
++	local l = tonumber(level)
++	l = if l and l == l then math.clamp(math.floor(l), 0, BH.Max) else 0
++	if l >= BH.Max then
++		return BH.Unlimited
++	elseif l <= 0 then
++		return BH.Base
++	end
++	return BH.Steps[l].Limit
++end
++
+ -- bonuses from upgrade levels (merged into the Bonuses table by GearService)
+ function E.UpgradeBonus(levels)
+ 	local out = {}
 --- a/EventFX.lua
 +++ b/EventFX.lua
 @@ -5,7 +5,7 @@
@@ -7714,7 +7701,7 @@
  		if r or t then
 --- a/GearService.lua
 +++ b/GearService.lua
-@@ -97,6 +97,11 @@
+@@ -97,6 +97,17 @@
  	if ctx.PetPowers then
  		v *= ctx.PetPowers.SpeedMult(player)
  	end
@@ -7723,6 +7710,12 @@
 +		v *= ctx.ToolService.WalkMult(player)
 +	end
 +	v *= tonumber(player:GetAttribute("GrassSlow")) or 1
++	-- Attribute SpeedMult (the left SPEED panel): current speed / 16, WITHOUT the held-sprint boost (gear, pets,
++	-- Overdrive, water, thick grass count). Written only when the (2-decimal) value changes, so it never spams.
++	local m = math.floor(v / (if sprinting[player] then 1 + GearService.SprintBoost else 1) / 16 * 100 + 0.5) / 100
++	if player:GetAttribute("SpeedMult") ~= m then
++		player:SetAttribute("SpeedMult", m)
++	end
  	return v
  end
  
@@ -9055,7 +9048,42 @@
  	-- only for people who can edit the place (the server sets IsAdmin).
  	-- v2.15: it sits to the LEFT of Settings, in the same corner
  	{ Id = "Admin", Icon = "🛠", Label = "Admin", Color = Color3.fromRGB(200, 60, 60), Admin = true, Corner = true },
-@@ -127,6 +128,26 @@
+@@ -112,6 +113,34 @@
+ end
+ local fmt = Hud.fmt
+ 
++-- the SPEED panel text: 1 -> "×1", 1.2 -> "×1.2", 1.346 -> "×1.35" (two decimals at most, trailing zeros trimmed)
++function Hud.fmtSpeed(m)
++	m = tonumber(m) or 1
++	if m ~= m or m < 0 then
++		m = 1
++	end
++	local t = string.format("%.2f", math.floor(m * 100 + 0.5) / 100)
++	t = string.gsub(t, "0+$", "")
++	t = string.gsub(t, "%.$", "")
++	return "×" .. t
++end
++
++-- neutral (white) at ×1 → green → gold as the multiplier grows; orange when slowed (water, thick grass)
++function Hud.speedColor(m)
++	m = tonumber(m) or 1
++	local white, green, gold = Color3.fromRGB(255, 246, 232), Color3.fromRGB(120, 240, 120), Color3.fromRGB(255, 205, 60)
++	if m < 0.995 then
++		return Color3.fromRGB(255, 160, 90)
++	elseif m <= 1.005 then
++		return white
++	end
++	local t = math.clamp((m - 1) / 0.6, 0, 1)
++	if t < 0.5 then
++		return white:Lerp(green, t * 2)
++	end
++	return green:Lerp(gold, (t - 0.5) * 2)
++end
++
+ -- "1,250" up to a million, then the short form ("2.45M")
+ function Hud.commas(n)
+ 	n = math.floor(tonumber(n) or 0)
+@@ -127,6 +156,26 @@
  end
  local commas = Hud.commas
  
@@ -9082,7 +9110,11 @@
  local function pop(inst, prop, big, small, t)
  	inst[prop] = big
  	TweenService:Create(inst, TweenInfo.new(t or 0.25, Enum.EasingStyle.Back), { [prop] = small }):Play()
-@@ -174,13 +195,14 @@
+@@ -171,16 +220,18 @@
+ 
+ 	self:_centre() -- first: toasts / status exist before any counter can toast
+ 	self:_profile()
++	self:_speedPanel()
  	self:_broomAndHome()
  	self:_dock()
  	self:_launcher()
@@ -9099,7 +9131,7 @@
  		else
  			self:SetStatus(nil)
  		end
-@@ -248,8 +270,9 @@
+@@ -248,8 +299,9 @@
  		TweenService:Create(xpFill, TweenInfo.new(0.25), { Size = UDim2.fromScale(math.clamp(into / need, 0, 1), 1) }):Play()
  		xpText.Text = string.format("%s / %s XP", fmt(into), fmt(need))
  	end
@@ -9110,7 +9142,7 @@
  	end
  	refreshLevel()
  
-@@ -302,11 +325,14 @@
+@@ -302,11 +354,14 @@
  					while countId == id do
  						local k = math.min((os.clock() - t0) / 0.4, 1)
  						shownV = from + (v - from) * (1 - (1 - k) ^ 2)
@@ -9127,7 +9159,7 @@
  					end
  				end)
  			else
-@@ -322,9 +348,10 @@
+@@ -322,9 +377,10 @@
  			end
  			last = v
  		end
@@ -9140,7 +9172,7 @@
  		refresh(false)
  		self.values[attr] = c
  		return c
-@@ -372,7 +399,7 @@
+@@ -372,7 +428,7 @@
  	end)
  	-- v2.16: clovers (and the wheel they are for) come with island 3
  	local function gloverShown()
@@ -9149,7 +9181,7 @@
  	end
  	player:GetAttributeChangedSignal("IslandTier"):Connect(gloverShown)
  	player:GetAttributeChangedSignal("Glover"):Connect(function()
-@@ -382,9 +409,11 @@
+@@ -382,9 +438,55 @@
  
  	-- save warning (DataStore trouble: progress is kept and retried)
  	local save = label(self.left, { Name = "SaveWarn", Size = UDim2.fromOffset(230, 20), LayoutOrder = 99, TextSize = 12, Font = BODY, TextColor3 = Color3.fromRGB(255, 200, 120), TextStrokeTransparency = 0.5, Visible = false, Text = "⚠ Saving is retrying… (your progress is safe)" })
@@ -9161,10 +9193,54 @@
 +	end
 +	player:GetAttributeChangedSignal("SaveState"):Connect(saveRefresh)
 +	player:GetAttributeChangedSignal("Setting_ShowSaveWarning"):Connect(saveRefresh)
++end
++
++---------------------------------------------------------------- the SPEED panel (left column, under the currencies)
++-- shows the player's walking speed as a multiplier (attribute SpeedMult, published by GearService.SpeedFor:
++-- ×1 = base; Moon Wolf / gear / Overdrive raise it). Event-driven (attribute changes), no polling.
++function Hud:_speedPanel()
++	local player = self.player
++	local c = Instance.new("TextLabel")
++	c.Name = "SpeedPanel"
++	c.AutomaticSize = Enum.AutomaticSize.X
++	c.Size = UDim2.fromOffset(0, 26)
++	c.BackgroundColor3 = BG
++	c.BackgroundTransparency = 0.45
++	c.Font = FONT
++	c.TextSize = 18
++	c.TextColor3 = TEXT
++	c.TextStrokeTransparency = 0.5
++	c.LayoutOrder = 3
++	c:SetAttribute("NoTranslate", true)
++	c.Parent = self.left
++	corner(c, 13)
++	stroke(c, LINE, 1.5, 0.5)
++	local pad = Instance.new("UIPadding")
++	pad.PaddingLeft = UDim.new(0, 9)
++	pad.PaddingRight = UDim.new(0, 10)
++	pad.Parent = c
++	self.speedPanel = c
++	local last = 1
++	local function refresh()
++		local m = tonumber(player:GetAttribute("SpeedMult")) or 1
++		c.Text = "⚡ " .. Hud.fmtSpeed(m)
++		c.TextColor3 = Hud.speedColor(m)
++		if m > last + 0.004 then
++			pop(c, "TextSize", 23, 18, 0.2)
++		end
++		last = m
++	end
++	local function gate()
++		c.Visible = player:GetAttribute("Setting_ShowSpeedPanel") ~= false
++	end
++	player:GetAttributeChangedSignal("SpeedMult"):Connect(refresh)
++	player:GetAttributeChangedSignal("Setting_ShowSpeedPanel"):Connect(gate)
++	refresh()
++	gate()
  end
  
  ---------------------------------------------------------------- broom icon + MY GARDEN
-@@ -400,7 +429,7 @@
+@@ -400,7 +502,7 @@
  	-- lays them out side by side and centred (one alone is centred too); on narrow or
  	-- low screens the whole row shrinks (ApplyLayout · travelScale). Layout stacks the
  	-- weather bar / combo / toasts UNDER the row by its real size, so nothing overlaps.
@@ -9173,7 +9249,7 @@
  	row.Parent = self.gui
  	local rowList = Instance.new("UIListLayout")
  	rowList.FillDirection = Enum.FillDirection.Horizontal
-@@ -428,7 +457,7 @@
+@@ -428,7 +530,7 @@
  			if row.Visible == open then
  				row.Visible = not open
  			end
@@ -9182,7 +9258,7 @@
  		end
  	end)
  	-- (v1.1: no broom shortcut here — the broom slot is in the hotbar, brooms are in SHOP)
-@@ -448,7 +477,7 @@
+@@ -448,7 +550,7 @@
  		     └ Label      bold white text with a dark outline
  		Pressing pushes the face down onto its edge.
  	]]
@@ -9191,7 +9267,7 @@
  	local function pill(name, text, order, base, action)
  		local white, black = Color3.new(1, 1, 1), Color3.new(0, 0, 0)
  		local radius = PILL_H / 2
-@@ -495,7 +524,7 @@
+@@ -495,7 +597,7 @@
  		studs.Size = UDim2.fromScale(1, 1)
  		studs.ZIndex = 2
  		studs.Parent = btn
@@ -9200,7 +9276,7 @@
  		local cols = math.floor((PILL_W - 8) / PITCH)
  		local x0 = (PILL_W - (cols - 1) * PITCH) / 2
  		for r = -1, 1 do
-@@ -539,17 +568,17 @@
+@@ -539,17 +641,17 @@
  		shine.BorderSizePixel = 0
  		-- (not rotated: a rotated frame is not clipped; it travels only over the straight
  		-- part of the pill and fades in and out, so it never shows outside the round ends)
@@ -9223,7 +9299,7 @@
  				TweenService:Create(shine, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, 0, true), { BackgroundTransparency = 0.7 }):Play()
  			end
  		end)
-@@ -567,18 +596,21 @@
+@@ -567,18 +669,21 @@
  		-- bold white text with a dark outline, in the game's font
  		local cap = label(btn, {
  			Name = "Label",
@@ -9249,7 +9325,7 @@
  		capMax.MinTextSize = 12
  		capMax.Parent = cap
  		local capStroke = Instance.new("UIStroke")
-@@ -615,7 +647,7 @@
+@@ -615,7 +720,7 @@
  	end
  	-- (the red one keeps its SPAWN function and name — the owner's sample picture says "BUY")
  	local home, cd = pill("MyGarden", "MY GARDEN", 1, Color3.fromRGB(60, 200, 90), "Home")
@@ -9258,7 +9334,7 @@
  	self.homeButton, self.homeCooldown = home, cd
  	self.spawnButton, self.spawnCooldown = spawnBtn, spawnCd
  	-- no garden yet (still loading): hide it
-@@ -637,7 +669,7 @@
+@@ -637,7 +742,7 @@
  	box.Name = "FriendBoost"
  	box.AnchorPoint = Vector2.new(0, 1)
  	box.Position = UDim2.new(0, 12, 1, -12)
@@ -9267,7 +9343,7 @@
  	box.BackgroundTransparency = 1
  	box.Parent = self.gui
  	local scale = Instance.new("UIScale")
-@@ -645,27 +677,27 @@
+@@ -645,27 +750,27 @@
  	self.friendBox, self.friendScale = box, scale
  	local chip = Instance.new("Frame")
  	chip.Name = "Chip"
@@ -9306,7 +9382,7 @@
  	plus.Activated:Connect(function()
  		local SocialService = game:GetService("SocialService")
  		task.spawn(function()
-@@ -681,13 +713,49 @@
+@@ -681,13 +786,49 @@
  			end
  		end)
  	end)
@@ -9357,7 +9433,7 @@
  end
  
  -- the MY GARDEN / SPAWN cooldown bar (seconds)
-@@ -732,35 +800,37 @@
+@@ -732,35 +873,37 @@
  	combo.Name = "ComboMeter"
  	combo.AnchorPoint = Vector2.new(0.5, 0)
  	combo.Position = UDim2.new(0.5, 0, 0, 52)
@@ -9410,7 +9486,7 @@
  	local cscale = Instance.new("UIScale")
  	cscale.Parent = combo
  	Layout.Add("Top", combo, "Combo")
-@@ -784,6 +854,7 @@
+@@ -784,6 +927,7 @@
  		name.TextColor3 = tier.Color
  		fillBar.BackgroundColor3 = tier.Color
  		cst.Color = tier.Color
@@ -9418,7 +9494,7 @@
  		local nextT = E and E.Combo.Tiers[ti + 1]
  		count.Text = if nextT then pts .. "/" .. nextT.At else tostring(pts)
  		local bonus = math.floor(((tier.Items or 1) - 1) * 100 + 0.5)
-@@ -904,6 +975,69 @@
+@@ -904,6 +1048,69 @@
  	return b, icon, cap, st
  end
  
@@ -9488,7 +9564,7 @@
  function Hud:_keyOf(m)
  	local C = self.deps.Controls
  	if C and m.Action then
-@@ -1040,8 +1174,6 @@
+@@ -1040,8 +1247,6 @@
  
  -- v1.8.1: button sizes come from UIImages (SIZES): change them there
  local GAP = 12 -- (v2.15: the dock buttons are spread apart)
@@ -9497,7 +9573,7 @@
  local DOCK_W, DOCK_BH = 148, 58
  local DOCK_N = 0
  for _, m in Hud.Menus do
-@@ -1050,7 +1182,7 @@
+@@ -1050,7 +1255,7 @@
  	end
  end
  local DOCK_H = DOCK_N * (DOCK_BH + GAP)
@@ -9506,7 +9582,7 @@
  
  function Hud:_dock()
  	local dock = Instance.new("Frame")
-@@ -1075,7 +1207,7 @@
+@@ -1075,7 +1280,7 @@
  		local b
  		if m.Corner then
  			-- the bottom-right corner of the screen: Settings, and Admin to its left
@@ -9515,7 +9591,7 @@
  			b.AnchorPoint = Vector2.new(1, 1)
  			b.Position = UDim2.new(1, -cornerX, 1, -12)
  			cornerX += CORNER + 8
-@@ -1125,123 +1257,180 @@
+@@ -1125,123 +1330,180 @@
  	-- (v1.1: the More popover is gone; kept so older callers don't break)
  end
  
@@ -9803,7 +9879,7 @@
  end
  
  ---------------------------------------------------------------- menu plumbing
-@@ -1300,6 +1489,7 @@
+@@ -1300,6 +1562,7 @@
  			b.Visible = on
  		end
  	end
@@ -9811,7 +9887,7 @@
  end
  
  -- a red number on a button, driven by a player attribute (hidden at 0)
-@@ -1320,15 +1510,20 @@
+@@ -1320,15 +1583,20 @@
  	t.Parent = b
  	corner(t, 10)
  	stroke(t, Color3.new(1, 1, 1), 1.5, 0)
@@ -9833,7 +9909,7 @@
  	refresh()
  end
  
-@@ -1341,6 +1536,9 @@
+@@ -1341,6 +1609,9 @@
  function Hud:Pulse(id, on)
  	self.pulses = self.pulses or {}
  	on = on == true
@@ -9843,7 +9919,7 @@
  	if (self.pulses[id] ~= nil) == on then
  		return
  	end
-@@ -1431,26 +1629,21 @@
+@@ -1431,26 +1702,21 @@
  		self.friendBox.Position = if self.touch then UDim2.new(0, 10, 0.5, 30) else UDim2.new(0, 12, 1, -12)
  	end
  	if self.travelScale then
@@ -9874,7 +9950,7 @@
  	local st = self.status
  	st.Size = UDim2.fromOffset(math.clamp(vp.X - 560 * s, 220, 640), if vp.X < 900 then 40 else 28)
  	-- (v2.15: the hint line sits ABOVE the hotbar / the Editor's panel, never under them)
-@@ -1500,7 +1693,10 @@
+@@ -1500,7 +1766,10 @@
  	end
  end
  
@@ -9886,7 +9962,7 @@
  	self.status.Visible = text ~= nil
  	self.status.Text = text or ""
  end
-@@ -1509,10 +1705,13 @@
+@@ -1509,10 +1778,13 @@
  	Toasts. With the "Notifications" setting OFF only important ones show (errors of
  	something you just did, trades, friend invites …): pass important = true.
  ]]
@@ -10161,7 +10237,7 @@
  			Lines = lines,
 --- a/IslandConfig.lua
 +++ b/IslandConfig.lua
-@@ -112,6 +112,47 @@
+@@ -112,6 +112,101 @@
  	},
  }
  
@@ -10206,10 +10282,64 @@
 +	return { Soil = soil, Rock = rock, Warm = soil:Lerp(rock, 0.4), Deep = rock:Lerp(Color3.new(0, 0, 0), 0.25) }
 +end
 +
++--[[
++	v2.9 PALETTE: the rest of the colour scheme of a look (on top of Grass = Tiers[i].Grass and the Body palette):
++	  Wood / WoodDark  gate posts + beam, sign post, benches, logs, trunks     Roof   the roofs of the gate and the sign
++	  Leaf             climbing leaves of the gate, stems, lily pads, reeds   Petals  the flowers round the yard (a list)
++	  Glow             the lanterns of the gate (+ their light)                Accent  the flower on the upgrade sign
++	  Trim / TrimPost  the rails / posts of the CLASSIC fence only (a fence skin the player bought keeps its own look)
++	  Water            the water of the look (waterfalls / ponds / pools use it in DECOR; kept here for edits)
++	  Multi            (Rainbow Paradise) roofs / leaves / petals take a different colour per part from Mix
++]]
++I.Look = {
++	DarkForest = { Wood = c(70, 52, 40), WoodDark = c(48, 36, 30), Roof = c(40, 74, 62), Leaf = c(40, 92, 56), Petals = { c(160, 100, 200), c(200, 230, 120), c(120, 150, 210) }, Glow = c(255, 190, 90), Trim = c(98, 80, 64), TrimPost = c(70, 56, 46), Accent = c(190, 110, 230), Water = c(60, 100, 150) },
++	FrostWoods = { Wood = c(172, 150, 140), WoodDark = c(112, 102, 108), Roof = c(200, 228, 246), Leaf = c(150, 212, 204), Petals = { c(255, 255, 255), c(170, 215, 255), c(200, 190, 255) }, Glow = c(170, 225, 255), Trim = c(226, 240, 250), TrimPost = c(176, 208, 236), Accent = c(150, 215, 250), Water = c(190, 235, 255) },
++	MapleTown = { Wood = c(132, 84, 52), WoodDark = c(92, 58, 38), Roof = c(198, 70, 40), Leaf = c(232, 112, 40), Petals = { c(214, 70, 40), c(236, 150, 40), c(230, 190, 60), c(160, 60, 40) }, Glow = c(255, 200, 110), Trim = c(206, 150, 100), TrimPost = c(150, 96, 60), Accent = c(236, 120, 40), Water = c(90, 150, 190) },
++	Volcano = { Wood = c(52, 42, 44), WoodDark = c(32, 28, 30), Roof = c(96, 32, 26), Leaf = c(206, 72, 30), Petals = { c(255, 110, 30), c(255, 170, 50), c(230, 60, 30) }, Glow = c(255, 130, 50), Trim = c(74, 62, 66), TrimPost = c(120, 50, 36), Accent = c(255, 120, 30), Water = c(255, 120, 30) },
++	GoldenGrove = { Wood = c(204, 152, 62), WoodDark = c(152, 108, 46), Roof = c(240, 190, 60), Leaf = c(192, 202, 70), Petals = { c(255, 206, 60), c(255, 226, 120), c(255, 170, 60), c(255, 248, 200) }, Glow = c(255, 225, 120), Trim = c(240, 214, 140), TrimPost = c(230, 180, 60), Accent = c(255, 215, 90), Water = c(140, 200, 230) },
++	WillowLake = { Wood = c(122, 102, 72), WoodDark = c(86, 72, 52), Roof = c(96, 152, 130), Leaf = c(122, 182, 92), Petals = { c(250, 250, 200), c(255, 240, 120), c(190, 230, 255), c(200, 240, 200) }, Glow = c(255, 240, 170), Trim = c(206, 214, 186), TrimPost = c(120, 152, 110), Accent = c(110, 190, 250), Water = c(110, 190, 250) },
++	RoyalGarden = { Wood = c(124, 78, 106), WoodDark = c(88, 54, 78), Roof = c(150, 30, 60), Leaf = c(60, 132, 66), Petals = { c(235, 60, 100), c(255, 150, 190), c(255, 235, 170), c(190, 100, 230) }, Glow = c(255, 235, 170), Trim = c(236, 226, 236), TrimPost = c(240, 205, 90), Accent = c(150, 30, 60), Water = c(150, 200, 240) },
++	MutantSwamp = { Wood = c(78, 68, 54), WoodDark = c(52, 46, 42), Roof = c(112, 62, 142), Leaf = c(112, 204, 60), Petals = { c(170, 70, 240), c(120, 230, 70), c(240, 255, 120), c(230, 90, 200) }, Glow = c(150, 255, 90), Trim = c(112, 122, 82), TrimPost = c(150, 90, 190), Accent = c(170, 70, 240), Water = c(130, 255, 60) },
++	AncientWoods = { Wood = c(90, 64, 44), WoodDark = c(62, 44, 32), Roof = c(72, 112, 66), Leaf = c(72, 142, 72), Petals = { c(130, 255, 200), c(230, 220, 120), c(200, 120, 70), c(255, 255, 230) }, Glow = c(170, 255, 200), Trim = c(150, 150, 128), TrimPost = c(110, 118, 100), Accent = c(110, 240, 220), Water = c(80, 170, 170) },
++	StarGarden = { Wood = c(72, 66, 122), WoodDark = c(48, 44, 90), Roof = c(98, 90, 170), Leaf = c(120, 110, 222), Petals = { c(255, 225, 130), c(160, 140, 255), c(110, 210, 255), c(255, 255, 255) }, Glow = c(255, 225, 140), Trim = c(152, 142, 212), TrimPost = c(255, 225, 120), Accent = c(255, 220, 130), Water = c(110, 160, 255) },
++	RainbowParadise = { Multi = true, Mix = { c(255, 120, 150), c(255, 200, 90), c(120, 200, 255), c(180, 130, 255), c(120, 225, 140) }, Wood = c(240, 232, 215), WoodDark = c(204, 192, 172), Roof = c(255, 120, 150), Leaf = c(120, 225, 140), Petals = { c(255, 120, 150), c(255, 200, 90), c(120, 200, 255), c(180, 130, 255), c(120, 225, 140) }, Glow = c(255, 246, 200), Trim = c(255, 238, 246), TrimPost = c(255, 200, 100), Accent = c(255, 140, 190), Water = c(130, 200, 250) },
++}
++
++-- the full palette of the look `tierIndex` (Body + Look + Grass), nil = the baked meadow colours
++local paletteCache = {}
++function I.PaletteOf(tierIndex)
++	local t = I.Tiers[tierIndex]
++	if not t or tierIndex <= 1 then
++		return nil
++	end
++	local cached = paletteCache[tierIndex]
++	if cached then
++		return cached
++	end
++	local pal = table.clone(I.BodyOf(tierIndex) or {})
++	local look = I.Look[t.Id]
++	if look then
++		for k, v in look do
++			pal[k] = v
++		end
++	else
++		-- (a look without an entry: derived from its grass colour)
++		local g = t.Grass[1]
++		local wood = pal.Soil or g:Lerp(Color3.fromRGB(110, 80, 56), 0.6)
++		pal.Wood, pal.WoodDark, pal.Roof, pal.Leaf = wood, wood:Lerp(Color3.new(0, 0, 0), 0.3), pal.Rock or wood, g
++		pal.Petals, pal.Glow, pal.Trim, pal.TrimPost, pal.Accent = { g:Lerp(Color3.new(1, 1, 1), 0.5) }, Color3.fromRGB(255, 220, 140), wood:Lerp(Color3.new(1, 1, 1), 0.4), wood, g
++		pal.Water = Color3.fromRGB(100, 170, 230)
++	end
++	pal.Grass = t.Grass[1]
++	pal.Stem = pal.Leaf:Lerp(Color3.new(0, 0, 0), 0.25)
++	paletteCache[tierIndex] = pal
++	return pal
++end
++
  I.ChooseLevel = 110 -- from this level on the player picks which island to SHOW
  
  --[[
-@@ -121,13 +162,19 @@
+@@ -121,13 +216,19 @@
  ]]
  I.FenceSkins = {
  	{ Id = "Classic", Display = "Classic Fence", Icon = "🚧", Color = Color3.fromRGB(235, 215, 185), Post = Color3.fromRGB(240, 225, 200), Material = "Plastic", Blurb = "The cream fence every garden starts with." },
@@ -10236,7 +10366,7 @@
  }
  --[[
  	v2.16 WHAT EVERY ISLAND OPENS. A part of the game is closed until you own the
-@@ -141,23 +188,28 @@
+@@ -141,23 +242,28 @@
  	levels, the Editor, the Bestiary.
  ]]
  I.Features = {
@@ -10289,7 +10419,7 @@
 +	if not under then
 +		return
 +	end
-+	local pal = IC().BodyOf(tierIndex)
++	local pal = ctx.IslandConfig.BodyOf(tierIndex) -- (IC() is declared further down: it is no upvalue here)
 +	for _, d in under:GetDescendants() do
 +		if d:IsA("BasePart") then
 +			local o = bodyOrig[d]
@@ -10323,7 +10453,143 @@
  
  function IslandService.Init(context)
  	ctx = context
-@@ -128,6 +168,826 @@
+@@ -26,6 +66,135 @@
+ 	return ctx.IslandConfig
+ end
+ 
++---------------------------------------------------------------- v2.9 PALETTE helpers
++local partOrig = setmetatable({}, { __mode = "k" }) -- [part] = its colour before any look touched it
++
++-- `base` with the brightness of `o` (relative to the typical brightness `ref` of that kind of part)
++local function tone(o: Color3, base: Color3, ref: number): Color3
++	local f = math.clamp(((o.R + o.G + o.B) / 3) / ref, 0.75, 1.3)
++	return Color3.new(math.clamp(base.R * f, 0, 1), math.clamp(base.G * f, 0, 1), math.clamp(base.B * f, 0, 1))
++end
++
++-- the Rainbow Paradise: a different colour per part, from the part's place (the same for a roof and its top)
++local function mixPick(pal, p: BasePart): Color3
++	local pos = p.Position
++	return pal.Mix[(math.floor(pos.X * 0.37 + pos.Z * 0.53) % #pal.Mix) + 1]
++end
++
++-- kind of part -> { palette key, typical baked brightness, per-part colours in the Rainbow }
++local PLOT_RULES = {
++	GatePost = { "Wood", 0.39 }, Beam = { "Wood", 0.39 }, PostBase = { "WoodDark", 0.31 }, LanternHook = { "WoodDark", 0.31 },
++	Roof = { "Roof", 0.44, true }, RoofTop = { "Roof", 0.44, true }, Leaves = { "Leaf", 0.5, true }, Stem = { "Stem", 0.43 },
++}
++local SIGN_RULES = {
++	Post = { "Wood", 0.31 }, Frame = { "Wood", 0.31 }, PostFoot = { "Wood", 0.45 },
++	Roof = { "Roof", 0.44, true }, RoofTop = { "Roof", 0.44, true }, Leaf = { "Leaf", 0.5, true }, Flower = { "Accent", 0.55 },
++}
++-- decor pieces built in code that are plain wood / plant: they take the wood / leaf colour of the look
++local DECOR_RULES = {
++	BenchSeat = { "Wood", 0.39 }, BenchBack = { "Wood", 0.39 }, BenchLeg = { "WoodDark", 0.28 }, Log = { "Wood", 0.3 },
++	ConeTrunk = { "Wood", 0.31 }, PalmTrunk = { "Wood", 0.42 }, TopiaryTrunk = { "Wood", 0.39 }, Stem = { "Stem", 0.43 },
++	LilyPad = { "Leaf", 0.5 }, Reed = { "Leaf", 0.5 },
++}
++
++-- paint the parts of `root` (children / descendants) by `rules`; pal == nil restores the baked colours
++local function paintByRules(root: Instance, descendants: boolean, rules, pal)
++	for _, d in (if descendants then root:GetDescendants() else root:GetChildren()) do
++		local rule = d:IsA("BasePart") and rules[d.Name]
++		if rule then
++			local o = partOrig[d]
++			if not o then
++				o = d.Color
++				partOrig[d] = o
++			end
++			if not pal then
++				d.Color = o
++			else
++				local base = if rule[3] and pal.Multi then mixPick(pal, d) else pal[rule[1]]
++				d.Color = tone(o, base, rule[2])
++			end
++		end
++	end
++end
++
++local CLASSIC = { Color = Color3.fromRGB(235, 215, 185), Post = Color3.fromRGB(240, 225, 200) }
++
++-- the yard of `plot`: gate (wood, roof, leaves, lanterns + their light), flowers round the fence, and the rails /
++-- posts of the CLASSIC fence. Runs when the look changes and at the end of PlotSystem.ApplyFence (so a rebuilt
++-- yard / a fence change keeps the look). A bought fence skin keeps its own colours.
++local function paintPlot(plot)
++	local pal = IC().PaletteOf(plot.LookTier or 1)
++	local skin = plot.FenceSkin
++	local classic = skin == nil or skin.Id == "Classic"
++	local rail = if pal then pal.Trim else CLASSIC.Color
++	local post = if pal then pal.TrimPost else CLASSIC.Post
++	if classic and plot.Walls then
++		for k = 2, 4 do
++			local w = plot.Walls[k]
++			if w then
++				w.Color = rail
++			end
++		end
++	end
++	local deco = plot.Deco
++	if not deco then
++		return
++	end
++	local petals = pal and pal.Petals
++	for _, d in deco:GetDescendants() do
++		if d:IsA("BasePart") then
++			local n = d.Name
++			local rule = PLOT_RULES[n]
++			if rule then
++				local o = partOrig[d]
++				if not o then
++					o = d.Color
++					partOrig[d] = o
++				end
++				if not pal then
++					d.Color = o
++				else
++					local base = if rule[3] and pal.Multi then mixPick(pal, d) else pal[rule[1]]
++					d.Color = tone(o, base, rule[2])
++				end
++			elseif n == "Lantern" then
++				local glow = if pal then pal.Glow else Color3.fromRGB(255, 220, 140)
++				d.Color = glow
++				local l = d:FindFirstChildOfClass("PointLight")
++				if l then
++					l.Color = if pal then pal.Glow else Color3.fromRGB(255, 210, 140)
++				end
++			elseif n == "Bloom" or n == "Flower" then
++				local o = partOrig[d]
++				if not o then
++					o = d.Color
++					partOrig[d] = o
++				end
++				if petals then
++					local pos = d.Position
++					d.Color = if pal.Multi then mixPick(pal, d) else petals[(math.floor(pos.X * 0.73 + pos.Z * 1.31) % #petals) + 1]
++				else
++					d.Color = o
++				end
++			elseif classic then
++				if n == "FrontFence" then
++					d.Color = rail
++				elseif n == "Post" then
++					d.Color = post
++				end
++			end
++		end
++	end
++end
++
++-- the little UpgradeSign baked on the island (wood, roof, flower, leaves)
++local function paintSign(model, tierIndex)
++	local sign = model:FindFirstChild("UpgradeSign")
++	if sign then
++		paintByRules(sign, false, SIGN_RULES, IC().PaletteOf(tierIndex))
++	end
++end
++
+ local function islandData(data)
+ 	data.Island = data.Island or { Tier = 1, Look = 0 }
+ 	data.Island.Tier = math.clamp(math.floor(tonumber(data.Island.Tier) or 1), 1, #IC().Tiers)
+@@ -128,6 +297,847 @@
  	return themes and themes:FindFirstChild(tier.Id)
  end
  
@@ -10354,14 +10620,22 @@
 +	local boxes = {}
 +	for _, d in model:GetDescendants() do
 +		if d:IsA("BasePart") and d.Name == "Grass" and d.Transparency < 0.9 then
++			-- v2.62 (straight): the island body of a diagonal island is turned: keep the part's own axes
 +			local p, s = d.Position, d.Size
-+			table.insert(boxes, { p.X - s.X / 2 - 0.05, p.X + s.X / 2 + 0.05, p.Z - s.Z / 2 - 0.05, p.Z + s.Z / 2 + 0.05 })
++			local cf = d.CFrame
++			local rx, bx = cf.RightVector, -cf.LookVector
++			local hx, hz = s.X / 2 + 0.05, s.Z / 2 + 0.05
++			table.insert(boxes, { p.X, p.Z, rx.X, rx.Z, bx.X, bx.Z, hx, hz, hx * hx + hz * hz })
 +		end
 +	end
 +	local function onGrass(x, z)
 +		for _, b in boxes do
-+			if x >= b[1] and x <= b[2] and z >= b[3] and z <= b[4] then
-+				return true
++			local dx, dz = x - b[1], z - b[2]
++			if dx * dx + dz * dz <= b[9] then
++				local u, v = dx * b[3] + dz * b[4], dx * b[5] + dz * b[6]
++				if u >= -b[7] and u <= b[7] and v >= -b[8] and v <= b[8] then
++					return true
++				end
 +			end
 +		end
 +		return false
@@ -10370,10 +10644,16 @@
 +	local rot = ctx.Config.IslandRotation(index)
 +	local cs, sn = math.cos(rot), math.sin(rot)
 +	local sites = {}
-+	local axes = { Vector3.new(1, 0, 0), Vector3.new(-1, 0, 0), Vector3.new(0, 0, 1), Vector3.new(0, 0, -1) }
++	-- v2.62 (straight): the body of a diagonal island is turned by `ang` (WorldBuilder.straightenIslands): the 4-stud lattice
++	-- of sites and the four "outward" directions follow its own axes (ang = 0 on the islands left as baked)
++	local ang = if ctx.Config.IslandBodyRotation then ctx.Config.IslandBodyRotation(index) else 0
++	local bc, bs = math.cos(ang), math.sin(ang)
++	local ax, az = Vector3.new(bc, 0, -bs), Vector3.new(bs, 0, bc)
++	local axes = { ax, -ax, az, -az }
 +	for i = -18, 17 do
 +		for j = -18, 17 do
-+			local dx, dz = i * 4 + 2, j * 4 + 2
++			local gx, gz = i * 4 + 2, j * 4 + 2
++			local dx, dz = gx * bc + gz * bs, -gx * bs + gz * bc
 +			local x, z = c.X + dx, c.Z + dz
 +			if onGrass(x, z) then
 +				local lx, lz = dx * cs - dz * sn, dx * sn + dz * cs
@@ -10418,8 +10698,13 @@
 +	function E.r(a, b)
 +		return rng:NextNumber(a, b)
 +	end
++	local decorPal = IC().PaletteOf(tierIndex)
 +	function E.add(name, size, cf, color, opt)
 +		opt = opt or {}
++		local rule = if decorPal then DECOR_RULES[name] else nil
++		if rule then
++			color = tone(color, decorPal[rule[1]], rule[2]) -- (v2.9: benches, logs, trunks, reeds … wear the look's wood / leaf)
++		end
 +		local p = Instance.new("Part")
 +		p.Name = name
 +		p.Anchored = true
@@ -10779,9 +11064,11 @@
 +		local o = s.Out
 +		local edge = s.P + o * 2.4
 +		local len = 34
-+		local size = if o.X ~= 0 then Vector3.new(0.7, len, 3.2) else Vector3.new(3.2, len, 0.7)
-+		local f = E.add("Waterfall", size, CFrame.new(edge.X + o.X * 0.35, -1.5 - len / 2, edge.Z + o.Z * 0.35), col, { Material = Enum.Material.Neon, Transparency = 0.35 })
-+		E.add("WaterfallLip", if o.X ~= 0 then Vector3.new(1.2, 0.5, 3.8) else Vector3.new(3.8, 0.5, 1.2), CFrame.new(edge.X + o.X * 0.2, -0.2, edge.Z + o.Z * 0.2), col, { Material = Enum.Material.Neon, Transparency = 0.2 })
++		-- (v2.62: the sheet faces along `o`, also when the island is turned)
++		local turn = CFrame.fromMatrix(Vector3.zero, o, Vector3.new(0, 1, 0))
++		local size = Vector3.new(0.7, len, 3.2)
++		local f = E.add("Waterfall", size, CFrame.new(edge.X + o.X * 0.35, -1.5 - len / 2, edge.Z + o.Z * 0.35) * turn, col, { Material = Enum.Material.Neon, Transparency = 0.35 })
++		E.add("WaterfallLip", Vector3.new(1.2, 0.5, 3.8), CFrame.new(edge.X + o.X * 0.2, -0.2, edge.Z + o.Z * 0.2) * turn, col, { Material = Enum.Material.Neon, Transparency = 0.2 })
 +		local m = E.add("WaterfallMist", Vector3.new(2, 0.4, 2), CFrame.new(edge.X + o.X * 1.2, -1.5 - len, edge.Z + o.Z * 1.2), col, { Transparency = 1 })
 +		E.puff(m, { Tex = SMOKE, Color = mist or Color3.new(1, 1, 1), Size = 6, Life = 3, Speed = 2, Accel = Vector3.new(0, 1.5, 0), Spread = 60, Rate = 3 })
 +		return f
@@ -11150,11 +11437,17 @@
  -- give island `index` the look of tier `tierIndex` (1 = the plain meadow)
  function IslandService.ApplyLook(index, tierIndex)
  	local model = islandModel(index)
-@@ -139,7 +999,11 @@
+@@ -139,7 +1149,17 @@
  	-- v2.16: the lawn INSIDE the garden takes the island's colour too (the tall grass
  	-- is drawn from the floor's colour by every client: GrassFX)
  	local plot = ctx.PlotSystem.GetByIndex and ctx.PlotSystem.GetByIndex(index)
 +	pcall(paintBody, model, tierIndex) -- v2.8: the island's whole body wears the look too
++	pcall(paintSign, model, tierIndex) -- v2.9: the sign, and (below) the gate / flowers / Classic fence of the yard
++	if plot then
++		plot.LookTier = tierIndex
++		ctx.PlotSystem.LookHook = paintPlot
++		pcall(paintPlot, plot)
++	end
  	if plot and plot.Floor then
 +		-- (BlockService reads it: the earth blocks, pit walls and pit bed of the garden are this soil)
 +		local pal = IC().BodyOf(tierIndex)
@@ -11162,7 +11455,7 @@
  		plot.Floor.Color = if tierIndex <= 1 then Color3.fromRGB(96, 150, 62) else tier.Grass[1]
  		-- v2.38: … and the grass tops of the Earth blocks that stand there already
  		if ctx.BlockService and ctx.BlockService.Recolor then
-@@ -165,12 +1029,15 @@
+@@ -165,12 +1185,15 @@
  	for _, d in model:GetDescendants() do
  		if d:IsA("Model") and (d.Name == "Tuft" or (d.Name == "Flower" and d:FindFirstChild("Bloom"))) then
  			for _, p in d:GetChildren() do
@@ -11179,7 +11472,17 @@
  	local old = model:FindFirstChild("Theme")
  	if old then
  		old:Destroy()
-@@ -203,12 +1070,20 @@
+@@ -194,7 +1217,8 @@
+ 	for _, tree in theme:GetChildren() do
+ 		local p = if tree:IsA("Model") then tree:GetBoundingBox().Position elseif tree:IsA("BasePart") then tree.Position else nil
+ 		if p then
+-			local dx, dz = (p.X - c.X) / half, (p.Z - c.Z) / half
++			local lp = rot:PointToObjectSpace(p) -- (v2.62: the island body lies parallel to the yard)
++			local dx, dz = lp.X / half, lp.Z / half
+ 			if (dx ^ 4 + dz ^ 4) ^ 0.25 >= 0.9 then
+ 				tree:Destroy()
+ 			end
+@@ -203,12 +1227,20 @@
  	theme.Parent = model
  end
  
@@ -11201,7 +11504,7 @@
  	end
  end
  
-@@ -219,6 +1094,9 @@
+@@ -219,6 +1251,9 @@
  	end
  	local d = islandData(data)
  	player:SetAttribute("IslandTier", d.Tier)
@@ -11211,7 +11514,7 @@
  	player:SetAttribute("IslandLook", IslandService.LookTier(data))
  	local open = {}
  	for id, on in d.Unlocked do
-@@ -240,12 +1118,28 @@
+@@ -240,12 +1275,28 @@
  end
  
  ---------------------------------------------------------------- fence skins (v2.15)
@@ -11240,7 +11543,7 @@
  	local d = islandData(data)
  	if d.Fences[id] then
  		return IslandService.SetFence(player, id)
-@@ -257,8 +1151,7 @@
+@@ -257,8 +1308,7 @@
  	end
  	d.Fences[id] = true
  	d.Fence = id
@@ -11250,7 +11553,7 @@
  	return true, string.format("%s %s is yours!", skin.Icon, skin.Display)
  end
  
-@@ -273,8 +1166,7 @@
+@@ -273,8 +1323,7 @@
  		return false, "Buy this fence first"
  	end
  	d.Fence = id
@@ -11260,7 +11563,7 @@
  	return true, string.format("%s %s", skin.Icon, skin.Display)
  end
  
-@@ -362,6 +1254,15 @@
+@@ -362,6 +1411,15 @@
  	ctx.Net.IslandRequest.OnServerInvoke = function(player, req)
  		return IslandService.Handle(player, req)
  	end
@@ -11813,6 +12116,15 @@
  inventory.PlotMath = PlotMath
  hotbar.inEditor = function()
  	return build.active and not build.quick
+@@ -538,7 +570,7 @@
+ Controls.Changed:Connect(function()
+ 	hotbar:RefreshKey()
+ end)
+-local upgrades = UpgradesUI.new({ UIKit = UIKit, fmt = Hud.fmt, Hud = hud, Sfx = Sfx, EndgameConfig = EndgameConfig, Remote = Remotes:WaitForChild(R.UpgradeRequest) })
++local upgrades = UpgradesUI.new({ UIKit = UIKit, fmt = Hud.fmt, Hud = hud, Sfx = Sfx, EndgameConfig = EndgameConfig, RobuxUI = RobuxUI, RobuxConfig = RobuxConfig, Remote = Remotes:WaitForChild(R.UpgradeRequest) })
+ local garden = GardenUI.new({ UIKit = UIKit, fmt = Hud.fmt, Hud = hud, Sfx = Sfx, RobuxUI = RobuxUI, IslandConfig = IslandConfig, EndgameConfig = EndgameConfig, TreeTypes = TreeTypes, IslandRemote = Remotes:WaitForChild(R.IslandRequest), BuildRemote = Remotes:WaitForChild(R.BuildRequest) })
+ local buildShop = BuildShopUI.new({ UIKit = UIKit, ItemGrid = ItemGrid, fmt = Hud.fmt, Hud = hud, Sfx = Sfx, RobuxUI = RobuxUI, Config = Config, Economy = Economy, TreeTypes = TreeTypes, DecorTypes = DecorTypes, ModelBuilder = ModelBuilder, IslandConfig = IslandConfig, ResourceTypes = ResourceTypes, Remote = Remotes:WaitForChild(R.BuildRequest) })
+ -- what you buy at the Build Shop also lands on your hotbar (when there is room)
 @@ -555,12 +587,6 @@
  trade.Popup = function(...)
  	friends:Popup(...)
@@ -12404,7 +12716,7 @@
  						local to = Vector3.new(zone.X - p.Position.X, 0, zone.Z - p.Position.Z)
 --- a/MetaConfig.lua
 +++ b/MetaConfig.lua
-@@ -107,12 +107,36 @@
+@@ -107,12 +107,37 @@
  	{ Key = "SFX", Kind = "bool", Display = "Sound effects", Icon = "🔊" },
  	{ Key = "Ambient", Kind = "bool", Display = "Ambient sounds", Icon = "🌿" },
  	{ Key = "Effects", Kind = "bool", Display = "Show effects", Icon = "✨" },
@@ -12439,6 +12751,7 @@
 +	{ Key = "ShowReadyBadges", Kind = "bool", Display = "Show ready marks on buttons", Icon = "❗", Group = "Panels" },
 +	{ Key = "ShowHints", Kind = "bool", Display = "Show hint line", Icon = "💡", Group = "Panels" },
 +	{ Key = "ShowSaveWarning", Kind = "bool", Display = "Show saving warning", Icon = "⚠", Group = "Panels" },
++	{ Key = "ShowSpeedPanel", Kind = "bool", Display = "Show speed panel", Icon = "⚡", Group = "Panels" },
  	-- v2.36 the player menu (click another player): all three ON by default, saved with the
  	-- profile and ENFORCED by the server (GiftService.Stats / .Gift, TradeService.Request)
  	{ Key = "ShowStats", Kind = "bool", Display = "Show my statistics", Icon = "📊" },
@@ -12492,6 +12805,61 @@
  		return nil, "Not for Robux"
  	end
  	if data.Equipment.Owned[p.Id] then
+@@ -380,6 +380,25 @@
+ 	if not data then
+ 		return nil
+ 	end
++	if req.Kind == "BuildHeight" and req.Action ~= "Skip" then
++		-- v2.71: the last BUILD HEIGHT step (unlimited) — a fixed Robux tier (RobuxConfig.BuildHeightRobux), no Money
++		local BH = ctx.EndgameConfig and ctx.EndgameConfig.BuildHeight
++		local robux = RC().BuildHeightRobux
++		if not BH or not robux or not ctx.UpgradeService then
++			return nil, "Unknown"
++		end
++		if ctx.UpgradeService.BuildHeightLevel(data) >= BH.Max then
++			return nil, "Your build height is unlimited already"
++		end
++		return {
++			Robux = robux,
++			Money = 0,
++			Height = true, -- (remembered in the save while the purchase is open)
++			Run = function()
++				return ctx.UpgradeService.GrantUnlimited(player)
++			end,
++		}
++	end
+ 	if req.Kind == "Gems" and req.Action ~= "Skip" then
+ 		-- v1.4: a gem pack — its Robux price is fixed (a tier), no Money involved
+ 		local pack = type(req.Payload) == "table" and type(req.Payload.Pack) == "string" and RC().GemPackById[req.Payload.Pack]
+@@ -465,6 +484,14 @@
+ 			data.Robux.PendingGems = { Pack = p.Pack, T = MonetizationService.Now() }
+ 		end
+ 	end
++	if p.Height and productId then
++		-- (v2.71: like the 💎 packs: a receipt that arrives after a rejoin still gives the unlimited height)
++		local data = ctx.PlayerDataService.Get(player)
++		if data then
++			data.Robux = data.Robux or { Receipts = {}, Spent = 0 }
++			data.Robux.PendingHeight = { T = MonetizationService.Now() }
++		end
++	end
+ 	if not productId then
+ 		if MonetizationService.IsStudio() and RC().StudioSimulate then
+ 			pending[player] = nil
+@@ -592,6 +619,13 @@
+ 			p = resolve(player, { Action = "Buy", Kind = "Gems", Payload = { Pack = pack.Id } })
+ 		end
+ 	end
++	local ph = data.Robux.PendingHeight
++	if p == nil and type(ph) == "table" and RC().BuildHeightRobux == tier and type(ph.T) == "number" and MonetizationService.Now() - ph.T < 3 * 86400 then
++		p = resolve(player, { Action = "Buy", Kind = "BuildHeight" }) -- (v2.71)
++	end
++	if ph ~= nil and RC().BuildHeightRobux == tier then
++		data.Robux.PendingHeight = nil
++	end
+ 	if type(data.Robux.PendingGems) == "table" then
+ 		local pack = RC().GemPackById[data.Robux.PendingGems.Pack]
+ 		if not pack or pack.Robux == tier then
 --- a/MowerDrive.lua
 +++ b/MowerDrive.lua
 @@ -11,6 +11,7 @@
@@ -16643,15 +17011,18 @@
  -- v2.15 FENCE SKINS: paint the fence (borders, posts, front pieces) of a yard.
  -- `skin` = an IslandConfig.FenceSkins entry (nil = keep the one set before)
  function PlotSystem.ApplyFence(plot, skin)
-@@ -174,6 +477,7 @@
+@@ -174,6 +477,10 @@
  			end
  		end
  	end
++	if PlotSystem.LookHook then
++		pcall(PlotSystem.LookHook, plot) -- v2.9: the island look tints the gate, the flowers and the Classic fence
++	end
 +	pcall(buildFenceShape, plot, s) -- v2.44: the skin's own form on top of the fence
  end
  
  --[[
-@@ -258,7 +562,12 @@
+@@ -258,7 +565,12 @@
  		end
  	end
  	fenceGroups(plot) -- v2.40: on foot you jump over the fence; the tall wall is for items and mower riders
@@ -16665,7 +17036,7 @@
  	plot.SignPost.CFrame = plot.CFrame * CFrame.new(0, 11.2, half + 0.2) -- (over the entrance arch)
  
  	-- decoration (rebuilt when the yard size changes): fence posts, flowers, lanterns
-@@ -479,6 +788,25 @@
+@@ -479,6 +791,25 @@
  	model:SetAttribute("PlotIndex", index)
  	model:SetAttribute("OwnerUserId", 0)
  	model:SetAttribute("Size", P.Sizes[0])
@@ -16691,7 +17062,7 @@
  	local function folder(name)
  		return model:FindFirstChild(name) or mk("Folder", model, { Name = name })
  	end
-@@ -529,6 +857,7 @@
+@@ -529,6 +860,7 @@
  	end
  	pcall(fenceGroups, plot) -- v2.40: (a baked yard that needed no layout: its invisible walls get their groups here)
  	refreshSign(plot)
@@ -16699,7 +17070,7 @@
  	return plot
  end
  
-@@ -680,10 +1009,13 @@
+@@ -680,10 +1012,13 @@
  			end
  		end
  		TP.Snap(rec, size, P)
@@ -16713,7 +17084,7 @@
  			elseif rec.Type == "Decor" then
  				local def = ctx.DecorTypes.Get(rec.DecorType)
  				objects[id] = nil
-@@ -734,7 +1066,11 @@
+@@ -734,7 +1069,11 @@
  	plot.Model:SetAttribute("Lane", plot.Lane)
  	player:SetAttribute("PlotIndex", plot.Index)
  	refreshSign(plot)
@@ -16725,7 +17096,7 @@
  	layoutGround(plot, size)
  	PlotSystem.PublishYard(player, data)
  
-@@ -807,6 +1143,7 @@
+@@ -807,6 +1146,7 @@
  		rec.Z += shift
  	end
  	data.Plot.Blocks = ctx.PlotMath.RemapTiles(data.Plot.Blocks, oldSize, size, P.CellSize) -- v2.32: the blocks keep their place in the world
@@ -16733,7 +17104,7 @@
  	layoutGround(plot, size)
  	local moved = PlotSystem.Settle(player, data, size)
  	for id, rec in data.Plot.Objects do
-@@ -865,6 +1202,7 @@
+@@ -865,6 +1205,7 @@
  	data.Plot.Stored = {}
  	data.Plot.Expansion = 0
  	data.Plot.Blocks = {} -- v2.32
@@ -16741,7 +17112,7 @@
  	for _, rec in ctx.Config.Plot.StartingObjects do
  		data.Plot.Objects[PlotSystem.NewObjectId(data)] = table.clone(rec)
  	end
-@@ -948,6 +1286,7 @@
+@@ -948,6 +1289,7 @@
  	end
  	layoutGround(plot, ctx.Config.Plot.Sizes[0])
  	refreshSign(plot)
@@ -16751,7 +17122,7 @@
  function PlotSystem.SpawnCFrame(plot)
 --- a/Prefs.lua
 +++ b/Prefs.lua
-@@ -13,11 +13,33 @@
+@@ -13,11 +13,34 @@
  	SFX = true,
  	Ambient = true,
  	Effects = true,
@@ -16783,10 +17154,11 @@
 +	ShowReadyBadges = true,
 +	ShowHints = true,
 +	ShowSaveWarning = true,
++	ShowSpeedPanel = true,
  	UIScale = 1,
  	MouseSensitivity = 1,
  	CameraMode = "Aim",
-@@ -50,6 +72,9 @@
+@@ -50,6 +73,9 @@
  	if not Prefs.On("Effects") then
  		return false
  	end
@@ -18623,6 +18995,22 @@
  					deliver(r)
  					r.State = "idle"
  					r.Wait = r.Def.Pause
+--- a/RobuxConfig.lua
++++ b/RobuxConfig.lua
+@@ -45,6 +45,13 @@
+ 	[6000] = 0,
+ }
+ 
++--[[
++	v2.71 ✏️ UNLIMITED BUILD HEIGHT (the last BUILD HEIGHT step, SHOP · UPGRADES) costs this many Robux. Like every
++	purchase it is sold through the Developer Product of that TIER (Products above): 299 already has an ID. To use a
++	separate product, set this to a tier price and put the new product's ID into Products[tier].
++]]
++R.BuildHeightRobux = 299
++
+ R.StudioSimulate = true -- Studio only: purchases are granted without a real prompt
+ 
+ --[[
 --- a/SettingsUI.lua
 +++ b/SettingsUI.lua
 @@ -1,7 +1,7 @@
@@ -18634,7 +19022,7 @@
  	            effects, Camera shake, Notifications, UI scale, broom sensitivity, camera
  	  CONTROLS  v1.0: RE-BIND every action — click its key, press a new one (Esc =
  	            cancel); conflicts are refused; ↺ per action and RESET TO DEFAULT
-@@ -18,11 +18,33 @@
+@@ -18,11 +18,34 @@
  
  local LABELS = { Aim = "3rd person", FirstPerson = "1st person" }
  local HINTS = {
@@ -18666,10 +19054,11 @@
 +	ShowReadyBadges = "red marks and glow on buttons for quests and the bestiary",
 +	ShowHints = "the hint line at the bottom (Editor and build hints)",
 +	ShowSaveWarning = "the small warning when saving is retrying",
++	ShowSpeedPanel = "the ⚡ speed multiplier on the left (grows with pet / gear speed bonuses)",
  	-- v2.36 the player menu (click a player); the server obeys these three
  	ShowStats = "other players can open your statistics",
  	AllowGifts = "other players can offer you gifts",
-@@ -75,7 +97,8 @@
+@@ -75,7 +98,8 @@
  		end
  		local r = { Key = d.Key, Name = d.Icon .. " " .. d.Display, Hint = HINTS[d.Key] }
  		if d.Kind == "bool" then
@@ -18679,7 +19068,7 @@
  		elseif d.Kind == "number" then
  			r.Kind, r.Min, r.Max, r.Step, r.Default = "Number", d.Min, d.Max, d.Step, 1
  		else
-@@ -90,6 +113,9 @@
+@@ -90,6 +114,9 @@
  
  function SettingsUI:Get(row)
  	local v = self.player:GetAttribute("Setting_" .. row.Key)
@@ -18689,7 +19078,7 @@
  	if v == nil then
  		return row.Default
  	end
-@@ -163,7 +189,7 @@
+@@ -163,7 +190,7 @@
  	else
  		for i, choice in row.Choices do
  			local on = v == choice
@@ -18698,7 +19087,7 @@
  			b.TextSize = if #row.Choices > 2 then 14 else 16
  			b.Activated:Connect(function()
  				self:Set(row, choice)
-@@ -190,10 +216,17 @@
+@@ -190,10 +217,17 @@
  	if self.Locales then
  		self:_language(0)
  	end
@@ -23259,6 +23648,135 @@
  end
  
  --[[
+--- a/UpgradeService.lua
++++ b/UpgradeService.lua
+@@ -45,6 +45,7 @@
+ 	end
+ 	pcall(function()
+ 		player:SetAttribute("Upgrades", HttpService:JSONEncode(levels(data)))
++		player:SetAttribute("BuildHeightMax", UpgradeService.BuildHeightLimit(data)) -- v2.71: the client's previews
+ 	end)
+ end
+ 
+@@ -62,8 +63,68 @@
+ 	UpgradeService.Publish(player)
+ end
+ 
++-- v2.71 BUILD HEIGHT: level 0..E.BuildHeight.Max (Max = unlimited, bought with Robux)
++function UpgradeService.BuildHeightLevel(data)
++	local lvl = math.floor(tonumber(levels(data).BuildHeight) or 0)
++	return math.clamp(lvl, 0, E().BuildHeight.Max)
++end
++
++function UpgradeService.BuildHeightLimit(data)
++	return E().BuildHeightLimit(UpgradeService.BuildHeightLevel(data))
++end
++
++function UpgradeService.UpgradeBuildHeight(player, data)
++	local BH = E().BuildHeight
++	if not data then
++		return false, "Unknown upgrade"
++	end
++	if ctx.IslandService then
++		local can, why = ctx.IslandService.Can(player, "Upgrades")
++		if not can then
++			return false, why
++		end
++	end
++	local lvl = UpgradeService.BuildHeightLevel(data)
++	if lvl >= BH.Max then
++		return false, "Your build height is unlimited already"
++	elseif lvl >= #BH.Steps then
++		return false, "The last step (unlimited height) is bought with Robux"
++	end
++	local step = BH.Steps[lvl + 1]
++	local ok, why = ctx.CurrencyService.Spend(player, { Gems = step.Gems })
++	if not ok then
++		return false, why
++	end
++	levels(data).BuildHeight = lvl + 1
++	republish(player)
++	return true, string.format("🏗 Build Height → %d blocks", step.Limit)
++end
++
++-- the Robux purchase (MonetizationService): unlimited height. Idempotent.
++function UpgradeService.GrantUnlimited(player)
++	local data = ctx.PlayerDataService.Get(player)
++	if not data then
++		return false, "Try again"
++	end
++	local BH = E().BuildHeight
++	if UpgradeService.BuildHeightLevel(data) >= BH.Max then
++		-- (bought twice: the Money worth of the tier instead, nothing is lost)
++		local RC = ctx.RobuxConfig
++		if RC and RC.BuildHeightRobux then
++			ctx.CurrencyService.Grant(player, { LeafValue = RC.MoneyOf(RC.BuildHeightRobux) }, "robux")
++		end
++		return true, "🏗 Your build height is unlimited already — the Money was added instead"
++	end
++	levels(data).BuildHeight = BH.Max
++	republish(player)
++	return true, "🏗 UNLIMITED HEIGHT — build as high as you like! Thank you!"
++end
++
+ function UpgradeService.Upgrade(player, id)
+ 	local data = ctx.PlayerDataService.Get(player)
++	if id == "BuildHeight" then
++		return UpgradeService.UpgradeBuildHeight(player, data)
++	end
+ 	local def = type(id) == "string" and E().UpgradeById[id]
+ 	if not data or not def then
+ 		return false, "Unknown upgrade"
+--- a/UpgradesUI.lua
++++ b/UpgradesUI.lua
+@@ -73,6 +73,47 @@
+ 	local gems = self.player:GetAttribute("Cur_Gems") or 0
+ 	local levels = self:_levels()
+ 	-- (v2.15: no Gems read-out here — the counter in the top-left corner shows them)
++	-- v2.71 BUILD HEIGHT (5 blocks, 💎 steps, the last step = unlimited for Robux)
++	local BH = E.BuildHeight
++	if BH then
++		local bl = math.clamp(math.floor(tonumber(levels.BuildHeight) or 0), 0, BH.Max)
++		local unl = bl >= BH.Max
++		local cur = E.BuildHeightLimit(bl)
++		local nextStep = BH.Steps[bl + 1]
++		local body
++		if unl then
++			body = "Build as high as you like!"
++		elseif nextStep then
++			body = string.format("Blocks stack up to %d high. Next step: %d high.", cur, nextStep.Limit)
++		else
++			body = string.format("Blocks stack up to %d high. The last step is UNLIMITED height (below).", cur)
++		end
++		K.card(list, 0, {
++			Title = BH.Display,
++			Icon = BH.Icon,
++			Tag = if unl then "UNLIMITED" else "Lvl " .. bl .. "/" .. #BH.Steps,
++			Body = body,
++			Progress = bl / BH.Max,
++			Buttons = {
++				if nextStep then { Text = "💎 " .. nextStep.Gems, Enabled = gems >= nextStep.Gems, Color = K.ACCENT, OnClick = function()
++					self:_send({ Action = "Upgrade", Id = BH.Id })
++				end } else { Text = if unl then "MAX" else "—", Enabled = false, Color = K.ACCENT, OnClick = function() end },
++			},
++		})
++		local robux = self.RobuxConfig and self.RobuxConfig.BuildHeightRobux
++		local avail = robux ~= nil and self.RobuxUI ~= nil and self.RobuxUI.Available(robux)
++		K.card(list, 1, {
++			Title = "Unlimited Height",
++			Icon = "♾",
++			Tag = if unl then "OWNED" else nil,
++			Body = "Build as high as you like — no limit at all. One-time purchase with Robux.",
++			Buttons = {
++				if unl then { Text = "✔", Enabled = false, Color = K.GOOD, OnClick = function() end } else { Text = "R$ " .. tostring(robux or "?"), Enabled = avail, Color = K.GOOD, OnClick = function()
++					self.RobuxUI.Buy("BuildHeight", {})
++				end },
++			},
++		})
++	end
+ 	for i, u in E.GemUpgrades do
+ 		local lvl = levels[u.Id] or 0
+ 		local maxed = lvl >= u.Max
 --- a/WaterFlow.lua
 +++ b/WaterFlow.lua
 @@ -17,9 +17,14 @@
@@ -24119,7 +24637,7 @@
  	if call(deps.IsOpen) then
 --- a/WorldBuilder.lua
 +++ b/WorldBuilder.lua
-@@ -63,7 +63,390 @@
+@@ -63,7 +63,494 @@
  	return Vector3.new(s.Position.X, 0, s.Position.Z)
  end
  
@@ -24486,6 +25004,110 @@
 +	player:SetAttribute("ParkourBoostUntil", if u > os.time() then u else nil)
 +end
 +
++-- v2.62 (straight): turn the baked body of the diagonal garden islands upright (see Config.IslandBodyRotation).
++-- Only the island's own pieces move (Grass, Underside, Details: plain anchored Parts); the yard (Workspace.LeafRush.Plots),
++-- the quest giver / upgrade sign (they stand in the yard's frame) and the bridges keep their place. The turned island
++-- ends ~7 studs short of its bridge (the bridge was cut for the diagonal corner): a landing pad closes that gap.
++local function addLanding(map, model, index, c, ang)
++	local frame = CFrame.new(c) * CFrame.Angles(0, ang, 0)
++	local inv = frame:Inverse()
++	local bridges = map:FindFirstChild("Bridges")
++	local bridge = bridges and bridges:FindFirstChild("BridgeToGarden" .. index)
++	if not bridge then
++		return
++	end
++	-- the bridge's first plank (plot-local z; the bridge lies along the yard's +Z axis)
++	local startZ = math.huge
++	for _, d in bridge:GetDescendants() do
++		if d:IsA("BasePart") and d.Name == "Plank" then
++			startZ = math.min(startZ, inv:PointToObjectSpace(d.Position).Z - d.Size.Z / 2)
++		end
++	end
++	if startZ == math.huge then
++		return
++	end
++	-- the island's rim on that axis (plot-local z of the outermost grass voxel in front of the gate)
++	local edgeZ, grassSrc, dirtSrc = -math.huge, nil, nil
++	local grassDist, dirtDist = math.huge, math.huge
++	local goal = Vector3.new(0, 0, startZ)
++	local grass = model:FindFirstChild("Grass")
++	local under = model:FindFirstChild("Underside")
++	if grass then
++		for _, d in grass:GetDescendants() do
++			if d:IsA("BasePart") and d.Name == "Grass" then
++				local lp = inv:PointToObjectSpace(d.Position)
++				if math.abs(lp.X) < 8 and lp.Z > 30 then
++					edgeZ = math.max(edgeZ, lp.Z + d.Size.Z / 2)
++				end
++				local dd = (Vector3.new(lp.X, 0, lp.Z) - goal).Magnitude
++				if dd < grassDist then
++					grassDist, grassSrc = dd, d
++				end
++			end
++		end
++	end
++	if under then
++		for _, d in under:GetDescendants() do
++			if d:IsA("BasePart") and d.Name == "Dirt" then
++				local lp = inv:PointToObjectSpace(d.Position)
++				local dd = (Vector3.new(lp.X, 0, lp.Z) - goal).Magnitude
++				if dd < dirtDist then
++					dirtDist, dirtSrc = dd, d
++				end
++			end
++		end
++	end
++	local z1 = startZ + 1.5 -- (a little under the first plank)
++	if not grassSrc or edgeZ == -math.huge or z1 - edgeZ < 0.5 then
++		return
++	end
++	local width, len = 16, z1 - edgeZ
++	local zc = (edgeZ + z1) / 2
++	local function pad(src, parent, thick, topY)
++		local b = src:Clone()
++		b.Size = Vector3.new(width, thick, len)
++		b.CFrame = frame * CFrame.new(0, topY - thick / 2, zc)
++		b:SetAttribute("LRLanding", true)
++		b.Parent = parent
++		return b
++	end
++	pad(grassSrc, grassSrc.Parent, 2, 0) -- the lawn: top at y 0 like the rest of the island
++	if dirtSrc then
++		pad(dirtSrc, dirtSrc.Parent, 6, -2) -- the earth below it (bottom -8: above the layer that BlockService deepens)
++	end
++end
++
++local function straightenIslands(map)
++	local gardens = map:FindFirstChild("GardenIslands")
++	local cfg = ctx.Config
++	if not gardens or not cfg.IslandBodyRotation then
++		return
++	end
++	for i = 1, (cfg.Plot and cfg.Plot.Count) or 6 do
++		local model = gardens:FindFirstChild("GardenIsland" .. i)
++		local ang = cfg.IslandBodyRotation(i)
++		if model and ang ~= 0 and not model:GetAttribute("LRTurned") then
++			model:SetAttribute("LRTurned", true)
++			local c = cfg.IslandCenter(i)
++			local turn = CFrame.new(c) * CFrame.Angles(0, ang, 0) * CFrame.new(-c)
++			for _, group in { "Grass", "Underside", "Details" } do
++				local folder = model:FindFirstChild(group)
++				if folder then
++					for _, d in folder:GetDescendants() do
++						if d:IsA("BasePart") then
++							d.CFrame = turn * d.CFrame
++						end
++					end
++				end
++			end
++			local ok, err = pcall(addLanding, map, model, i, c, ang)
++			if not ok then
++				warn("[LeafRush] island landing " .. i .. ": " .. tostring(err))
++			end
++		end
++	end
++end
++
  function WorldBuilder.Start()
 +	pcall(function()
 +		task.defer(function()
@@ -24510,6 +25132,17 @@
  	local map = ctx.WorldFolder:FindFirstChild("Map")
  	if not map then
  		warn("[LeafRush] Workspace.LeafRush.Map is missing — the islands were deleted in Studio?")
+@@ -72,6 +559,10 @@
+ 		map.Parent = ctx.WorldFolder
+ 	end
+ 	WorldBuilder.Root = map
++	local okT, errT = pcall(straightenIslands, map) -- v2.62 (straight)
++	if not okT then
++		warn("[LeafRush] straighten islands: " .. tostring(errT))
++	end
+ 	-- v2.6: the spawn pads stand in a ring around the tree (Map > HubIsland > Spawns)
+ 	WorldBuilder.Spawns = {}
+ 	for _, d in map:GetDescendants() do
 --- a/WorldFX.lua
 +++ b/WorldFX.lua
 @@ -98,11 +98,26 @@
@@ -24628,7 +25261,7 @@
  		ball:Destroy()
 --- a/ru.lua
 +++ b/ru.lua
-@@ -5887,4 +5887,572 @@
+@@ -5887,4 +5887,589 @@
  L.Strings["There is a slab here already — only the same slab fits onto it"] = "Здесь уже лежит плита — на неё можно положить только такую же"
  L.Strings["Trees need a full block — not a slab"] = "Деревьям нужен целый блок, а не плита"
  
@@ -25200,4 +25833,21 @@
 +L.Strings["⛏ A tree stands on this block"] = "⛏ На этом блоке стоит дерево"
 +L.Strings["⛏ The Collection Zone stands on this block"] = "⛏ На этом блоке стоит Зона сбора"
 +L.Templates["EVOLVE %s/%s"] = "ЭВОЛЮЦИЯ %1/%2"
++L.Templates["Blocks stack only %d high — upgrade BUILD HEIGHT"] = "Блоки ставятся не выше %1 — улучшай ВЫСОТУ СТРОЙКИ"
++L.Templates["🏗 Build Height → %d blocks"] = "🏗 Высота стройки → %1 блоков"
++L.Templates["Blocks stack up to %d high. Next step: %d high."] = "Блоки ставятся до %1 в высоту. Следующий шаг: %2."
++L.Templates["Blocks stack up to %d high. The last step is UNLIMITED height (below)."] = "Блоки ставятся до %1 в высоту. Последний шаг — БЕЗЛИМИТНАЯ высота (ниже)."
++L.Strings["Build Height"] = "Высота стройки"
++L.Strings["UNLIMITED"] = "БЕЗ ЛИМИТА"
++L.Strings["Unlimited Height"] = "Безлимитная высота"
++L.Strings["Build as high as you like!"] = "Строй как угодно высоко!"
++L.Strings["Build as high as you like — no limit at all. One-time purchase with Robux."] = "Строй как угодно высоко — без всяких лимитов. Разовая покупка за Робуксы."
++L.Strings["Your build height is unlimited already"] = "Твоя высота стройки уже безлимитная"
++L.Strings["The last step (unlimited height) is bought with Robux"] = "Последний шаг (безлимитная высота) покупается за Робуксы"
++L.Strings["🏗 UNLIMITED HEIGHT — build as high as you like! Thank you!"] = "🏗 БЕЗЛИМИТНАЯ ВЫСОТА — строй как угодно высоко! Спасибо!"
++L.Strings["🏗 Your build height is unlimited already — the Money was added instead"] = "🏗 Высота стройки уже безлимитная — вместо неё добавлены деньги"
++L.Strings["Pick a block, then click in your garden — hold and drag for a row. Blocks stack as high as your BUILD HEIGHT (raise it in SHOP · UPGRADES). Blocks are free; break them with the Pickaxe (SHOP · TOOLS). Water flows - also in the pit! A SLAB is half a block: two slabs of one kind make a block — build stairs with them."] = "Выбери блок и кликни в саду — зажми и веди, чтобы поставить целый ряд. Блоки ставятся на высоту твоей ВЫСОТЫ СТРОЙКИ (улучшай в МАГАЗИНЕ · УЛУЧШЕНИЯ). Блоки бесплатные; ломать их можно киркой (МАГАЗИН · ИНСТРУМЕНТЫ). Вода течёт — и в яме тоже! ПЛИТА — это половинка блока: две одинаковые плиты дают целый блок. Строй из них лестницы!"
++
++L.Strings["Show speed panel"] = "Показывать панель скорости"
++L.Strings["the ⚡ speed multiplier on the left (grows with pet / gear speed bonuses)"] = "множитель скорости ⚡ слева (растёт от бонусов скорости питомцев и снаряжения)"
  return L
