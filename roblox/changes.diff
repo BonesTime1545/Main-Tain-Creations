@@ -1988,7 +1988,7 @@
  		if s.Dirty[level] then
  			s.Dirty[level] = nil
  			local ok, err = pcall(rebuildLayer, plot, s, blocks, n, level)
-@@ -258,6 +543,21 @@
+@@ -258,8 +543,26 @@
  			end
  		end
  	end
@@ -2008,9 +2008,15 @@
 +	end
 +	s.Built = true
  	s.Water = nil
- 	plot.Model:SetAttribute("Blocks", BM.Encode(blocks))
+-	plot.Model:SetAttribute("Blocks", BM.Encode(blocks))
++	local encBlocks = BM.Encode(blocks)
++	if plot.Model:GetAttribute("Blocks") ~= encBlocks then
++		plot.Model:SetAttribute("Blocks", encBlocks)
++	end
  	pcall(resettle, plot, data, size)
-@@ -281,8 +581,8 @@
+ 	-- v2.34: incubating eggs stand ON the blocks — put them on top again as well
+ 	if ctx.IncubatorService and ctx.IncubatorService.Resettle then
+@@ -281,8 +584,8 @@
  	local s = st(plot)
  	s.Water = nil
  	s.Dirty[level] = true
@@ -2021,7 +2027,7 @@
  	end
  	if not s.Scheduled then
  		s.Scheduled = true
-@@ -374,7 +674,7 @@
+@@ -374,7 +677,7 @@
  		pcall(repair, data, size)
  	end
  	local s = st(plot)
@@ -2030,7 +2036,7 @@
  		s.Dirty[level] = true
  	end
  	local ok, err = pcall(flush, plot)
-@@ -393,6 +693,15 @@
+@@ -393,6 +696,15 @@
  		return
  	end
  	local green = plot.Floor.Color
@@ -2046,7 +2052,7 @@
  	local topName = BC.Types.D.Id .. "Top"
  	for _, parts in s.Layers do
  		for _, p in parts do
-@@ -408,6 +717,14 @@
+@@ -408,6 +720,14 @@
  	local s = state[plot.Index]
  	state[plot.Index] = nil
  	if s then
@@ -2061,7 +2067,7 @@
  		for _, parts in s.Layers do
  			for _, p in parts do
  				p:Destroy()
-@@ -648,11 +965,17 @@
+@@ -648,11 +968,17 @@
  	return false
  end
  
@@ -2080,7 +2086,7 @@
  	if type(cx) ~= "number" or type(cz) ~= "number" or type(level) ~= "number" or type(code) ~= "string" then
  		return false, "Invalid cell"
  	end
-@@ -660,6 +983,11 @@
+@@ -660,6 +986,11 @@
  	if not def then
  		return false, "Unknown block"
  	end
@@ -2092,7 +2098,7 @@
  	if ctx.BuildService and ctx.BuildService.InYard and ctx.BuildService.InYard(player, plot) == false then
  		return false, "Go to your garden to build"
  	end
-@@ -699,7 +1027,12 @@
+@@ -699,7 +1030,12 @@
  			return false, "Somebody is standing there"
  		end
  	end
@@ -2106,7 +2112,7 @@
  	if put == "S" and not data.Plot.HadSand then
  		data.Plot.HadSand = true -- (the Cactus is sold from now on)
  		if ctx.BuildService and ctx.BuildService.PublishSlots then
-@@ -714,15 +1047,22 @@
+@@ -714,15 +1050,22 @@
  end
  
  ---------------------------------------------------------------- break (the pickaxe)
@@ -2131,7 +2137,7 @@
  -- v2.38: the pickaxe of this save — its tier (ToolConfig.PickaxeTiers: Reach, HitEvery,
  -- Smash …) and how many blocks it can still break before it is broken
  local FALLBACK_PICK = { Index = 1, HitEvery = 0.34, Reach = 14, Durability = math.huge, Smash = 90 }
-@@ -766,7 +1106,7 @@
+@@ -766,7 +1109,7 @@
  	if type(cx) ~= "number" or type(cz) ~= "number" or type(level) ~= "number" then
  		return
  	end
@@ -2140,7 +2146,7 @@
  		return
  	end
  	if not (data.Tools and data.Tools.Owned and data.Tools.Owned.Pickaxe) then
-@@ -786,6 +1126,7 @@
+@@ -786,6 +1129,7 @@
  	if not def then
  		return
  	end
@@ -2148,7 +2154,7 @@
  	-- reach: from you to the nearest point of the block
  	local cell, H = cellSize(), BC.Height
  	local x, z = ctx.PlotMath.CellCenter(cx, cz, size, cell)
-@@ -825,13 +1166,13 @@
+@@ -825,13 +1169,13 @@
  	s.N += 1
  	local need = pickHits(pick, code, def)
  	if s.N < need then
@@ -2164,7 +2170,7 @@
  		if now - s.Warned > 1.5 then
  			s.Warned = now
  			notify(player, "⛏ " .. tostring(why or "This block can't be broken"))
-@@ -840,7 +1181,7 @@
+@@ -840,7 +1184,7 @@
  	end
  	-- v2.34: a block an incubating egg stands on can't be broken (like under a tree)
  	if not nestsKeep(data, cx, cz, level, nil, size) then
@@ -2173,7 +2179,7 @@
  		if now - s.Warned > 1.5 then
  			s.Warned = now
  			notify(player, "⛏ An egg stands on this block — open it first")
-@@ -849,7 +1190,7 @@
+@@ -849,7 +1193,7 @@
  	end
  	-- v2.34: …and a block a cosmetic box stands on
  	if not boxesKeep(data, cx, cz, level, nil, size) then
@@ -2182,7 +2188,7 @@
  		if now - s.Warned > 1.5 then
  			s.Warned = now
  			notify(player, "⛏ A cosmetic box stands on this block — open it first")
-@@ -857,8 +1198,9 @@
+@@ -857,8 +1201,9 @@
  		return
  	end
  	BM.Set(blocks, cx, cz, level, nil)
@@ -2193,7 +2199,7 @@
  	-- v2.38: every block broken wears the pickaxe (water is only scooped up: free)
  	-- (v2.41: a slab wears it like a block — 1 — it only takes fewer swings)
  	if code ~= "W" and ctx.ToolService and ctx.ToolService.PickWear then
-@@ -888,7 +1230,7 @@
+@@ -888,7 +1233,7 @@
  	if type(cx) ~= "number" or type(cz) ~= "number" or type(level) ~= "number" then
  		return
  	end
@@ -2202,7 +2208,7 @@
  		return
  	end
  	if not (data.Tools and data.Tools.Owned and data.Tools.Owned.Pickaxe) then
-@@ -965,9 +1307,11 @@
+@@ -965,9 +1310,11 @@
  		if code and BC.Types[code] then
  			local ok = BM.CheckChange(blocks, data.Plot.Objects, bx, bz, bl, nil, size, cell)
  			if ok and nestsKeep(data, bx, bz, bl, nil, size) and boxesKeep(data, bx, bz, bl, nil, size) then
@@ -2215,7 +2221,7 @@
  				if code ~= "W" then
  					wear += 1
  				end
-@@ -1005,13 +1349,42 @@
+@@ -1005,13 +1352,42 @@
  	end
  end
  
@@ -2339,7 +2345,21 @@
  		warn("[LeafRush] box " .. tostring(nestId) .. ": " .. tostring(errSpawn))
 --- a/BroomController.lua
 +++ b/BroomController.lua
-@@ -904,7 +904,7 @@
+@@ -858,8 +858,11 @@
+ 	local drawPos = pos
+ 	if collider then
+ 		local halfH = collider.Size.Y * 0.5
+-		local ap = collider:FindFirstChild("AlignPosition")
+-		local ao = collider:FindFirstChild("AlignOrientation")
++		local ap, ao = self._ap, self._ao
++		if not ap or not ao or ap.Parent ~= collider or ao.Parent ~= collider then
++			ap, ao = collider:FindFirstChild("AlignPosition"), collider:FindFirstChild("AlignOrientation")
++			self._ap, self._ao = ap, ao
++		end
+ 		if ap then
+ 			ap.Position = pos + Vector3.new(0, halfH + 0.04, 0)
+ 		end
+@@ -904,7 +907,7 @@
  		-- v1.2 the lawn: tall grass makes the broom weaker (the rake minds it less)
  		local gm, glvl = 1, 1
  		if self.grassMult then
@@ -2350,8 +2370,49 @@
  		if sweeping and glvl >= 3 and implementOf(self.tool) == "Rake" then
 --- a/BroomHotbar.lua
 +++ b/BroomHotbar.lua
-@@ -103,11 +103,26 @@
- 			self:_refresh()
+@@ -45,9 +45,27 @@
+ local ACTIONS = { "Broom", "GrassTool", "Rake", "Blower", "Vacuum", "Item1", "Item2", "Item3", "Slot9", "Slot10" }
+ BroomHotbar.Actions = ACTIONS
+ 
++-- perf: the same JSON string is decoded again by every refresh / meter tick; the results are read-only
++local decodeMemo, decodeMemoN = {}, 0
+ local function decode(raw, default)
++	if type(raw) == "string" and raw ~= "" then
++		local hit = decodeMemo[raw]
++		if hit then
++			return hit
++		end
++	end
+ 	local ok, t = pcall(HttpService.JSONDecode, HttpService, raw or "")
+-	return if ok and type(t) == "table" then t else default
++	if ok and type(t) == "table" then
++		if type(raw) == "string" and #raw < 200000 then
++			if decodeMemoN >= 12 then
++				decodeMemo, decodeMemoN = {}, 0
++			end
++			decodeMemo[raw] = t
++			decodeMemoN += 1
++		end
++		return t
++	end
++	return default
+ end
+ 
+ -- v2.39: a COSMETIC BOX is a slot kind too ({ K = "Box", Id = box id } — like an egg: its
+@@ -100,14 +118,37 @@
+ 	self:_build()
+ 	for _, a in { "BroomId", "BroomData", "Tools", "Hotbar", "HotbarSet", "Stored", "EggsOwned", "PetData", "BoxesOwned" } do -- (v2.39: + the cosmetic boxes)
+ 		self.player:GetAttributeChangedSignal(a):Connect(function()
+-			self:_refresh()
++			-- perf: the server sets several of these in a row -> one redraw (<= 10 Hz)
++			if self.refreshPending then
++				return
++			end
++			self.refreshPending = true
++			task.delay(0.1, function()
++				self.refreshPending = false
++				self:_refresh()
++			end)
  		end)
  	end
 -	for _, a in { "Battery", "BatteryMax", "VacUsed", "VacCap", "BlowLeft", "BlowMax", "PickUsed", "PickCap" } do -- (v2.38: the pickaxe's durability)
@@ -2378,7 +2439,7 @@
  	self.player.CharacterAdded:Connect(function(char)
  		self:_setHeld(nil)
  		self:_watch(char)
-@@ -540,6 +555,45 @@
+@@ -540,6 +581,45 @@
  		cst.Color = Color3.new(1, 1, 1)
  		cst.Thickness = 1.5
  		cst.Parent = count
@@ -2424,7 +2485,7 @@
  		local state = Instance.new("TextLabel")
  		state.Name = "State"
  		state.BackgroundTransparency = 1
-@@ -556,7 +610,7 @@
+@@ -556,7 +636,7 @@
  		local barBg = Instance.new("Frame")
  		barBg.Name = "Meter"
  		barBg.AnchorPoint = Vector2.new(0.5, 1)
@@ -2433,7 +2494,7 @@
  		barBg.Size = UDim2.new(1, -14, 0, 5)
  		barBg.BackgroundColor3 = Color3.fromRGB(40, 36, 44)
  		barBg.Visible = false
-@@ -573,7 +627,7 @@
+@@ -573,7 +653,7 @@
  		local cdBg = Instance.new("Frame")
  		cdBg.Name = "Cooldown"
  		cdBg.AnchorPoint = Vector2.new(0.5, 1)
@@ -2442,7 +2503,7 @@
  		cdBg.Size = UDim2.new(1, -14, 0, 6)
  		cdBg.BackgroundColor3 = Color3.fromRGB(40, 36, 44)
  		cdBg.Visible = false
-@@ -586,7 +640,7 @@
+@@ -586,7 +666,7 @@
  		cdFill.ZIndex = 6
  		cdFill.Parent = cdBg
  		corner(cdFill, 3)
@@ -2451,7 +2512,7 @@
  		slot.MouseEnter:Connect(function()
  			self.hover = i
  			st.Transparency = 0
-@@ -1354,6 +1408,13 @@
+@@ -1354,6 +1434,13 @@
  		s.VP.ImageTransparency = if inHand then 0 else 0.15
  		s.Count.Text = if e.Count then tostring(e.Count) else ""
  		s.Count.Visible = e.Count ~= nil
@@ -2465,7 +2526,7 @@
  	end
  	self.bar.Size = UDim2.fromOffset(math.max(x - GAP, SIZE), SIZE)
  	if self.scale then
-@@ -1362,6 +1423,41 @@
+@@ -1362,6 +1449,41 @@
  	self:_tip()
  end
  
@@ -2507,7 +2568,7 @@
  function BroomHotbar:_bars()
  	local p = self.player
  	local bat, max = p:GetAttribute("Battery"), p:GetAttribute("BatteryMax")
-@@ -1383,7 +1479,19 @@
+@@ -1383,7 +1505,19 @@
  			s.Meter.Visible = true
  			local f = math.clamp(p:GetAttribute("BlowLeft") / p:GetAttribute("BlowMax"), 0, 1)
  			s.Fill.Size = UDim2.fromScale(f, 1)
@@ -2528,7 +2589,7 @@
  		elseif e and e.K == "Tool" and e.Id == "Pickaxe" and type(p:GetAttribute("PickUsed")) == "number" and (tonumber(p:GetAttribute("PickCap")) or 0) > 0 then
  			-- v2.38: the pickaxe's durability
  			s.Meter.Visible = true
-@@ -1445,8 +1553,8 @@
+@@ -1445,8 +1579,8 @@
  		end
  		return model
  	elseif e.K == "Tool" or e.K == "Item" then
@@ -2539,7 +2600,7 @@
  	elseif e.K == "Stored" then
  		local s = e.Data or e.Entry or self:_stored()[e.Id]
  		if not s then
-@@ -1499,6 +1607,11 @@
+@@ -1499,6 +1633,11 @@
  			-- (v2.41: so is a new tier of the rake / trimmer / blower / vacuum)
  			local okT, tier = pcall(self.ToolConfig.TierFromState, e.Id, self:_tools())
  			key ..= ":" .. tostring(if okT then tier else 1)
@@ -3205,7 +3266,7 @@
  	-- v2.0: every yard sits on its own sky island (Config.Islands); its front edge is
  	-- at the island centre + MaxSize/2, and it grows backwards (-Z) over the island
 -	FloorTop = 0.5, -- world Y of the yard surface
-+	FloorTop = 0, -- world Y of the yard surface (v2.6x: flush with the island / hub ground, y 0 — no step at the gate)
++	FloorTop = 0.04, -- world Y of the yard surface (v2.6x: flush with the island / hub ground, y 0 — no step at the gate)
  	WallHeight = 1.2, -- low border: stops resources, not players
  	RotationStep = 90, -- trees & zone (grid objects)
  	DecorRotationStep = 15, -- decorations rotate freely in 15° steps
@@ -3248,6 +3309,51 @@
  
  	Cost tables:  { LeafValue = 1500, Gems = 5 }   (v1.1: an old material key such as
  	              Apples is read as its Money worth — Economy.ToMoney)
+@@ -135,6 +135,23 @@
+ 	return true
+ end
+ 
++-- serverperf: a sweep pays dozens of items a second; the replicated numbers (attributes, TAB list, the
++-- garden's wallet) are published at most every EARN_GAP seconds (first one at once, the last one always)
++local EARN_GAP = 0.1
++local earnLast = setmetatable({}, { __mode = "k" })
++local earnPending = setmetatable({}, { __mode = "k" })
++local function earnPublish(player)
++	earnPending[player] = nil
++	earnLast[player] = os.clock()
++	local data = ctx.PlayerDataService.Get(player)
++	if not data then
++		return
++	end
++	player:SetAttribute("LeafValue", data.LeafValue)
++	player:SetAttribute("LVEarned", data.Stats.LVEarned)
++	CurrencyService.Leaderstats(player, data)
++end
++
+ -- Coins from collecting (zone / robots). Counts toward lifetime stats.
+ function CurrencyService.EarnLV(player, amount)
+ 	local data = ctx.PlayerDataService.Get(player)
+@@ -147,9 +164,17 @@
+ 	if data.Rebirth then
+ 		data.Rebirth.RunEarned = math.min((data.Rebirth.RunEarned or 0) + amount, MAX) -- this rebirth run
+ 	end
+-	player:SetAttribute("LeafValue", data.LeafValue)
+-	player:SetAttribute("LVEarned", data.Stats.LVEarned)
+-	CurrencyService.Leaderstats(player, data)
++	if typeof(player) ~= "Instance" then
++		earnPublish(player) -- (tests use table players)
++		return true
++	end
++	local gap = os.clock() - (earnLast[player] or -99)
++	if gap >= EARN_GAP then
++		earnPublish(player)
++	elseif not earnPending[player] then
++		earnPending[player] = true
++		task.delay(EARN_GAP - gap, earnPublish, player)
++	end
+ 	return true
+ end
+ 
 --- a/DataSchema.lua
 +++ b/DataSchema.lua
 @@ -40,7 +40,7 @@
@@ -4095,6 +4201,17 @@
 +end
 +
  return DecorTypes
+--- a/DropCulling.lua
++++ b/DropCulling.lua
+@@ -16,7 +16,7 @@
+ local ReplicatedStorage = game:GetService("ReplicatedStorage")
+ 
+ local DropCulling = {}
+-DropCulling.Range = 70 -- studs from a garden's edge
++DropCulling.Range = if game:GetService("UserInputService").TouchEnabled and not game:GetService("UserInputService").KeyboardEnabled then 55 else 70 -- studs from a garden's edge
+ 
+ local player = Players.LocalPlayer
+ local holder -- hidden folder (not in workspace -> not rendered, not simulated here)
 --- a/Economy.lua
 +++ b/Economy.lua
 @@ -23,7 +23,7 @@
@@ -5520,7 +5637,82 @@
  		return nil, "That can't be a gift — brooms, tools and pets stay with you"
 --- a/GrassFX.lua
 +++ b/GrassFX.lua
-@@ -149,26 +149,34 @@
+@@ -30,6 +30,32 @@
+ local FX_DIST = 110 -- only near the camera
+ local fxBudget, fxT = 0, 0 -- at most a few cells with effects per moment (a whole yard can change at once)
+ 
++local Quality -- (client Quality module, optional)
++local camPos -- camera position, refreshed every tick
++local partPool = {} -- recycled lawn parts (cells are rebuilt often)
++local lodBudget = 0 -- cells re-detailed per tick
++
++-- cells farther than this from the camera are drawn as ONE flat carpet (no studs / blades / weeds)
++local function lodRadius()
++	if not Quality then
++		return 110
++	end
++	local lv = Quality.Level()
++	if Quality.Touch then
++		return if lv <= 1 then 38 elseif lv == 2 then 55 else 70
++	end
++	return if lv <= 1 then 50 elseif lv == 2 then 80 else 120
++end
++
++local function decodeByte(b)
++	if b >= 97 then
++		return b - 97, 0
++	elseif b >= 65 then
++		return b - 65, 1
++	end
++	return b - 33, 2
++end
++
+ local function decode(s, n)
+ 	local out = {}
+ 	for i = 1, math.min(#s, n * n) do
+@@ -49,7 +75,15 @@
+ end
+ 
+ local function part(class, props)
+-	local p = Instance.new(class)
++	local p = if class == "Part" then table.remove(partPool) else nil
++	if p then
++		-- (recycled: put back everything a lawn part can change)
++		p.Shape = Enum.PartType.Block
++		p.Transparency = 0
++		p.Material = Enum.Material.Plastic
++	else
++		p = Instance.new(class)
++	end
+ 	p.Anchored = true
+ 	p.CanCollide = false
+ 	p.CanQuery = false
+@@ -89,8 +123,15 @@
+ end
+ 
+ local function clearCell(c)
++	-- (parts that were just tweened are destroyed; the others go back to the pool)
++	local recycle = not (c.TwT and os.clock() - c.TwT < 1.5)
+ 	for _, p in c.Parts do
+-		p:Destroy()
++		if recycle and #partPool < 1500 and p.ClassName == "Part" then
++			p.Parent = nil
++			table.insert(partPool, p)
++		else
++			p:Destroy()
++		end
+ 	end
+ 	table.clear(c.Parts)
+ end
+@@ -115,6 +156,7 @@
+ -- tall grass APPEARS: the new blades and weeds shoot up out of the ground with a
+ -- little bounce, a ring of fresh green and sparkles rise from the spot
+ local function growFX(e, c, x, z)
++	c.TwT = os.clock()
+ 	local centre = e.CF * CFrame.new(x, 0, z)
+ 	for k, p in c.Parts do
+ 		if p.Parent and p:IsA("BasePart") then
+@@ -149,26 +191,34 @@
  		n = math.max(2, math.floor(n * (Juice.QualityScale or 1) + 0.5))
  	end
  	for _ = 1, n do
@@ -5566,16 +5758,71 @@
  	end
  	if Juice then
  		local pos = centre.Position + Vector3.new(0, 0.5, 0)
-@@ -190,7 +198,7 @@
- 	c.Q, c.S = q, sp
+@@ -183,17 +233,29 @@
+ 		c = { Parts = {} }
+ 		e.Cells[key] = c
+ 	end
+-	if c.Q == q and c.S == sp then
++	local g = q * 5
++	local lvl = if Quality then Quality.Level() else 3
++	local far = false
++	if g >= 10 and camPos and c.WP then
++		-- (hysteresis: far from 1.1 R, near again below 0.9 R)
++		far = (c.WP - camPos).Magnitude > lodRadius() * (if c.Far == nil then 1 elseif c.Far then 0.9 else 1.1)
++	end
++	if c.Q == q and c.S == sp and (c.Far or false) == far and (g < 10 or c.Lv == lvl) then
+ 		return
+ 	end
+-	local prevQ = c.Q
+-	c.Q, c.S = q, sp
++	local prevQ, prevFar = c.Q, c.Far
++	c.Q, c.S, c.Lv, c.E = q, sp, lvl, e
  	clearCell(c)
- 	local g = q * 5
+-	local g = q * 5
 -	local cx, cz = string.match(key, "^(%d+),(%d+)$")
 +	local cx, cz = string.match(key, "^(%d+),(%d+)") -- (v2.51: a top's key is "cx,cz,y2")
  	cx, cz = tonumber(cx), tonumber(cz)
  	local half = e.Size / 2
  	local x, z = -half + (cx + 0.5) * CELL, -half + (cz + 0.5) * CELL
-@@ -308,6 +316,46 @@
++	c.WP = e.CF:PointToWorldSpace(Vector3.new(x, 0, z))
++	far = false
++	if g >= 10 and camPos then
++		far = (c.WP - camPos).Magnitude > lodRadius() * (if prevFar == nil then 1 elseif prevFar then 0.9 else 1.1)
++	end
++	c.Far = far
+ 	-- v1.6: effects (never on the first drawing of a yard, only on real changes)
+ 	if prevQ ~= nil and TC then
+ 		local g0 = prevQ * 5
+@@ -252,11 +314,15 @@
+ 	carpet.Parent = e.Folder
+ 	table.insert(c.Parts, carpet)
+ 	local q4 = CELL / 4
+-	for _, o in { { -q4, -q4 }, { q4, -q4 }, { -q4, q4 }, { q4, q4 } } do
+-		stud(x + o[1], h, z + o[2], CELL * 0.3, green:Lerp(Color3.new(1, 1, 1), 0.08))
+-		c.Parts[#c.Parts].Transparency = trans
++	if not far then
++		-- (Low graphics: 2 studs and 3 blades per cell instead of 4 and 5; far cells: none)
++		local studs = if lvl <= 1 then { { -q4, -q4 }, { q4, q4 } } else { { -q4, -q4 }, { q4, -q4 }, { -q4, q4 }, { q4, q4 } }
++		for _, o in studs do
++			stud(x + o[1], h, z + o[2], CELL * 0.3, green:Lerp(Color3.new(1, 1, 1), 0.08))
++			c.Parts[#c.Parts].Transparency = trans
++		end
+ 	end
+-	local blades = math.clamp(math.floor(g / 18), 0, 5)
++	local blades = if far then 0 else math.clamp(math.floor(g / 18), 0, if lvl <= 1 then 3 else 5)
+ 	for _ = 1, blades do
+ 		local bh = h + 0.3 + seed:NextNumber() * 0.7 * t
+ 		local col = green:Lerp(if seed:NextNumber() < 0.5 then base:Lerp(Color3.new(1, 1, 1), 0.3) else shadeOf(base, 0.45), seed:NextNumber() * 0.5)
+@@ -274,7 +340,7 @@
+ 		table.insert(c.Parts, b)
+ 		stud(bx, bh, bz, 0.4, col)
+ 	end
+-	if over then
++	if over and not far then
+ 		-- weeds with little flowers: "cut me!"
+ 		for _ = 1, 2 do
+ 			local fh = h + 0.7
+@@ -308,7 +374,48 @@
  	end
  end
  
@@ -5620,9 +5867,11 @@
 +end
 +
  local function refresh(model)
++	camPos = workspace.CurrentCamera and workspace.CurrentCamera.CFrame.Position or camPos
  	local text = model:GetAttribute("Grass")
  	local n = model:GetAttribute("GrassN")
-@@ -328,6 +376,7 @@
+ 	local size, cf, base = plotGeometry(model)
+@@ -328,16 +435,62 @@
  		e = { Folder = f, Cells = {}, N = n, Size = size, CF = cf, Base = base }
  		entries[model] = e
  	end
@@ -5630,7 +5879,62 @@
  	if e.Text == text then
  		return
  	end
-@@ -345,6 +394,15 @@
++	local old = e.Text
+ 	e.Text = text
++	if old and e.Map and #old == #text then
++		-- only the cells whose character changed (byte compare, no new tables)
++		local map = e.Map
++		for i = 1, math.min(#text, n * n) do
++			local b = string.byte(text :: string, i)
++			if b ~= string.byte(old :: string, i) then
++				local q, sp = decodeByte(b)
++				local idx = i - 1
++				local key = (idx % n) .. "," .. (idx // n)
++				local v = map[key]
++				if v then
++					v[1], v[2] = q, sp
++				else
++					map[key] = { q, sp }
++				end
++				buildCell(e, key, q, sp)
++			end
++		end
++		return
++	end
+ 	e.Map = decode(text, n)
+ 	for key, v in e.Map do
+ 		buildCell(e, key, v[1], v[2])
+ 	end
+ end
+ 
++-- re-detail cells when the camera crossed a LOD border (or the graphics level changed); a few per tick
++local function lodPass(e)
++	if not camPos or lodBudget <= 0 then
++		return
++	end
++	local R = lodRadius()
++	local lvl = if Quality then Quality.Level() else 3
++	for _, cells in { e.Cells, e.TopCells or {} } do
++		for key, c in cells do
++			if c.WP and c.Q and c.Q * 5 >= 10 then
++				local d = (c.WP - camPos).Magnitude
++				local want = d > R * (if c.Far then 0.9 else 1.1)
++				if want ~= c.Far or c.Lv ~= lvl then
++					buildCell(c.E, key, c.Q, c.S)
++					lodBudget -= 1
++					if lodBudget <= 0 then
++						return
++					end
++				end
++			end
++		end
++	end
++end
++
+ -- growth level at a world position (any yard near you): 1 Normal … 4 Overgrown
+ function GrassFX.LevelAt(pos)
+ 	for _, e in entries do
+@@ -345,6 +498,15 @@
  		local half = e.Size / 2
  		if math.abs(lp.X) <= half and math.abs(lp.Z) <= half and e.Map then
  			local cx, cz = math.floor((lp.X + half) / CELL), math.floor((lp.Z + half) / CELL)
@@ -5646,7 +5950,7 @@
  			local v = e.Map[cx .. "," .. cz]
  			local g = v and v[1] * 5 or 0
  			return if TC then TC.Level(g) else 1
-@@ -353,6 +411,68 @@
+@@ -353,9 +515,74 @@
  	return 1
  end
  
@@ -5715,14 +6019,36 @@
  function GrassFX.Start(toolConfig, config, juice)
  	TC = toolConfig
  	Juice = juice
-@@ -373,6 +493,7 @@
++	pcall(function()
++		Quality = require(script.Parent:WaitForChild("Quality", 5) :: any) :: any
++	end)
+ 	CELL = config and config.Plot and config.Plot.CellSize or 5
+ 	folderRoot = Instance.new("Folder")
+ 	folderRoot.Name = "LeafRushLawn"
+@@ -373,8 +600,11 @@
  		if not plots then
  			return
  		end
 +		pcall(bareTick, plots)
  		local cam = workspace.CurrentCamera
- 		local camPos = cam and cam.CFrame.Position or Vector3.zero
+-		local camPos = cam and cam.CFrame.Position or Vector3.zero
++		camPos = cam and cam.CFrame.Position or camPos
++		lodBudget = if Quality and Quality.Touch then 24 else 60
++		local camPos = camPos or Vector3.zero
  		for _, model in plots:GetChildren() do
+ 			local floor = model:FindFirstChild("Floor")
+ 			if floor then
+@@ -388,6 +618,10 @@
+ 						end)
+ 					end
+ 					refresh(model)
++					local en = entries[model]
++					if en then
++						lodPass(en)
++					end
+ 				elseif watched[model] then
+ 					watched[model]:Disconnect()
+ 					watched[model] = nil
 --- a/GrassService.lua
 +++ b/GrassService.lua
 @@ -31,8 +31,20 @@
@@ -5746,7 +6072,23 @@
  end
  
  local function G()
-@@ -114,6 +126,16 @@
+@@ -97,8 +109,13 @@
+ 		local ex = math.abs(math.cos(rot)) * w / 2 + math.abs(math.sin(rot)) * d / 2
+ 		local ez = math.abs(math.sin(rot)) * w / 2 + math.abs(math.cos(rot)) * d / 2
+ 		local kind = if rec.Type == "CollectionZone" then "Zone" else "Object"
+-		for cx = 0, n - 1 do
+-			for cz = 0, n - 1 do
++		local halfP, csP = (plot.Size or 20) / 2, cellSize()
++		local cx0 = math.max(0, math.floor((rec.X - ex + halfP) / csP - 0.5) - 1)
++		local cx1 = math.min(n - 1, math.ceil((rec.X + ex + halfP) / csP - 0.5) + 1)
++		local cz0 = math.max(0, math.floor((rec.Z - ez + halfP) / csP - 0.5) - 1)
++		local cz1 = math.min(n - 1, math.ceil((rec.Z + ez + halfP) / csP - 0.5) + 1)
++		for cx = cx0, cx1 do
++			for cz = cz0, cz1 do
+ 				local x, z = GrassService.CellCenter(plot, cx, cz)
+ 				if math.abs(x - rec.X) < ex and math.abs(z - rec.Z) < ez then
+ 					local k = GrassService.Key(cx, cz)
+@@ -114,6 +131,16 @@
  	for k in (data.Plot.Blocks or {}) do
  		occ[k] = "Zone"
  	end
@@ -5763,7 +6105,7 @@
  	if ctx.BlockService and ctx.BlockService.Water then
  		local okW, water = pcall(ctx.BlockService.Water, plot)
  		if okW and type(water) == "table" then
-@@ -155,32 +177,342 @@
+@@ -155,32 +182,347 @@
  	if g.Size ~= plot.Size then
  		-- the yard changed size: the grid moved, start with a fresh lawn
  		g.Cells = {}
@@ -5996,8 +6338,13 @@
 +			end
 +		end
 +	end
-+	plot.Model:SetAttribute("GrassTop", table.concat(parts, ";"))
-+	plot.Model:SetAttribute("GrassBare", table.concat(bare, ";"))
++	local topStr, bareStr = table.concat(parts, ";"), table.concat(bare, ";")
++	if plot.Model:GetAttribute("GrassTop") ~= topStr then
++		plot.Model:SetAttribute("GrassTop", topStr)
++	end
++	if plot.Model:GetAttribute("GrassBare") ~= bareStr then
++		plot.Model:SetAttribute("GrassBare", bareStr)
++	end
 +end
 +
 +-- GRASS SALT: the spot at a world position (a lawn cell or the top of an Earth block) never
@@ -6087,7 +6434,8 @@
  	if not cx then
 -		return 1
 +		return 0, nil, 0
-+	end
+ 	end
+-	return ctx.ToolConfig.Level(cells(data, plot)[GrassService.Key(cx, cz)] or 0)
 +	local BC = ctx.BlockConfig
 +	local col = if type(data.Plot.Blocks) == "table" then data.Plot.Blocks[cx .. "," .. cz] else nil
 +	if BC and type(col) == "string" then
@@ -6102,20 +6450,25 @@
 +				end
 +			end
 +		end
- 	end
--	return ctx.ToolConfig.Level(cells(data, plot)[GrassService.Key(cx, cz)] or 0)
++	end
 +	local k = GrassService.Key(cx, cz)
 +	return cells(data, plot)[k] or 0, k, 0
  end
  
  ---------------------------------------------------------------- publish
-@@ -254,14 +586,56 @@
+@@ -254,14 +596,60 @@
  		return 0
  	end)
  	s.StripesExpire = nextExpire -- (the loop republishes when the stripes fade)
+-	plot.Model:SetAttribute("GrassN", n)
+-	plot.Model:SetAttribute("Grass", text)
 +	pcall(GrassService.PublishTops, data, plot)
- 	plot.Model:SetAttribute("GrassN", n)
- 	plot.Model:SetAttribute("Grass", text)
++	if plot.Model:GetAttribute("GrassN") ~= n then
++		plot.Model:SetAttribute("GrassN", n)
++	end
++	if plot.Model:GetAttribute("Grass") ~= text then
++		plot.Model:SetAttribute("Grass", text)
++	end
  	s.Dirty = false
  end
  
@@ -6168,7 +6521,7 @@
  end
  
  -- one growth step for a player's lawn (called every TickEvery seconds)
-@@ -276,6 +650,10 @@
+@@ -276,6 +664,10 @@
  	if (data.Stats.LVEarned or 0) < g.StartAfterEarned then
  		return 0
  	end
@@ -6179,7 +6532,7 @@
  	-- v2.16: grass only starts to grow with island 2 (IslandConfig.Features.Grass)
  	if ctx.IslandService and not ctx.IslandService.HasTier(player, "Grass") then
  		return 0
-@@ -301,10 +679,7 @@
+@@ -301,10 +693,7 @@
  			end
  		end
  	end
@@ -6191,7 +6544,7 @@
  	local changed = 0
  	local function grow(k, amount)
  		local v = c[k] or 0
-@@ -331,11 +706,31 @@
+@@ -331,11 +720,31 @@
  	-- existing grass keeps growing (most spots, not all, every step)
  	for _, cell in grown do
  		if r:NextNumber() < 0.7 then
@@ -6224,7 +6577,7 @@
  	for _ = 1, new do
  		local cx, cz
  		if #grown > 0 and r:NextNumber() < g.Spread then
-@@ -353,6 +748,12 @@
+@@ -353,6 +762,12 @@
  			end
  		end
  	end
@@ -6237,7 +6590,7 @@
  	if changed > 0 then
  		st(player).Dirty = true
  		-- the first time the grass gets tall in a session: tell the player what to do
-@@ -383,6 +784,28 @@
+@@ -383,6 +798,28 @@
  		ldir = if ldir.Magnitude > 1e-3 then ldir.Unit else nil
  	end
  	local cosHalf = if ldir then math.cos(math.rad(arc / 2)) else -2
@@ -6266,7 +6619,7 @@
  	for cx = 0, n - 1 do
  		for cz = 0, n - 1 do
  			local x, z = GrassService.CellCenter(plot, cx, cz)
-@@ -413,19 +836,23 @@
+@@ -413,19 +850,23 @@
  	end
  	local g = G()
  	local r = opts.R or rng
@@ -6293,7 +6646,7 @@
  			local cx, cz = string.match(k, "^(%d+),(%d+)$")
  			cx, cz = tonumber(cx), tonumber(cz)
  			local d = plot.CFrame:VectorToObjectSpace(opts.Stripe)
-@@ -472,12 +899,26 @@
+@@ -472,12 +913,26 @@
  
  -- clippings fall where the grass was
  function GrassService._drop(_player, plot, key, typeId, units, r)
@@ -6323,7 +6676,7 @@
  	end
  end
  
-@@ -497,7 +938,7 @@
+@@ -497,7 +952,7 @@
  -- low (down in the grass, not in the air above it) and has (almost) stopped. A leaf
  -- just spawned high up drops first — it no longer freezes in mid-air.
  GrassService.LandHeight = 1.8 -- studs above the lawn (tall grass is up to ~1.4 high)
@@ -6332,7 +6685,7 @@
  	local ok, lp = pcall(function()
  		return plot.CFrame:PointToObjectSpace(part.Position)
  	end)
-@@ -505,7 +946,7 @@
+@@ -505,7 +960,7 @@
  		return true
  	end
  	local half = if typeof(part.Size) == "Vector3" then math.min(part.Size.X, part.Size.Y, part.Size.Z) / 2 else 0
@@ -6341,15 +6694,35 @@
  		return false
  	end
  	local v = part.AssemblyLinearVelocity
-@@ -521,7 +962,6 @@
+@@ -521,23 +976,43 @@
  	if not data or not plot or not RS or not RS.AliveIn then
  		return
  	end
 -	local c = cells(data, plot)
  	local g = G()
  	local now = os.clock()
++	-- serverperf: an item can only get stuck where the grass is Thick (>= g.Thick); with none on the lawn / block tops
++	-- only items that are stuck already need a look (they may be freed)
++	local thick = false
++	for _, v in cells(data, plot) do
++		if v >= g.Thick then
++			thick = true
++			break
++		end
++	end
++	if not thick then
++		for _, v in topsOf(data, plot) do
++			if v >= g.Thick then
++				thick = true
++				break
++			end
++		end
++	end
  	for part in RS.AliveIn(plot) do
-@@ -529,15 +969,16 @@
++		if not thick and not RS.IsStuck(part) then
++			continue
++		end
+ 		local typeId = RS.Info(part)
  		if not typeId or SPECIAL[typeId] then
  			continue
  		end
@@ -6370,7 +6743,7 @@
  			-- roll once per spot (a leaf resting in thick grass isn't re-rolled every second)
  			if rolled[part] ~= k or lvl == 4 then
  				rolled[part] = k
-@@ -558,11 +999,9 @@
+@@ -558,11 +1033,9 @@
  	if not data or not plot or not RS or not RS.AliveIn then
  		return
  	end
@@ -6383,7 +6756,7 @@
  			if lvl < 3 then
  				RS.SetStuck(part, false)
  			end
-@@ -578,13 +1017,11 @@
+@@ -578,13 +1051,11 @@
  	if not data or not plot then
  		return 0
  	end
@@ -6398,7 +6771,7 @@
  			if lvl < 4 then
  				RS.SetStuck(part, false)
  				freeUntil[part] = until_
-@@ -607,8 +1044,17 @@
+@@ -607,8 +1078,17 @@
  GrassService.ClearPlayer = GrassService.Clear_
  
  function GrassService.Start()
@@ -6417,7 +6790,7 @@
  		acc += dt
  		stuckAcc += dt
  		if acc < 0.25 then
-@@ -624,7 +1070,7 @@
+@@ -624,7 +1104,7 @@
  			if ctx.PlayerDataService.IsLoaded(player) and ctx.PlotSystem.Get(player) then
  				local s = st(player)
  				if now >= s.NextTick then
@@ -6576,7 +6949,34 @@
  	-- only for people who can edit the place (the server sets IsAdmin).
  	-- v2.15: it sits to the LEFT of Settings, in the same corner
  	{ Id = "Admin", Icon = "🛠", Label = "Admin", Color = Color3.fromRGB(200, 60, 60), Admin = true, Corner = true },
-@@ -174,13 +175,14 @@
+@@ -127,6 +128,26 @@
+ end
+ local commas = Hud.commas
+ 
++-- perf: runs `fn` at most ~10 times a second (a leading call, then one trailing call)
++local function coalesced(fn, gap)
++	gap = gap or 0.1
++	local last, pending = -1, false
++	return function()
++		local n = os.clock()
++		if n - last >= gap then
++			last = n
++			fn()
++		elseif not pending then
++			pending = true
++			task.delay(gap - (n - last), function()
++				pending = false
++				last = os.clock()
++				fn()
++			end)
++		end
++	end
++end
++
+ local function pop(inst, prop, big, small, t)
+ 	inst[prop] = big
+ 	TweenService:Create(inst, TweenInfo.new(t or 0.25, Enum.EasingStyle.Back), { [prop] = small }):Play()
+@@ -174,13 +195,14 @@
  	self:_broomAndHome()
  	self:_dock()
  	self:_launcher()
@@ -6593,7 +6993,48 @@
  		else
  			self:SetStatus(nil)
  		end
-@@ -372,7 +374,7 @@
+@@ -248,8 +270,9 @@
+ 		TweenService:Create(xpFill, TweenInfo.new(0.25), { Size = UDim2.fromScale(math.clamp(into / need, 0, 1), 1) }):Play()
+ 		xpText.Text = string.format("%s / %s XP", fmt(into), fmt(need))
+ 	end
++	local refreshLevelSoon = coalesced(refreshLevel, 0.1)
+ 	for _, a in { "Level", "LevelXP", "LevelNeed" } do
+-		player:GetAttributeChangedSignal(a):Connect(refreshLevel)
++		player:GetAttributeChangedSignal(a):Connect(refreshLevelSoon)
+ 	end
+ 	refreshLevel()
+ 
+@@ -302,11 +325,14 @@
+ 					while countId == id do
+ 						local k = math.min((os.clock() - t0) / 0.4, 1)
+ 						shownV = from + (v - from) * (1 - (1 - k) ^ 2)
+-						c.Text = icon .. " " .. commas(math.floor(shownV + 0.5))
++						local nt = icon .. " " .. commas(math.floor(shownV + 0.5))
++						if c.Text ~= nt then
++							c.Text = nt
++						end
+ 						if k >= 1 then
+ 							break
+ 						end
+-						RunService.RenderStepped:Wait()
++						task.wait(0.05) -- (perf: the number rolls at 20 Hz)
+ 					end
+ 				end)
+ 			else
+@@ -322,9 +348,10 @@
+ 			end
+ 			last = v
+ 		end
+-		player:GetAttributeChangedSignal(attr):Connect(function()
++		local refreshSoon = coalesced(function()
+ 			refresh(true)
+-		end)
++		end, 0.1) -- (perf: Money ticks many times a second while sweeping)
++		player:GetAttributeChangedSignal(attr):Connect(refreshSoon)
+ 		refresh(false)
+ 		self.values[attr] = c
+ 		return c
+@@ -372,7 +399,7 @@
  	end)
  	-- v2.16: clovers (and the wheel they are for) come with island 3
  	local function gloverShown()
@@ -6602,7 +7043,7 @@
  	end
  	player:GetAttributeChangedSignal("IslandTier"):Connect(gloverShown)
  	player:GetAttributeChangedSignal("Glover"):Connect(function()
-@@ -382,9 +384,11 @@
+@@ -382,9 +409,11 @@
  
  	-- save warning (DataStore trouble: progress is kept and retried)
  	local save = label(self.left, { Name = "SaveWarn", Size = UDim2.fromOffset(230, 20), LayoutOrder = 99, TextSize = 12, Font = BODY, TextColor3 = Color3.fromRGB(255, 200, 120), TextStrokeTransparency = 0.5, Visible = false, Text = "⚠ Saving is retrying… (your progress is safe)" })
@@ -6617,7 +7058,7 @@
  end
  
  ---------------------------------------------------------------- broom icon + MY GARDEN
-@@ -400,7 +404,7 @@
+@@ -400,7 +429,7 @@
  	-- lays them out side by side and centred (one alone is centred too); on narrow or
  	-- low screens the whole row shrinks (ApplyLayout · travelScale). Layout stacks the
  	-- weather bar / combo / toasts UNDER the row by its real size, so nothing overlaps.
@@ -6626,7 +7067,16 @@
  	row.Parent = self.gui
  	local rowList = Instance.new("UIListLayout")
  	rowList.FillDirection = Enum.FillDirection.Horizontal
-@@ -448,7 +452,7 @@
+@@ -428,7 +457,7 @@
+ 			if row.Visible == open then
+ 				row.Visible = not open
+ 			end
+-			task.wait(0.1)
++			task.wait(0.2)
+ 		end
+ 	end)
+ 	-- (v1.1: no broom shortcut here — the broom slot is in the hotbar, brooms are in SHOP)
+@@ -448,7 +477,7 @@
  		     └ Label      bold white text with a dark outline
  		Pressing pushes the face down onto its edge.
  	]]
@@ -6635,7 +7085,7 @@
  	local function pill(name, text, order, base, action)
  		local white, black = Color3.new(1, 1, 1), Color3.new(0, 0, 0)
  		local radius = PILL_H / 2
-@@ -495,7 +499,7 @@
+@@ -495,7 +524,7 @@
  		studs.Size = UDim2.fromScale(1, 1)
  		studs.ZIndex = 2
  		studs.Parent = btn
@@ -6644,7 +7094,7 @@
  		local cols = math.floor((PILL_W - 8) / PITCH)
  		local x0 = (PILL_W - (cols - 1) * PITCH) / 2
  		for r = -1, 1 do
-@@ -539,17 +543,17 @@
+@@ -539,17 +568,17 @@
  		shine.BorderSizePixel = 0
  		-- (not rotated: a rotated frame is not clipped; it travels only over the straight
  		-- part of the pill and fades in and out, so it never shows outside the round ends)
@@ -6667,7 +7117,7 @@
  				TweenService:Create(shine, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, 0, true), { BackgroundTransparency = 0.7 }):Play()
  			end
  		end)
-@@ -567,18 +571,21 @@
+@@ -567,18 +596,21 @@
  		-- bold white text with a dark outline, in the game's font
  		local cap = label(btn, {
  			Name = "Label",
@@ -6693,7 +7143,7 @@
  		capMax.MinTextSize = 12
  		capMax.Parent = cap
  		local capStroke = Instance.new("UIStroke")
-@@ -615,7 +622,7 @@
+@@ -615,7 +647,7 @@
  	end
  	-- (the red one keeps its SPAWN function and name — the owner's sample picture says "BUY")
  	local home, cd = pill("MyGarden", "MY GARDEN", 1, Color3.fromRGB(60, 200, 90), "Home")
@@ -6702,7 +7152,7 @@
  	self.homeButton, self.homeCooldown = home, cd
  	self.spawnButton, self.spawnCooldown = spawnBtn, spawnCd
  	-- no garden yet (still loading): hide it
-@@ -637,7 +644,7 @@
+@@ -637,7 +669,7 @@
  	box.Name = "FriendBoost"
  	box.AnchorPoint = Vector2.new(0, 1)
  	box.Position = UDim2.new(0, 12, 1, -12)
@@ -6711,7 +7161,7 @@
  	box.BackgroundTransparency = 1
  	box.Parent = self.gui
  	local scale = Instance.new("UIScale")
-@@ -645,27 +652,27 @@
+@@ -645,27 +677,27 @@
  	self.friendBox, self.friendScale = box, scale
  	local chip = Instance.new("Frame")
  	chip.Name = "Chip"
@@ -6750,7 +7200,7 @@
  	plus.Activated:Connect(function()
  		local SocialService = game:GetService("SocialService")
  		task.spawn(function()
-@@ -681,13 +688,49 @@
+@@ -681,13 +713,49 @@
  			end
  		end)
  	end)
@@ -6801,7 +7251,7 @@
  end
  
  -- the MY GARDEN / SPAWN cooldown bar (seconds)
-@@ -732,35 +775,37 @@
+@@ -732,35 +800,37 @@
  	combo.Name = "ComboMeter"
  	combo.AnchorPoint = Vector2.new(0.5, 0)
  	combo.Position = UDim2.new(0.5, 0, 0, 52)
@@ -6854,7 +7304,7 @@
  	local cscale = Instance.new("UIScale")
  	cscale.Parent = combo
  	Layout.Add("Top", combo, "Combo")
-@@ -784,6 +829,7 @@
+@@ -784,6 +854,7 @@
  		name.TextColor3 = tier.Color
  		fillBar.BackgroundColor3 = tier.Color
  		cst.Color = tier.Color
@@ -6862,7 +7312,7 @@
  		local nextT = E and E.Combo.Tiers[ti + 1]
  		count.Text = if nextT then pts .. "/" .. nextT.At else tostring(pts)
  		local bonus = math.floor(((tier.Items or 1) - 1) * 100 + 0.5)
-@@ -904,6 +950,69 @@
+@@ -904,6 +975,69 @@
  	return b, icon, cap, st
  end
  
@@ -6932,7 +7382,7 @@
  function Hud:_keyOf(m)
  	local C = self.deps.Controls
  	if C and m.Action then
-@@ -1040,8 +1149,6 @@
+@@ -1040,8 +1174,6 @@
  
  -- v1.8.1: button sizes come from UIImages (SIZES): change them there
  local GAP = 12 -- (v2.15: the dock buttons are spread apart)
@@ -6941,7 +7391,7 @@
  local DOCK_W, DOCK_BH = 148, 58
  local DOCK_N = 0
  for _, m in Hud.Menus do
-@@ -1050,7 +1157,7 @@
+@@ -1050,7 +1182,7 @@
  	end
  end
  local DOCK_H = DOCK_N * (DOCK_BH + GAP)
@@ -6950,7 +7400,7 @@
  
  function Hud:_dock()
  	local dock = Instance.new("Frame")
-@@ -1075,7 +1182,7 @@
+@@ -1075,7 +1207,7 @@
  		local b
  		if m.Corner then
  			-- the bottom-right corner of the screen: Settings, and Admin to its left
@@ -6959,7 +7409,7 @@
  			b.AnchorPoint = Vector2.new(1, 1)
  			b.Position = UDim2.new(1, -cornerX, 1, -12)
  			cornerX += CORNER + 8
-@@ -1125,123 +1232,180 @@
+@@ -1125,123 +1257,180 @@
  	-- (v1.1: the More popover is gone; kept so older callers don't break)
  end
  
@@ -7247,7 +7697,7 @@
  end
  
  ---------------------------------------------------------------- menu plumbing
-@@ -1300,6 +1464,7 @@
+@@ -1300,6 +1489,7 @@
  			b.Visible = on
  		end
  	end
@@ -7255,7 +7705,7 @@
  end
  
  -- a red number on a button, driven by a player attribute (hidden at 0)
-@@ -1320,15 +1485,20 @@
+@@ -1320,15 +1510,20 @@
  	t.Parent = b
  	corner(t, 10)
  	stroke(t, Color3.new(1, 1, 1), 1.5, 0)
@@ -7277,7 +7727,7 @@
  	refresh()
  end
  
-@@ -1341,6 +1511,9 @@
+@@ -1341,6 +1536,9 @@
  function Hud:Pulse(id, on)
  	self.pulses = self.pulses or {}
  	on = on == true
@@ -7287,7 +7737,7 @@
  	if (self.pulses[id] ~= nil) == on then
  		return
  	end
-@@ -1431,26 +1604,21 @@
+@@ -1431,26 +1629,21 @@
  		self.friendBox.Position = if self.touch then UDim2.new(0, 10, 0.5, 30) else UDim2.new(0, 12, 1, -12)
  	end
  	if self.travelScale then
@@ -7318,7 +7768,7 @@
  	local st = self.status
  	st.Size = UDim2.fromOffset(math.clamp(vp.X - 560 * s, 220, 640), if vp.X < 900 then 40 else 28)
  	-- (v2.15: the hint line sits ABOVE the hotbar / the Editor's panel, never under them)
-@@ -1500,7 +1668,10 @@
+@@ -1500,7 +1693,10 @@
  	end
  end
  
@@ -7330,7 +7780,7 @@
  	self.status.Visible = text ~= nil
  	self.status.Text = text or ""
  end
-@@ -1509,10 +1680,13 @@
+@@ -1509,10 +1705,13 @@
  	Toasts. With the "Notifications" setting OFF only important ones show (errors of
  	something you just did, trades, friend invites …): pass important = true.
  ]]
@@ -8549,7 +8999,30 @@
  
  local scrolls = {} -- [opts.id] = the grid's scroll position (kept across redraws)
  
-@@ -342,6 +344,12 @@
+@@ -49,8 +51,13 @@
+ local spins = {} -- [ViewportFrame] = { aim = fn(clock), gui = its ScreenGui, born = clock }
+ local spinConn
+ 
++local lastSpin = 0
+ local function spinStep()
+ 	local t = os.clock()
++	if t - lastSpin < 0.033 then
++		return -- perf: previews turn at most 30 times a second
++	end
++	lastSpin = t
+ 	for vp, s in spins do
+ 		if not vp:IsDescendantOf(game) then
+ 			if t - s.born > 2 then
+@@ -62,7 +69,7 @@
+ 				gui = vp:FindFirstAncestorWhichIsA("LayerCollector")
+ 				s.gui = gui
+ 			end
+-			if gui and gui.Enabled then
++			if gui and gui.Enabled and vp.Visible and vp.AbsoluteSize.X > 0 then
+ 				local ok = pcall(s.aim, t)
+ 				if not ok then
+ 					spins[vp] = nil
+@@ -342,6 +349,12 @@
  			state.opts.onSelect(key)
  		end
  	end)
@@ -8562,7 +9035,7 @@
  	-- (v1.1: hover only thickens the rim — tiles never change size or move)
  	tile.MouseEnter:Connect(function()
  		st.Thickness = 4
-@@ -434,7 +442,23 @@
+@@ -434,7 +447,23 @@
  	head.Size = UDim2.new(1, -8, 0, 40)
  	head.LayoutOrder = 0
  	head.Parent = list
@@ -8587,7 +9060,7 @@
  	if pager then
  		local pages = math.max(1, math.floor(tonumber(pager.Pages) or 1))
  		local page = math.clamp(math.floor(tonumber(pager.Page) or 1), 1, pages)
-@@ -477,6 +501,18 @@
+@@ -477,6 +506,18 @@
  	local T = opts.theme or K.theme()
  	local items = opts.items or {}
  	local id = opts.id
@@ -8606,7 +9079,7 @@
  	-- v2.39: opts.pager = { Page, Pages, OnPage = fn(newPage) } — "◀  2 / 5  ▶" on the right of
  	-- the header: one page back / forward; an arrow is grey (and does nothing) at its end
  	local pager = if type(opts.pager) == "table" and (tonumber(opts.pager.Pages) or 1) > 1 then opts.pager else nil
-@@ -503,6 +539,7 @@
+@@ -503,6 +544,7 @@
  	local hb = opts.headerButton
  	local headSig = table.concat({
  		tostring(opts.header),
@@ -8614,7 +9087,7 @@
  		if pager then tostring(pager.Page) .. "/" .. tostring(pager.Pages) else "",
  		if type(hb) == "table" then tostring(hb.Text) .. "|" .. tostring(hb.Enabled ~= false) .. "|" .. hexOf(hb.Color) else "",
  	}, "\n")
-@@ -542,6 +579,9 @@
+@@ -542,6 +584,9 @@
  			state.body:Destroy()
  		end
  		local e = opts.empty or { Title = "Nothing here yet", Icon = "🍂" }
@@ -8624,7 +9097,7 @@
  		K.card(list, 2, { Title = e.Title, Body = e.Body, Icon = e.Icon or "🍂", IconColor = T.Accent })
  		return nil
  	end
-@@ -620,6 +660,10 @@
+@@ -620,6 +665,10 @@
  	grid.Parent = body
  	K.corner(grid, 14)
  	state.grid = grid
@@ -8717,6 +9190,58 @@
  	end
  	ItemLooks.Upright = { Flower = true }
  end
+--- a/Juice.lua
++++ b/Juice.lua
+@@ -19,6 +19,29 @@
+ local rng = Random.new()
+ local TEX = "rbxasset://textures/particles/sparkles_main.dds"
+ 
++local UIS = game:GetService("UserInputService")
++local TOUCH = UIS.TouchEnabled and not UIS.KeyboardEnabled
++local budgets = { burst = { 0, 0 }, popup = { 0, 0 } }
++-- perf: sweeping can collect hundreds of items a second; each burst / popup is a pooled part with
++-- an emitter / a billboard. At most `cap` new ones per quarter second (big ones always show) and
++-- none far from the camera. Sounds, combo and counters are untouched.
++local function allow(kind, cap, pos, maxDist)
++	local cam = workspace.CurrentCamera
++	if cam and (cam.CFrame.Position - pos).Magnitude > maxDist then
++		return false
++	end
++	local now = os.clock()
++	local b = budgets[kind]
++	if now - b[1] > 0.25 then
++		b[1], b[2] = now, 0
++	end
++	if b[2] >= cap then
++		return false
++	end
++	b[2] += 1
++	return true
++end
++
+ local function root()
+ 	if not folder or not folder.Parent then
+ 		folder = Instance.new("Folder")
+@@ -89,6 +112,9 @@
+ 	if not effectsOn() then
+ 		return
+ 	end
++	if (n or 10) < 20 and not allow("burst", if TOUCH then 14 else 28, pos, if TOUCH then 110 else 170) then
++		return
++	end
+ 	n = math.max(1, math.floor((n or 10) * Juice.QualityScale + 0.5))
+ 	local p = table.remove(pools.burst)
+ 	if not p then
+@@ -166,6 +192,9 @@
+ end
+ 
+ function Juice.Popup(pos, text, color, scale)
++	if (scale or 1) < 1.3 and not allow("popup", if TOUCH then 7 else 16, pos, if TOUCH then 110 else 170) then
++		return
++	end
+ 	local p = table.remove(pools.popup)
+ 	if not p then
+ 		p = basePart("Popup")
 --- a/Layout.lua
 +++ b/Layout.lua
 @@ -32,7 +32,22 @@
@@ -8790,6 +9315,22 @@
  			place(e.Frame, y, ti)
  			y += e.Frame.AbsoluteSize.Y + e.Gap
  		end
+@@ -120,7 +150,14 @@
+ 		return
+ 	end
+ 	started = true
+-	RunService.RenderStepped:Connect(function()
++	local acc = 0
++	RunService.RenderStepped:Connect(function(dt)
++		-- perf: re-stacking reads AbsolutePosition/Size of every panel (forces layout); 30 Hz is plenty
++		acc += dt
++		if acc < 0.033 then
++			return
++		end
++		acc = 0
+ 		pcall(Layout.Step)
+ 	end)
+ end
 --- a/LeaderboardService.lua
 +++ b/LeaderboardService.lua
 @@ -75,9 +75,61 @@
@@ -9113,7 +9654,7 @@
  -- v2.0: the three shops on the hub island (press E at a counter)
  game:GetService("ProximityPromptService").PromptTriggered:Connect(function(prompt, who)
  	if who ~= player then
-@@ -1064,13 +1168,133 @@
+@@ -1064,13 +1168,134 @@
  			shopHub.Open(page)
  		end
  	elseif prompt.Name == "GardenUpgrade" then
@@ -9207,7 +9748,7 @@
 +		if PrefsM.Get("LowGraphics") == true or Quality.Level() <= 1 then
 +			return 0.35
 +		end
-+		return 1
++		return if Quality.Touch then 0.6 else 1
 +	end
 +	local function apply(em: ParticleEmitter)
 +		local m = mult()
@@ -9231,6 +9772,7 @@
 +	end
 +	PrefsM.Changed("Effects", applyAll)
 +	PrefsM.Changed("LowGraphics", applyAll)
++	Quality.Changed:Connect(applyAll)
 +	task.spawn(function()
 +		local lr = workspace:WaitForChild("LeafRush", 30)
 +		local map = lr and lr:WaitForChild("Map", 30)
@@ -9247,7 +9789,7 @@
  ---------------------------------------------------------------- raycast ignore list for the broom
  local function rebuildIgnore()
  	local list = { visuals }
-@@ -1290,8 +1514,6 @@
+@@ -1290,8 +1515,6 @@
  	local free = not build.active -- Build Mode has its own keys (Play-only actions wait)
  	if isInput("Shop", input) then
  		shopHub.Toggle()
@@ -9256,7 +9798,7 @@
  	elseif isInput("Bestiary", input) then
  		bestiary:Toggle()
  	elseif isInput("Pets", input) then
-@@ -1349,8 +1571,168 @@
+@@ -1349,8 +1572,168 @@
  	end
  end)
  
@@ -9426,7 +9968,7 @@
  	if kind == "Jet" then
  		-- v2.34: another player's Leaf Blower in JET mode — its air stream behind them
  		if uid ~= player.UserId and typeof(center) == "Vector3" and typeof(dir) == "Vector3" and dir.Magnitude > 0.1 and dir.Magnitude < 2 then
-@@ -1363,6 +1745,27 @@
+@@ -1363,6 +1746,27 @@
  		end
  		return
  	end
@@ -9454,7 +9996,7 @@
  	if kind ~= "Cut" or uid == player.UserId or typeof(center) ~= "Vector3" then
  		return
  	end
-@@ -1447,7 +1850,7 @@
+@@ -1447,7 +1851,7 @@
  		Juice.Pillar(model:GetPivot().Position, Color3.fromRGB(200, 120, 255), 16)
  		Juice.Burst(top, Color3.fromRGB(220, 150, 255), 30, 10)
  		Juice.Chime(Config.FX.UiSoundId, 1.4, 0.35)
@@ -9463,7 +10005,7 @@
  	end
  	if shaking[model] then
  		return
-@@ -1510,12 +1913,6 @@
+@@ -1510,12 +1914,6 @@
  		-- (v2.13: the daily window never opens by itself — see SHOP · DAILY)
  	elseif kind == "TutorialDone" then
  		welcome:OnDone(payload)
@@ -9476,7 +10018,7 @@
  	elseif kind == "EggOpen" and type(payload) == "table" then
  		-- v1.1: your egg in the garden opened — the tap-to-crack show (the pet is yours already)
  		for _, w in windows do
-@@ -1558,6 +1955,7 @@
+@@ -1558,6 +1956,7 @@
  	-- Shop · COSMETICS, put in the garden like eggs, opened with a show of their own
  	local ok, err = pcall(function()
  		local DecorBoxes = require(script:WaitForChild("DecorBoxes"))
@@ -9484,7 +10026,7 @@
  		DecorBoxes.Start({
  			UIKit = UIKit,
  			Hud = hud,
-@@ -1578,6 +1976,9 @@
+@@ -1578,6 +1977,9 @@
  		NestFX.Busy = function()
  			return eggOpening.playing == true or DecorBoxes.playing == true
  		end
@@ -9494,7 +10036,7 @@
  		-- one thing in the hand at a time: an egg OR a box
  		if eggPlacer then
  			local startEgg = eggPlacer.Start
-@@ -2096,9 +2497,12 @@
+@@ -2096,9 +2498,12 @@
  	end
  	local lp = floor.CFrame:PointToObjectSpace(root.Position)
  	local half = floor.Size.X / 2 + 4
@@ -9521,6 +10063,28 @@
  	for i = 1, LANES do
  		local res, broom = C.ResourcePrefix .. i, C.BroomPrefix .. i
  		PhysicsService:CollisionGroupSetCollidable(res, RW, true) -- the wall still keeps the items in
+--- a/MagnetFX.lua
++++ b/MagnetFX.lua
+@@ -106,9 +106,10 @@
+ ]]
+ function MagnetFX.StartSlippery(config, myResources, myZone, juice)
+ 	local acc = 0
++	local lastHit = 0 -- (nothing slippery for 2 s: look only twice a second)
+ 	RunService.Heartbeat:Connect(function(dt)
+ 		acc += dt
+-		if acc < 1 / 20 then
++		if acc < (if os.clock() - lastHit > 2 then 0.5 else 1 / 20) then
+ 			return
+ 		end
+ 		local step = acc
+@@ -126,6 +127,7 @@
+ 			for _, p in f:GetChildren() do
+ 				local untilT = p:IsA("BasePart") and p:GetAttribute("Slippery")
+ 				if untilT and untilT > now and p.ReceiveAge == 0 and not p.Anchored then
++					lastHit = os.clock()
+ 					local zone = myZone(p.Position)
+ 					if zone then
+ 						local to = Vector3.new(zone.X - p.Position.X, 0, zone.Z - p.Position.Z)
 --- a/MetaConfig.lua
 +++ b/MetaConfig.lua
 @@ -113,6 +113,30 @@
@@ -9806,6 +10370,30 @@
  		-- engine
  		if not sound then
  			sound = Instance.new("Sound")
+--- a/MutationAbilityService.lua
++++ b/MutationAbilityService.lua
+@@ -378,6 +378,21 @@
+ end
+ 
+ function MutationAbilityService.StepGroup(g, dt)
++	-- serverperf: a garden without any mutated item (and no fresh trail) has nothing to do: skip building the item list
++	local tr0 = trails[g]
++	if not tr0 or #tr0 == 0 then
++		local any = false
++		for part in ctx.ResourceService.AliveIn(g) do
++			local _, key = ctx.ResourceService.Info(part)
++			if key then
++				any = true
++				break
++			end
++		end
++		if not any then
++			return
++		end
++	end
+ 	local list = items(g)
+ 	if #list == 0 then
+ 		return
 --- a/MutationService.lua
 +++ b/MutationService.lua
 @@ -227,9 +227,49 @@
@@ -9858,7 +10446,15 @@
  -- (a little flash on the item; everyone sees it)
  function MutationService.FX(kind, pos, color, extra)
  	if ctx.Net and ctx.Net.WorldFX then
-@@ -324,6 +364,17 @@
+@@ -320,10 +360,24 @@
+ 		PlayerLevel = m.PlayerLevel,
+ 		RareResMult = m.RareResMult,
+ 	}
+-	player:SetAttribute("MutMods", HttpService:JSONEncode(payload))
++	local modsJson = HttpService:JSONEncode(payload)
++	if player:GetAttribute("MutMods") ~= modsJson then
++		player:SetAttribute("MutMods", modsJson)
++	end
  end
  
  function MutationService.Start()
@@ -10130,6 +10726,15 @@
  	PetAbilityService.TrailStep(player)
  	if PP then
  		local ok, err = pcall(PP.Tick, player, 0.3)
+@@ -523,7 +524,7 @@
+ 		end
+ 	end
+ 	local ok, json = pcall(function()
+-		return HttpService:JSONEncode(out)
++		return if next(out) == nil then "{}" else HttpService:JSONEncode(out) -- (serverperf: nothing timed: no encode)
+ 	end)
+ 	if ok and lastCD[player] ~= json then
+ 		lastCD[player] = json
 @@ -563,6 +564,27 @@
  	end
  end
@@ -11651,7 +12256,16 @@
  return PetFX
 --- a/PetFollow.lua
 +++ b/PetFollow.lua
-@@ -227,6 +227,51 @@
+@@ -17,6 +17,8 @@
+ PetFollow.__index = PetFollow
+ 
+ local SPARK = "rbxasset://textures/particles/sparkles_main.dds"
++local LP = Players.LocalPlayer
++local TOUCH_PET = game:GetService("UserInputService").TouchEnabled and not game:GetService("UserInputService").KeyboardEnabled
+ 
+ local function part(model, name, shape, size, color, cf, material)
+ 	local p = Instance.new("Part")
+@@ -227,6 +229,51 @@
  	return p
  end
  
@@ -11703,7 +12317,7 @@
  local function cuteEyes(m, y, z, spread, size)
  	size = size or 0.26
  	for _, sx in { -1, 1 } do
-@@ -388,7 +433,7 @@
+@@ -388,7 +435,7 @@
  -- v2.31: the 50 pets of the new eggs live in their own module (PetShapes)
  do
  	local okS, errS = pcall(function()
@@ -11712,7 +12326,7 @@
  	end)
  	if not okS then
  		warn("[LeafRush] PetShapes: " .. tostring(errS))
-@@ -407,6 +452,26 @@
+@@ -407,6 +454,26 @@
  	elseif kind == "Wing" then
  		local flap = if action then 1.2 else 0.9
  		return CFrame.Angles(0, 0, phase * (0.35 + math.sin(t * 30) * flap))
@@ -11739,7 +12353,16 @@
  	elseif kind == "Shell" then
  		return CFrame.Angles(0, 0, phase * (0.18 + math.sin(t * 30) * 0.05))
  	elseif kind == "Antenna" then
-@@ -717,7 +782,9 @@
+@@ -591,7 +658,7 @@
+ 	bb.Name = "NameTag"
+ 	bb.Size = UDim2.fromOffset(150, 64) -- (v2.32: 18 px taller — the toy line sits above the name)
+ 	bb.StudsOffset = Vector3.new(0, 2.1, 0)
+-	bb.MaxDistance = 45
++	bb.MaxDistance = if game:GetService("UserInputService").TouchEnabled and not game:GetService("UserInputService").KeyboardEnabled then 32 else 45
+ 	bb.AlwaysOnTop = false
+ 	bb.Parent = root
+ 	local cd = Instance.new("Frame")
+@@ -717,7 +784,9 @@
  		local ak = p:GetAttribute("Anim")
  		if ak then
  			local okA, extra = pcall(animCF, ak, t, p:GetAttribute("Phase") or 0, false, false)
@@ -11750,8 +12373,41 @@
  				rel = SHELL_PIVOT * extra * SHELL_PIVOT:Inverse() * rel
  			elseif okA and extra then
  				rel = rel * extra
-@@ -1348,7 +1415,9 @@
+@@ -1334,6 +1403,8 @@
+ 
+ function PetFollow:Update(dt)
+ 	local t = os.clock()
++	local cam = workspace.CurrentCamera
++	local camPos = cam and cam.CFrame.Position
+ 	if self.fx then
+ 		self.fx:Step(dt)
+ 	end
+@@ -1345,10 +1416,33 @@
+ 		end
+ 		local base = hrp.CFrame
+ 		local n = #o.pets
++		-- perf: pets far from the camera are posed less often (same motion, bigger steps;
++		-- the owner's own pets always every frame)
++		local ownerD = if camPos then (base.Position - camPos).Magnitude else 0
++		local interval = 0
++		if plr ~= LP then
++			if TOUCH_PET then
++				interval = if ownerD <= 45 then 1 / 30 elseif ownerD <= 90 then 1 / 20 else 1 / 10
++			else
++				interval = if ownerD <= 70 then 0 elseif ownerD <= 140 then 1 / 30 else 1 / 15
++			end
++		end
  		for i, pet in o.pets do
++			local dt = dt
++			if interval > 0 then
++				local acc = (pet.acc or math.random() * interval) + dt
++				if acc < interval then
++					pet.acc = acc
++					continue
++				end
++				pet.acc = 0
++				dt = math.min(acc, 0.1)
++			end
  			-- slots in an arc behind the owner
  			local a = if n == 1 then 0 else (i - 1) / (n - 1) - 0.5
 -			local offset = Vector3.new(a * 5, 0, 4 + math.abs(a) * 1.5)
@@ -11761,17 +12417,88 @@
  			local want = base:PointToWorldSpace(offset) - Vector3.new(0, 2.9, 0)
  			local motion = pet.motion or "Hop"
  			local act = pet.action
-@@ -1502,7 +1571,9 @@
- 				local ak = p:GetAttribute("Anim")
+@@ -1457,8 +1551,10 @@
+ 			end
+ 			pet.pos = cur
+ 			self:_slime(plr, pet, t)
+-			self:_cdBar(o, pet, i)
+-			self:_toyTag(o, pet, i) -- v2.32
++			if ownerD <= 60 then -- (the name tag is hidden farther than this anyway)
++				self:_cdBar(o, pet, i)
++				self:_toyTag(o, pet, i) -- v2.32
++			end
+ 			local look = Vector3.new(base.LookVector.X, 0, base.LookVector.Z)
+ 			if moving or pathPos then
+ 				local d = Vector3.new(want.X - cur.X, 0, want.Z - cur.Z)
+@@ -1497,19 +1593,53 @@
+ 			end
+ 			local cf = CFrame.lookAt(cur + Vector3.new(0, h, 0), cur + Vector3.new(0, h, 0) + look) * CFrame.Angles(pitch, spin, roll)
+ 			local s = pet.scale
+-			for _, p in pet.parts do
+-				local rel = p:GetAttribute("Rel")
+-				local ak = p:GetAttribute("Anim")
++			local pd = pet.pd
++			if not pd then
++				-- (a part's Rel / Anim / Phase / Orbit / Tint never change after the build: read them once)
++				pd = {}
++				for _, p in pet.parts do
++					local rel = p:GetAttribute("Rel")
++					local orbit = p:GetAttribute("Orbit")
++					if typeof(rel) == "CFrame" or orbit then
++						local ak = p:GetAttribute("Anim")
++						table.insert(pd, {
++							p = p,
++							rel = rel,
++							ak = ak,
++							ph = p:GetAttribute("Phase") or 0,
++							orbit = orbit,
++							tint = p:GetAttribute("Tint"),
++							static = if typeof(rel) == "CFrame" and not ak and not orbit then CFrame.new(rel.Position * s) * rel.Rotation else nil,
++						})
++					end
++				end
++				pet.pd = pd
++			end
++			local tp = t + pet.seed
++			for _, d in pd do
++				local p = d.p
++				local st = d.static
++				if st then
++					p.CFrame = cf * st
++					if pet.rainbow and d.tint then
++						p.Color = Color3.fromHSV((t * 0.25 + i * 0.2 + d.rel.Position.Y * 0.08) % 1, 0.7, 1)
++					end
++					continue
++				end
++				local rel = d.rel
++				local ak = d.ak
  				if ak and typeof(rel) == "CFrame" then
- 					local extra = animCF(ak, t + pet.seed, p:GetAttribute("Phase") or 0, moving, act ~= nil)
+-					local extra = animCF(ak, t + pet.seed, p:GetAttribute("Phase") or 0, moving, act ~= nil)
 -					if extra and ak == "ShellSway" then
++					local extra = animCF(ak, tp, d.ph, moving, act ~= nil)
 +					if extra and HINGED[ak] then
 +						rel = hingeRel(p, extra, rel)
 +					elseif extra and ak == "ShellSway" then
  						-- v1.6: the whole shell (and the pattern on it) sways around its centre
  						rel = SHELL_PIVOT * extra * SHELL_PIVOT:Inverse() * rel
  					elseif extra then
+ 						rel = rel * extra
+ 					end
+ 				end
+-				local orbit = p:GetAttribute("Orbit")
++				local orbit = d.orbit
+ 				if orbit then
+ 					local oa = t * 1.6 + orbit * 2.09
+ 					rel = CFrame.new(math.cos(oa) * 1.4, 1.2 + math.sin(t * 2 + orbit) * 0.3, math.sin(oa) * 1.4) * CFrame.Angles(0, -oa, 0)
+@@ -1517,7 +1647,7 @@
+ 				if typeof(rel) == "CFrame" then
+ 					p.CFrame = cf * CFrame.new(rel.Position * s) * rel.Rotation
+ 				end
+-				if pet.rainbow and p:GetAttribute("Tint") then
++				if pet.rainbow and d.tint then
+ 					p.Color = Color3.fromHSV((t * 0.25 + i * 0.2 + (rel and rel.Position.Y or 0) * 0.08) % 1, 0.7, 1)
+ 				end
+ 			end
 --- a/PetLevelFX.lua
 +++ b/PetLevelFX.lua
 @@ -62,6 +62,9 @@
@@ -12052,16 +12779,26 @@
  		elseif (z.Next or 0) <= t then
 --- a/PetService.lua
 +++ b/PetService.lua
-@@ -151,7 +151,7 @@
+@@ -151,10 +151,15 @@
  	player:SetAttribute("PetsEquipped", table.concat(eq, ","))
  	local owned = {}
  	for uid, p in data.Pets.Owned do
 -		owned[uid] = { Id = p.Id, Variant = p.Variant, Level = p.Level, Eq = table.find(data.Pets.Equipped, uid) ~= nil }
 +		owned[uid] = { Id = p.Id, Variant = p.Variant, Level = p.Level, Eq = table.find(data.Pets.Equipped, uid) ~= nil, Fav = p.Fav == true or nil }
++	end
++	local petJson, eggJson = HttpService:JSONEncode(owned), HttpService:JSONEncode(data.Eggs.Owned)
++	if player:GetAttribute("PetData") ~= petJson then
++		player:SetAttribute("PetData", petJson)
++	end
++	if player:GetAttribute("EggsOwned") ~= eggJson then
++		player:SetAttribute("EggsOwned", eggJson)
  	end
- 	player:SetAttribute("PetData", HttpService:JSONEncode(owned))
- 	player:SetAttribute("EggsOwned", HttpService:JSONEncode(data.Eggs.Owned))
-@@ -338,6 +338,21 @@
+-	player:SetAttribute("PetData", HttpService:JSONEncode(owned))
+-	player:SetAttribute("EggsOwned", HttpService:JSONEncode(data.Eggs.Owned))
+ 	player:SetAttribute("PetSlots", PetService.Slots(data))
+ 	player:SetAttribute("PetExtraSlots", data.Pets.ExtraSlots or 0)
+ 	local b = PetService.Bonus(data)
+@@ -338,6 +343,21 @@
  	return true, ctx.PetConfig.Name(data.Pets.Owned[uid].Id, data.Pets.Owned[uid].Variant) .. " is following you"
  end
  
@@ -12083,7 +12820,7 @@
  function PetService.Unequip(player, uid)
  	local data = ctx.PlayerDataService.Get(player)
  	local i = data and type(uid) == "string" and table.find(data.Pets.Equipped, uid)
-@@ -423,7 +438,7 @@
+@@ -423,7 +443,7 @@
  		return false, "Not your pet"
  	end
  	if ctx.IslandService then
@@ -12092,7 +12829,7 @@
  		if not can then
  			return false, why
  		end
-@@ -443,7 +458,7 @@
+@@ -443,7 +463,7 @@
  	local need = P.EvolveLevel or P.MaxLevel
  	local others = {}
  	for ouid, o in data.Pets.Owned do
@@ -12101,7 +12838,7 @@
  			table.insert(others, ouid)
  		end
  	end
-@@ -482,6 +497,9 @@
+@@ -482,6 +502,9 @@
  	if offered(player, uid) then
  		return false, "This pet is in your trade offer"
  	end
@@ -12111,7 +12848,7 @@
  	local price = ctx.PetConfig.SellPrice(p.Id, p.Variant, p.Level)
  	data.Pets.Owned[uid] = nil
  	local i = table.find(data.Pets.Equipped, uid)
-@@ -542,6 +560,13 @@
+@@ -542,6 +565,13 @@
  		return PetService.Equip(player, req.Uid)
  	elseif a == "Unequip" then
  		return PetService.Unequip(player, req.Uid)
@@ -13550,6 +14287,631 @@
  	if sapling then
  		if ctx.MetaService then
  			ctx.MetaService.Track(player, "Build")
+--- a/Quality.lua
++++ b/Quality.lua
+@@ -3,16 +3,26 @@
+ 
+ 	v0.9 setting "Low graphics mode" (ON = Low; OFF = Auto). Auto starts from the device
+ 	(phones/tablets -> Medium, PCs -> High) and steps down when the frame rate stays
+-	low (and back up when it recovers).
++	low (touch: after ~3 s; PC: ~5 s) and back up only after ~30 s of good frames.
+ 
+ 	  Quality.Level()        1 = Low, 2 = Medium, 3 = High
+-	  Quality.Scale(n)       n × 0.35 / 0.7 / 1   (particle counts, rates)
++	  Quality.Scale(n)       n × 0.35 / 0.7 / 1   (particle counts, rates; touch: 0.25 / 0.5 / 0.8)
+ 	  Quality.Range()        how far effects stay on (studs)
+ 	  Quality.Changed        BindableEvent fired with the new level
+-
+-	LOD (runs here): particle emitters, lights, fire and labels on resources and in
+-	the world are switched off beyond Range() — on Low far fewer effects run, the
+-	world decoration emitters are thinned out, shadows are off.
++	  Quality.Describe()     table + Text: what the current level does (for Settings)
++	  Quality.AtmoScale()    (density, haze, glare) multipliers for WeatherFX's Atmosphere tweens
++	  Quality.LightsOff() / PostFxOff(class) / ShadowsOff()   the current policy
++
++	What each level does (central sweep of Workspace + Lighting, batched over frames, and restored
++	when the level goes back up):
++	  Low (1)   all Point/Spot/SurfaceLights off; Bloom, SunRays, DepthOfField, Blur off; GlobalShadows
++	            off, ShadowSoftness 0, lower environment light, CastShadow off for LeafRush parts;
++	            Beams/Trails/Fire/Smoke/Sparkles off; world emitters at 35% rate and cut beyond
++	            Range(); BillboardGuis capped by MaxDistance; thinner Atmosphere (no glare);
++	            Terrain.Decoration off; SkyFX/StarfallFX/WeatherFX use their smallest versions
++	  Medium    (touch: like Low for lights, shadows, Bloom/SunRays/DoF/Blur, billboard caps)
++	            DepthOfField + SunRays off on every device; emitters at 70% (touch 50%)
++	  High      everything as built (touch devices never go above Medium in Auto)
+ ]]
+ 
+ local CollectionService = game:GetService("CollectionService")
+@@ -25,6 +35,7 @@
+ 
+ local level = 3
+ local auto = true
++local started = false
+ local changed = Instance.new("BindableEvent")
+ Quality.Changed = changed.Event
+ 
+@@ -40,6 +51,8 @@
+ 	Quality.Scales = { 0.25, 0.5, 0.8 }
+ end
+ 
++local NAMES = { "Low", "Medium", "High" }
++
+ function Quality.Level()
+ 	return level
+ end
+@@ -52,22 +65,357 @@
+ 	return Quality.Ranges[level]
+ end
+ 
++---------------------------------------------------------------- policy
++local function lightsOff()
++	return level <= 1 or TOUCH
++end
++local function shadowsOff()
++	return level <= 1 or TOUCH
++end
++local function cheap()
++	return level <= 1 or TOUCH
++end
++local function pfxOff()
++	return level <= 1
++end
++
++local LIGHT = { PointLight = true, SpotLight = true, SurfaceLight = true }
++local PFX = { Beam = true, Trail = true, Fire = true, Smoke = true, Sparkles = true }
++local POST = { BloomEffect = true, SunRaysEffect = true, DepthOfFieldEffect = true, BlurEffect = true }
++local SHADOWCLS = { Part = true, MeshPart = true, UnionOperation = true, WedgePart = true, CornerWedgePart = true, TrussPart = true }
++
++function Quality.LightsOff()
++	return lightsOff()
++end
++function Quality.ShadowsOff()
++	return shadowsOff()
++end
++function Quality.PostFxOff(class)
++	if class == "BloomEffect" or class == "BlurEffect" then
++		return cheap()
++	elseif class == "SunRaysEffect" or class == "DepthOfFieldEffect" then
++		return level <= 2 or TOUCH
++	end
++	return false
++end
++
++-- Atmosphere multipliers (density, haze, glare) for WeatherFX's tweens
++function Quality.AtmoScale()
++	if level <= 1 then
++		return 0.6, 0.5, 0
++	end
++	return 1, 1, 1
++end
++
++-- what is the current level doing? (table for a UI; .Text = one readable block)
++function Quality.Describe()
++	local lights = not lightsOff()
++	local shadows = not shadowsOff()
++	local lines = {
++		"Graphics: " .. NAMES[level] .. (if auto then " (auto)" else "") .. (if TOUCH then " · touch device" else ""),
++		"Particles: " .. math.floor(Quality.Scales[level] * 100 + 0.5) .. "% · effects cut beyond " .. Quality.Ranges[level] * 1.6 .. " studs",
++		"Lights: " .. (if lights then "on" else "off"),
++		"Shadows: " .. (if shadows then "on" else "off"),
++		"Bloom / blur: " .. (if cheap() then "off" else "on") .. " · sun rays / depth of field: " .. (if Quality.PostFxOff("SunRaysEffect") then "off" else "on"),
++		"Beams / trails / fire / smoke: " .. (if pfxOff() then "off" else "on"),
++		"Weather atmosphere: " .. (if level <= 1 then "thin" else "full"),
++	}
++	return {
++		Level = level,
++		Name = NAMES[level],
++		Auto = auto,
++		Touch = TOUCH,
++		ParticleScale = Quality.Scales[level],
++		Range = Quality.Ranges[level],
++		Lights = lights,
++		Shadows = shadows,
++		PostFx = not cheap(),
++		BeamsAndTrails = not pfxOff(),
++		Text = table.concat(lines, "\n"),
++	}
++end
++
+ local function deviceDefault()
+-	if UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled then
++	if TOUCH then
+ 		return 2
+ 	end
+ 	return 3
+ end
+ 
++---------------------------------------------------------------- Lighting / Terrain
++local lightOrig -- { GlobalShadows, ShadowSoftness, Diffuse, Specular }
++
++local function applyLighting()
++	if not lightOrig then
++		local ok = pcall(function()
++			lightOrig = {
++				Lighting.GlobalShadows,
++				Lighting.ShadowSoftness,
++				Lighting.EnvironmentDiffuseScale,
++				Lighting.EnvironmentSpecularScale,
++			}
++		end)
++		if not ok then
++			lightOrig = { true, 0.2, 1, 1 }
++		end
++	end
++	local low = level <= 1
++	pcall(function()
++		Lighting.GlobalShadows = lightOrig[1] and not shadowsOff()
++		Lighting.ShadowSoftness = if low then 0 else lightOrig[2]
++		Lighting.EnvironmentDiffuseScale = if low then lightOrig[3] * 0.7 else lightOrig[3]
++		Lighting.EnvironmentSpecularScale = if low then lightOrig[4] * 0.3 else lightOrig[4]
++	end)
++	pcall(function()
++		local terrain = workspace:FindFirstChildOfClass("Terrain")
++		if terrain then
++			if Quality._decoOrig == nil then
++				Quality._decoOrig = terrain.Decoration
++			end
++			terrain.Decoration = Quality._decoOrig and not low
++		end
++	end)
++end
++
++---------------------------------------------------------------- central sweep (lights, post fx, shadows, labels)
++local want = setmetatable({}, { __mode = "k" }) -- [inst] = the Enabled value the game wanted
++local mine = setmetatable({}, { __mode = "k" }) -- [inst] = the value WE last wrote while suppressing
++local hooked = setmetatable({}, { __mode = "k" })
++local shadowOrig = setmetatable({}, { __mode = "k" }) -- [part] = true (CastShadow was on)
++local billOrig = setmetatable({}, { __mode = "k" }) -- [gui] = its original MaxDistance
++local leafRoot
++
++local TOP_SKIP = { Camera = true, Terrain = true, LeafRushWeather = true, LeafRushSky = true, LeafRushStarfall = true, LeafRushRocks = true }
++
++local function inWorld(inst)
++	local p = inst
++	while true do
++		local par = p.Parent
++		if par == workspace then
++			return not TOP_SKIP[p.Name]
++		elseif not par then
++			return false
++		end
++		p = par
++	end
++end
++
++local function offFor(inst)
++	local cn = inst.ClassName
++	if LIGHT[cn] then
++		return lightsOff()
++	elseif PFX[cn] then
++		return pfxOff()
++	elseif POST[cn] then
++		return Quality.PostFxOff(cn)
++	end
++	return false
++end
++
++local function onEnabledChanged(inst)
++	local cur = inst.Enabled
++	local m = mine[inst]
++	if m ~= nil and cur == m then
++		return
++	end
++	-- somebody else wrote it: remember what they want, keep it off while suppressed
++	want[inst] = cur
++	if cur and offFor(inst) then
++		mine[inst] = false
++		inst.Enabled = false
++	else
++		mine[inst] = nil
++	end
++end
++
++local function enforce(inst, off)
++	if off then
++		if not hooked[inst] then
++			hooked[inst] = true
++			inst:GetPropertyChangedSignal("Enabled"):Connect(function()
++				onEnabledChanged(inst)
++			end)
++		end
++		if mine[inst] ~= false then
++			want[inst] = inst.Enabled
++		end
++		mine[inst] = false
++		if inst.Enabled then
++			inst.Enabled = false
++		end
++	elseif mine[inst] == false then
++		mine[inst] = nil
++		local w = want[inst]
++		if w == nil then
++			w = true
++		end
++		if inst.Enabled ~= w then
++			inst.Enabled = w
++		end
++	end
++end
++
++local emitters = {} -- { { e, base, last, changes } }
++local emitSet = setmetatable({}, { __mode = "k" })
++
++local function register(e)
++	if emitSet[e] or e:GetAttribute("IslandFX") ~= nil then
++		return
++	end
++	local r = e.Rate
++	if r <= 0 then
++		return
++	end
++	emitSet[e] = true
++	table.insert(emitters, { e = e, base = r, last = r, changes = 0 })
++end
++
++local function shadow(inst)
++	if shadowsOff() then
++		if inst.CastShadow then
++			if not leafRoot or not leafRoot.Parent then
++				leafRoot = workspace:FindFirstChild("LeafRush")
++			end
++			if leafRoot and inst:IsDescendantOf(leafRoot) then
++				shadowOrig[inst] = true
++				inst.CastShadow = false
++			end
++		end
++	elseif shadowOrig[inst] then
++		shadowOrig[inst] = nil
++		inst.CastShadow = true
++	end
++end
++
++local function billboard(inst)
++	local cap = if cheap() then math.max(80, Quality.Ranges[level] * 2.2) else nil
++	if cap then
++		local orig = billOrig[inst]
++		if orig == nil then
++			orig = inst.MaxDistance
++			billOrig[inst] = orig
++		end
++		local target = if orig <= 0 then cap else math.min(orig, cap)
++		if inst.MaxDistance ~= target then
++			inst.MaxDistance = target
++		end
++	else
++		local orig = billOrig[inst]
++		if orig ~= nil then
++			billOrig[inst] = nil
++			inst.MaxDistance = orig
++		end
++	end
++end
++
++local function process(inst)
++	local cn = inst.ClassName
++	if LIGHT[cn] then
++		local off = lightsOff()
++		if (off or mine[inst] ~= nil) and inWorld(inst) then
++			enforce(inst, off)
++		end
++	elseif PFX[cn] then
++		local off = pfxOff()
++		if (off or mine[inst] ~= nil) and inWorld(inst) then
++			enforce(inst, off)
++		end
++	elseif cn == "ParticleEmitter" then
++		if inWorld(inst) then
++			register(inst)
++		end
++	elseif SHADOWCLS[cn] then
++		shadow(inst)
++	elseif cn == "BillboardGui" then
++		if inWorld(inst) then
++			billboard(inst)
++		end
++	end
++end
++
++local function processLightingEffects()
++	for _, d in Lighting:GetChildren() do
++		if POST[d.ClassName] then
++			enforce(d, Quality.PostFxOff(d.ClassName))
++		end
++	end
++end
++
++local tracked = {} -- [part] = { effects = { inst }, on = bool }
++local sweepGen = 0
++
++local function resetTracked()
++	for _, entry in tracked do
++		entry.on = nil -- (forces the next LOD step to set every effect again)
++	end
++end
++
++local function fullSweep()
++	sweepGen += 1
++	local my = sweepGen
++	processLightingEffects()
++	task.spawn(function()
++		local list = workspace:GetDescendants()
++		for i = 1, #list do
++			if sweepGen ~= my then
++				return
++			end
++			local inst = list[i]
++			if inst.Parent then
++				process(inst)
++			end
++			if i % 400 == 0 then
++				RunService.Heartbeat:Wait()
++			end
++		end
++		resetTracked()
++	end)
++end
++
++local queue, qHead = {}, 1
++local RELEVANT = { ParticleEmitter = true, BillboardGui = true }
++for k in LIGHT do
++	RELEVANT[k] = true
++end
++for k in PFX do
++	RELEVANT[k] = true
++end
++
++local function onAdded(inst)
++	local cn = inst.ClassName
++	if RELEVANT[cn] or (SHADOWCLS[cn] and shadowsOff()) then
++		queue[#queue + 1] = inst
++	end
++end
++
++local function drainQueue()
++	local n = 0
++	while qHead <= #queue and n < 300 do
++		local inst = queue[qHead]
++		queue[qHead] = false
++		qHead += 1
++		n += 1
++		if inst and inst.Parent then
++			process(inst)
++		end
++	end
++	if qHead > #queue then
++		table.clear(queue)
++		qHead = 1
++	end
++end
++
++---------------------------------------------------------------- level change
+ local function apply(new)
+ 	new = math.clamp(new, 1, 3)
+ 	if new == level then
+ 		return
+ 	end
+ 	level = new
+-	pcall(function()
+-		Lighting.GlobalShadows = level >= 2 and not TOUCH
+-	end)
++	if started then
++		applyLighting()
++		fullSweep()
++	end
+ 	changed:Fire(level)
+ end
+ 
+@@ -88,9 +436,6 @@
+ end
+ 
+ ---------------------------------------------------------------- LOD
+-local tracked = {} -- [part] = { effects = { inst }, on = bool }
+-local worldEmitters = {} -- { { e = emitter, rate = base } }
+-
+ local function effectsOf(part)
+ 	local list = {}
+ 	for _, d in part:GetChildren() do
+@@ -110,13 +455,6 @@
+ 		local fx = effectsOf(part)
+ 		if #fx > 0 then
+ 			tracked[part] = { effects = fx, on = true }
+-			if TOUCH then
+-				for _, e in fx do
+-					if e:IsA("Light") then
+-						e.Enabled = false
+-					end
+-				end
+-			end
+ 		end
+ 	end)
+ end
+@@ -128,9 +466,10 @@
+ 	entry.on = on
+ 	for _, e in entry.effects do
+ 		if e.Parent then
+-			-- (touch devices: the small lights on leaves stay off — they are the most
+-			-- expensive effect on a phone)
+-			e.Enabled = on and not (TOUCH and e:IsA("Light"))
++			-- (lights / fire stay off while the central sweep keeps them off: no fight)
++			if not (offFor(e) and mine[e] == false) then
++				e.Enabled = on
++			end
+ 		end
+ 	end
+ end
+@@ -149,34 +488,57 @@
+ 			setOn(entry, (part.Position - from).Magnitude <= range)
+ 		end
+ 	end
+-	-- world decoration emitters: thin out with the quality, off far away
+-	local k = Quality.Scales[level]
+-	for _, w in worldEmitters do
+-		local e = w.e
+-		if e.Parent then
+-			local p = e.Parent
+-			local pos = if p:IsA("BasePart") then p.Position elseif p:IsA("Attachment") then p.WorldPosition else nil
+-			local far = pos and (pos - from).Magnitude > range * 1.6
+-			e.Rate = if far then 0 else w.rate * k
+-		end
+-	end
+ end
+ 
+-local function scanWorld()
+-	local root = workspace:FindFirstChild("LeafRush")
+-	if not root then
++-- every decorative ParticleEmitter in the world: Rate × the level's scale, 0 beyond Range × 1.6.
++-- An emitter whose Rate is rewritten by its own module (several times) is left to that module.
++local emitIdx = 0
++local function emitStep()
++	local cam = workspace.CurrentCamera
++	local n = #emitters
++	if not cam or n == 0 then
+ 		return
+ 	end
+-	table.clear(worldEmitters)
+-	for _, name in { "Zones", "Hub" } do
+-		local f = root:FindFirstChild(name)
+-		if f then
+-			for _, d in f:GetDescendants() do
+-				if d:IsA("ParticleEmitter") then
+-					table.insert(worldEmitters, { e = d, rate = d.Rate })
+-				end
++	local from = cam.CFrame.Position
++	local farDist = Quality.Range() * 1.6
++	local k = Quality.Scales[level]
++	for _ = 1, math.min(n, 300) do
++		emitIdx += 1
++		if emitIdx > #emitters then
++			emitIdx = 1
++		end
++		local w = emitters[emitIdx]
++		if not w then
++			break
++		end
++		local e = w.e
++		if not e.Parent then
++			emitters[emitIdx] = emitters[#emitters]
++			emitters[#emitters] = nil
++			emitIdx -= 1
++			continue
++		end
++		local rate = e.Rate
++		if math.abs(rate - w.last) > 0.01 + w.last * 0.001 then
++			-- written by somebody else: that is the new base
++			w.changes += 1
++			if w.changes > 4 then
++				emitters[emitIdx] = emitters[#emitters]
++				emitters[#emitters] = nil
++				emitIdx -= 1
++				continue
+ 			end
++			w.base = rate
++			w.last = rate
+ 		end
++		local p = e.Parent
++		local pos = if p:IsA("BasePart") then p.Position elseif p:IsA("Attachment") then p.WorldPosition else nil
++		local far = pos ~= nil and (pos - from).Magnitude > farDist
++		local target = if far then 0 else w.base * k
++		if math.abs(target - rate) > 0.001 then
++			e.Rate = target
++		end
++		w.last = target
+ 	end
+ end
+ 
+@@ -184,10 +546,8 @@
+ function Quality.Start(config)
+ 	local player = Players.LocalPlayer
+ 	level = deviceDefault()
+-	-- v0.9: one switch, "Low graphics mode" (else Auto picks from the frame rate)
+-	pcall(function()
+-		Lighting.GlobalShadows = level >= 2 and not TOUCH
+-	end)
++	started = true
++	applyLighting()
+ 	local function applySetting()
+ 		Quality.SetSetting(if player:GetAttribute("Setting_LowGraphics") == true then "Low" else "Auto")
+ 	end
+@@ -201,23 +561,59 @@
+ 	CollectionService:GetInstanceRemovedSignal(tag):Connect(function(p)
+ 		tracked[p] = nil
+ 	end)
+-	task.delay(4, scanWorld) -- the zones are built by then
+-	task.delay(20, scanWorld)
+ 
+-	-- Auto: follow the frame rate (5 s windows, hysteresis)
++	workspace.DescendantAdded:Connect(onAdded)
++	Lighting.ChildAdded:Connect(function(d)
++		if POST[d.ClassName] then
++			task.defer(enforce, d, Quality.PostFxOff(d.ClassName))
++		end
++	end)
++	RunService.Heartbeat:Connect(drainQueue)
++	fullSweep() -- (batched over frames)
++	task.delay(6, fullSweep) -- the zones are built by then
++	task.delay(25, fullSweep)
++
++	-- Auto: follow the frame rate. 1 s windows; down after ~3 s (touch) / ~5 s (PC) of low FPS,
++	-- up only after ~30 s of good FPS (longer if the last step up did not hold)
+ 	local frames, t0 = 0, os.clock()
++	local born = os.clock()
++	local badRun, goodRun = 0, 0
++	local upNeed = 30
++	local lastUp = -1e9
++	local downNeed = if TOUCH then 3 else 5
++	local lowFps = if TOUCH then 26 else 32
++	local highFps = if TOUCH then 52 else 57
+ 	RunService.RenderStepped:Connect(function()
+ 		frames += 1
+ 		local t = os.clock()
+-		if t - t0 >= 5 then
++		if t - t0 >= 1 then
+ 			local fps = frames / (t - t0)
+ 			frames, t0 = 0, t
+-			if auto then
+-				if fps < 32 and level > 1 then
++			if not auto or t - born < 8 or fps < 4 then
++				badRun, goodRun = 0, 0 -- (loading hitch / tab out: not a measurement)
++				return
++			end
++			if fps < lowFps then
++				badRun += 1
++				goodRun = 0
++				if badRun >= downNeed and level > 1 then
++					if t - lastUp < 90 then
++						upNeed = math.min(upNeed * 2, 240) -- it did not hold: wait longer next time
++					end
++					badRun = 0
+ 					apply(level - 1)
+-				elseif fps > 57 and level < deviceDefault() then
++				end
++			elseif fps > highFps then
++				goodRun += 1
++				badRun = 0
++				if goodRun >= upNeed and level < deviceDefault() then
++					goodRun = 0
++					lastUp = t
+ 					apply(level + 1)
+ 				end
++			else
++				badRun = 0
++				goodRun = math.max(0, goodRun - 1)
+ 			end
+ 		end
+ 	end)
+@@ -227,6 +623,12 @@
+ 			pcall(lodStep)
+ 		end
+ 	end)
++	task.spawn(function()
++		while true do
++			task.wait(0.1)
++			pcall(emitStep)
++		end
++	end)
+ end
+ 
+ return Quality
 --- a/QuestConfig.lua
 +++ b/QuestConfig.lua
 @@ -224,13 +224,6 @@
@@ -13576,6 +14938,38 @@
  	Rare = { Id = "Rare", Order = 2, Color = Color3.fromRGB(70, 160, 255), UpgradeCostMult = 1.6 },
  	Epic = { Id = "Epic", Order = 3, Color = Color3.fromRGB(180, 90, 255), UpgradeCostMult = 2.5 },
  	Legendary = { Id = "Legendary", Order = 4, Color = Color3.fromRGB(255, 175, 40), UpgradeCostMult = 4 },
+--- a/RemoteBrooms.lua
++++ b/RemoteBrooms.lua
+@@ -10,6 +10,7 @@
+ local Players = game:GetService("Players")
+ 
+ local RemoteBrooms = {}
++local TOUCH_RB = game:GetService("UserInputService").TouchEnabled and not game:GetService("UserInputService").KeyboardEnabled
+ RemoteBrooms.__index = RemoteBrooms
+ 
+ function RemoteBrooms.new(config, BroomModel, BroomFX, BroomTypes, folder)
+@@ -48,6 +49,12 @@
+ 			end
+ 		end
+ 	end
++	-- (re-applied twice a second instead of every frame: the tool's parts don't change)
++	local nowc = os.clock()
++	if e.hidTool == tool and e.hid == hidden and nowc < (e.hidT or 0) then
++		return
++	end
++	e.hidTool, e.hid, e.hidT = tool, hidden, nowc + 0.5
+ 	for _, p in e.toolParts or {} do
+ 		p.LocalTransparencyModifier = if hidden then 1 else 0
+ 	end
+@@ -122,7 +129,7 @@
+ 		end
+ 		-- far away? don't bother drawing (other yards are ~110 studs apart)
+ 		local camPos = workspace.CurrentCamera.CFrame.Position
+-		if (collider.Position - camPos).Magnitude > 160 then
++		if (collider.Position - camPos).Magnitude > (if TOUCH_RB then 110 else 160) then
+ 			if e then
+ 				self:_hide(e, player)
+ 			end
 --- a/ResourceFlutter.lua
 +++ b/ResourceFlutter.lua
 @@ -9,6 +9,34 @@
@@ -13639,7 +15033,7 @@
  	if not folder then
  		return
  	end
-@@ -95,7 +135,421 @@
+@@ -95,7 +135,424 @@
  	end
  end
  
@@ -14029,8 +15423,11 @@
 +	local cf = floor.CFrame * CFrame.new(0, floor.Size.Y / 2, 0)
 +	local limit = if floor.CanCollide then -1.6 else -22.5 -- (pit dug: the floor is off, the bed's underside is at -21)
 +	local half = floor.Size.X / 2 - 2
++	-- (a flat yard: an item resting well above the floor needs no transform / attribute read)
++	local flat = cf.UpVector.Y > 0.999
++	local yCut = cf.Position.Y + limit
 +	for _, p in folder:GetChildren() do
-+		if p:IsA("BasePart") and not p.Anchored and p.ReceiveAge == 0 and not p:GetAttribute("Carried") then
++		if p:IsA("BasePart") and not p.Anchored and p.ReceiveAge == 0 and (not flat or p.Position.Y < yCut or p.AssemblyLinearVelocity.Y < -45 or p.AssemblyLinearVelocity.Magnitude > 70) and not p:GetAttribute("Carried") then
 +			local v = p.AssemblyLinearVelocity
 +			if v.Y < -45 or v.Magnitude > 70 then
 +				v = Vector3.new(v.X, math.max(v.Y, -45), v.Z)
@@ -14061,7 +15458,7 @@
  	self.magnetT += dt
  	if self.magnetT >= 0.1 then
  		self.magnetT = 0
-@@ -132,6 +586,11 @@
+@@ -132,6 +589,11 @@
  		part.AssemblyAngularVelocity = Vector3.new(s.dz * c * 2.5, part.AssemblyAngularVelocity.Y * 0.95, -s.dx * c * 2.5)
  	end
  	self:_aero(dt)
@@ -14084,7 +15481,25 @@
  local stats = { spawned = 0, reused = 0, collected = 0, lost = 0, confiscated = 0 }
  local fields = {} -- [index] = field (zone fields: WildService), looked up like plots
  
-@@ -124,6 +126,48 @@
+@@ -50,12 +52,14 @@
+ 		alive[i] = {}
+ 		counts[i] = 0
+ 	end
+-	local acc, mergeAcc = 0, 0
++	local acc, mergeAcc, slice = 0, 0, 0
++	local SLICES = 3 -- (serverperf: each yard is still swept ValidateRate times a second, but a third of them per step)
+ 	RunService.Heartbeat:Connect(function(dt)
+ 		acc += dt
+-		local period = 1 / ctx.Config.Resources.ValidateRate
++		local period = 1 / ctx.Config.Resources.ValidateRate / SLICES
+ 		if acc >= period then
+-			ResourceService._validate(acc)
++			slice = slice % SLICES + 1
++			ResourceService._validate(acc, slice, SLICES)
+ 			acc = 0
+ 		end
+ 		mergeAcc += dt
+@@ -124,6 +128,48 @@
  	return Color3.fromHSV(h, s, math.clamp(v + rng:NextNumber(-0.07, 0.03), 0, 1))
  end
  
@@ -14133,7 +15548,7 @@
  local function makePart(def, scale)
  	local p = Instance.new("Part")
  	p.Name = def.Id
-@@ -281,6 +325,10 @@
+@@ -281,6 +327,10 @@
  	end
  	if p:GetAttribute("Rabid") then
  		p:SetAttribute("Rabid", nil)
@@ -14144,7 +15559,7 @@
  	end
  	p.Material = def.Material
  	p.Transparency = 0
-@@ -384,8 +432,15 @@
+@@ -384,8 +434,15 @@
  	end
  	if table.find(list, "Rabid") then
  		p:SetAttribute("Rabid", true) -- (it runs around: the owner's client moves it)
@@ -14160,7 +15575,7 @@
  	end
  	local bb, t = label(p, "MutationLabel", "", dom.Color, 1.3 * scale + 0.4)
  	bb:SetAttribute("MutFX", true)
-@@ -597,13 +652,16 @@
+@@ -597,13 +654,16 @@
  	if mkey then
  		applyLook(part, def, mkey, scale)
  	end
@@ -14178,7 +15593,7 @@
  	part:SetAttribute("PlotIndex", group)
  	part:SetAttribute("Amount", amount)
  	part:SetAttribute("FadeAt", nil)
-@@ -623,7 +681,11 @@
+@@ -623,7 +683,11 @@
  	part.Anchored = false
  	part.CFrame = CFrame.new(pos) * CFrame.Angles(rng:NextNumber(0, 6.28), rng:NextNumber(0, 6.28), rng:NextNumber(0, 6.28))
  	part.Parent = plot.ResourcesFolder
@@ -14191,7 +15606,7 @@
  	part.AssemblyAngularVelocity = Vector3.new(rng:NextNumber(-3, 3), rng:NextNumber(-3, 3), rng:NextNumber(-3, 3))
  	pcall(function()
  		part:SetNetworkOwner(plot.Owner)
-@@ -644,6 +706,9 @@
+@@ -644,6 +708,9 @@
  	}
  	alive[plot.Index][part] = true
  	counts[plot.Index] += 1
@@ -14201,7 +15616,7 @@
  	if mkey then
  		refreshLabel(part, info[part])
  		if ctx.MutationTypes.Has(mkey, "Frozen") then
-@@ -1175,6 +1240,9 @@
+@@ -1175,19 +1242,25 @@
  	if not player or not ctx.BroomSystem then
  		return false
  	end
@@ -14211,11 +15626,49 @@
  	local ok, _, stats = pcall(ctx.BroomSystem.Current, player)
  	local need = ctx.Config.Resources.HeavyBroom or { Power = 70, Durability = 60 }
  	return ok and type(stats) == "table" and (stats.Power or 0) >= need.Power and (stats.Durability or 0) >= need.Durability
-@@ -1241,6 +1309,10 @@
+ end
+ 
+-function ResourceService.HeavyStep()
++function ResourceService.HeavyStep(slice, slices)
+ 	for idx, set in alive do
++		if slice and idx % slices ~= slice % slices then
++			continue
++		end
+ 		local plot = fields[idx] or ctx.PlotSystem.GetByIndex(idx)
+ 		local strong = nil
+ 		for part in set do
+-			if part:GetAttribute("Heavy") then
+-				local i = info[part]
+-				if i and not i.Stuck and not i.Iced and not part:GetAttribute("Carried") then
++			local i = info[part]
++			if i and i.Mutation and part:GetAttribute("Heavy") then
++				if not i.Stuck and not i.Iced and not part:GetAttribute("Carried") then
+ 					if strong == nil then
+ 						strong = plot ~= nil and ResourceService.CanPushHeavy(plot.Owner)
+ 					end
+@@ -1208,12 +1281,15 @@
+ end
+ 
+ -- anti-exploit + cleanup sweep
+-function ResourceService._validate(_dt)
+-	pcall(ResourceService.HeavyStep)
++function ResourceService._validate(_dt, slice, slices)
++	pcall(ResourceService.HeavyStep, slice, slices)
+ 	local R = ctx.Config.Resources
+ 	local now = os.clock()
+ 	local revive = {}
+ 	for idx, set in alive do
++		if slice and idx % slices ~= slice % slices then
++			continue
++		end
+ 		local plot = fields[idx] or ctx.PlotSystem.GetByIndex(idx)
+ 		local lim = (plot and plot.Size or ctx.Config.Plot.Sizes[0]) * 0.5 + R.OutOfBoundsMargin
+ 		for part in set do
+@@ -1241,6 +1317,10 @@
  				ResourceService.ReturnInside(part, plot) -- v1.10: over the fence -> back inside
  			elseif out and R.ReturnOutOfBounds and plot then
  				i.LastPos, i.LastT = pos, now -- (stuck / frozen out there: it stays what it is)
-+			elseif plot and plot.Floor and plot.Owner and not part.Anchored and not part:GetAttribute("Carried") and lp.Y < (if plot.Floor.CanCollide then -1.6 else -22.5) then
++			elseif plot and plot.Floor and plot.Owner and lp.Y < (if plot.Floor.CanCollide then -1.6 else -22.5) and not part.Anchored and not part:GetAttribute("Carried") then
 +				-- fell THROUGH the floor (tunnelled / pushed under) and rests below the ground: put it back on top
 +				-- (-1.6 = beneath the 1-stud floor plate; with a pit dug the floor is off and the bed's underside is at -21)
 +				ResourceService.ReturnInside(part, plot)
@@ -14510,6 +15963,21 @@
  end
  
  ---------------------------------------------------------------- 🌐 LANGUAGE
+--- a/ShopUI.lua
++++ b/ShopUI.lua
+@@ -544,6 +544,12 @@
+ 			TweenService:Create(self.scale, TweenInfo.new(0.25, Enum.EasingStyle.Back), { Scale = base }):Play()
+ 		end
+ 		self.spinConn = RunService.RenderStepped:Connect(function(dt)
++			self.spinAcc = (self.spinAcc or 0) + dt
++			if self.spinAcc < 0.033 then
++				return -- perf: 30 Hz
++			end
++			dt = self.spinAcc
++			self.spinAcc = 0
+ 			if self.previewModel and self.previewRig then
+ 				self.spin += dt * 0.9
+ 				local total = self.previewRig.totalLength
 --- a/SkyFX.lua
 +++ b/SkyFX.lua
 @@ -43,6 +43,11 @@
@@ -14524,6 +15992,15 @@
  
  local STAR_DIST = 600
  local SPACE_SPEED = 1 / 3.5 -- the space sky fades in / out in ~3.5 s
+@@ -265,7 +270,7 @@
+ 	if s.sky.CelestialBodiesShown ~= bodies then
+ 		s.sky.CelestialBodiesShown = bodies
+ 	end
+-	local count = if sp > 0.5 then math.max(s.StarCount, 5000) else s.StarCount
++	local count = if sp > 0.5 then math.max(s.StarCount, ({ 1500, 3000, 5000 })[level()]) else s.StarCount
+ 	if s.sky.StarCount ~= count then
+ 		s.sky.StarCount = count
+ 	end
 @@ -410,15 +415,89 @@
  		end
  	end
@@ -18142,6 +19619,19 @@
  	local rb = R and robuxFor and robuxFor > 0 and R.ForMoney(robuxFor)
  	local showR = rb ~= nil and rb ~= false and R.Available(rb)
  	self.robuxButton.Visible = showR
+@@ -1112,6 +1275,12 @@
+ 			TweenService:Create(self.scale, TweenInfo.new(0.25, Enum.EasingStyle.Back), { Scale = base }):Play()
+ 		end
+ 		self.spinConn = RunService.RenderStepped:Connect(function(dt)
++			self.spinAcc = (self.spinAcc or 0) + dt
++			if self.spinAcc < 0.033 then
++				return -- perf: 30 Hz
++			end
++			dt = self.spinAcc
++			self.spinAcc = 0
+ 			if self.previewModel and self.previewCenter then
+ 				self.spin += dt * 0.9
+ 				local c, r = self.previewCenter, self.previewSize
 --- a/TouchControls.lua
 +++ b/TouchControls.lua
 @@ -88,8 +88,8 @@
@@ -18172,7 +19662,17 @@
  		-- v2.38: the Vacuum's VORTEX and the Pickaxe's SMASH are on this button too
  		if self:_toolMode() and t.kind == "Vacuum" and t.Vortex then
  			t:Vortex(true)
-@@ -464,7 +474,9 @@
+@@ -451,6 +461,9 @@
+ end
+ 
+ function TouchControls:Update()
++	if not self.touch and not self.gui.Enabled and not self.toolLatched then
++		return -- perf: mouse + keyboard player, buttons hidden: nothing to update
++	end
+ 	local c = self.controller
+ 	local toolMode = self:_toolMode()
+ 	local pickMode = self:_pickMode() -- v2.38
+@@ -464,7 +477,9 @@
  	local blower = toolMode and self.tools.kind == "Blower"
  	local vacuum = toolMode and self.tools.kind == "Vacuum"
  	local trimmer = toolMode and self.tools.kind == "Trimmer" and self.tools.Whirl ~= nil -- v2.40: 💫 WHIRL
@@ -18183,7 +19683,7 @@
  	self.sweep.Visible = not pickMode
  	self.camera.Visible = not pickMode
  	if self.pad then
-@@ -503,12 +515,12 @@
+@@ -503,12 +518,12 @@
  	if toolMode then
  		local t = self.tools
  		local on = t.pressing == true
@@ -18199,7 +19699,7 @@
  		self.sweep.BackgroundColor3 = if on then Color3.fromRGB(120, 230, 110) else Color3.fromRGB(88, 186, 92)
  		self.sweepStroke.Color = if self.toolLatched then Color3.fromRGB(255, 240, 120) else Color3.new(1, 1, 1)
  		self.sweepStroke.Thickness = if self.toolLatched then 5 else 3
-@@ -524,6 +536,31 @@
+@@ -524,6 +539,31 @@
  			self.strike.Label.Text = if jet then "JET" else "BLOW"
  			self.strike.BackgroundColor3 = if jet then Color3.fromRGB(70, 150, 240) else Color3.fromRGB(120, 170, 200)
  			self.strike.Shade.Size = UDim2.fromScale(1, 0)
@@ -18618,6 +20118,23 @@
  	local unix = TreeSystem.Unix()
  	if ctx.MutationService then
  		ctx.MutationService.SpawnBoost = 1
+@@ -582,7 +622,15 @@
+ 				publish(entry, wait)
+ 				local spawned, mutated = TreeSystem.Harvest(entry)
+ 				if spawned > 0 and ctx.Net and ctx.Net.TreeDropped then
+-					ctx.Net.TreeDropped:FireAllClients(entry.Plot.Index, entry.Id, mutated)
++					-- serverperf: the client draws it only within 140 studs of its camera -> send to the owner and to
++					-- players whose character is within 360 studs of the yard (camera zoom + yard half size + 140)
++					local center = entry.Plot.CFrame.Position
++					for _, pl in ctx.Players:GetPlayers() do
++						local root = pl.Character and pl.Character:FindFirstChild("HumanoidRootPart")
++						if pl == entry.Plot.Owner or (root and (root.Position - center).Magnitude <= 360) then
++							ctx.Net.TreeDropped:FireClient(pl, entry.Plot.Index, entry.Id, mutated)
++						end
++					end
+ 				end
+ 			end
+ 		end
 --- a/UIImages.lua
 +++ b/UIImages.lua
 @@ -31,6 +31,9 @@
@@ -18632,7 +20149,94 @@
  	TouchCutter = "", -- ✂️ Применить: ножницы / коса / триммер
 --- a/UIKit.lua
 +++ b/UIKit.lua
-@@ -880,6 +880,7 @@
+@@ -208,6 +208,25 @@
+ 	text and buttons stay as readable as before.
+ 	  UIKit.studs(frame, { W, H (size of the frame in px), Pitch, Size, Inset, Dark })
+ ]]
++-- perf: Quality is looked up lazily (UIKit is a sibling module of Quality in the client)
++local perfQ
++local function perfQuality()
++	if perfQ == nil then
++		perfQ = false
++		pcall(function()
++			local m = script.Parent:FindFirstChild("Quality")
++			if m then
++				perfQ = require(m)
++			end
++		end)
++	end
++	return perfQ or nil
++end
++local function perfLight()
++	local q = perfQuality()
++	return q ~= nil and (q.Touch == true or q.Level() < 3)
++end
++
+ function UIKit.studs(frame, opts)
+ 	local fill = UIKit.studsHolder(frame, opts)
+ 	if fill then
+@@ -258,8 +277,28 @@
+ 		filled = true
+ 		local W = (opts.W or frame.AbsoluteSize.X) - 2 * inset
+ 		local H = (opts.H or frame.AbsoluteSize.Y) - 2 * inset
+-		local cols = math.max(1, math.floor((W + pitch - d) / pitch))
+-		local rows = math.max(1, math.floor((H + pitch - d) / pitch))
++		-- perf: never studs on tiny things; phones / low graphics: fewer, bigger studs
++		-- (pitch x1.6) and a smaller cap; always one Frame + UICorner per stud (no UIStroke)
++		if W < 24 or H < 24 then
++			return
++		end
++		local light = perfLight()
++		local cap = if light then 140 else 320
++		local pitchN, dN = pitch, d
++		if light then
++			pitchN = pitch * 1.6
++			dN = math.min(math.floor(d * 1.25 + 0.5), pitchN - 2)
++		end
++		local cols = math.max(1, math.floor((W + pitchN - dN) / pitchN))
++		local rows = math.max(1, math.floor((H + pitchN - dN) / pitchN))
++		if cols * rows > cap then
++			pitchN = pitchN * math.sqrt(cols * rows / cap)
++			dN = math.min(dN * 1.1, pitchN - 2)
++			cols = math.max(1, math.floor((W + pitchN - dN) / pitchN))
++			rows = math.max(1, math.floor((H + pitchN - dN) / pitchN))
++		end
++		gl.CellSize = UDim2.fromOffset(dN, dN)
++		gl.CellPadding = UDim2.fromOffset(pitchN - dN, pitchN - dN)
+ 		gl.FillDirectionMaxCells = cols
+ 		local proto = Instance.new("Frame")
+ 		proto.Name = "Stud"
+@@ -270,13 +309,8 @@
+ 		local pc = Instance.new("UICorner")
+ 		pc.CornerRadius = UDim.new(0.5, 0)
+ 		pc.Parent = proto
+-		local ps = Instance.new("UIStroke")
+-		ps.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+-		ps.Color = Color3.new(0, 0, 0)
+-		ps.Thickness = 1.5
+-		ps.Transparency = if opts.Dark then 0.9 else 0.84
+-		ps.Parent = proto
+-		for _ = 1, math.min(cols * rows, 500) do
++		proto.BackgroundTransparency = if opts.Dark then 0.9 else 0.86 -- (no UIStroke per stud: a slightly stronger tint instead)
++		for _ = 1, math.min(cols * rows, cap) do
+ 			proto:Clone().Parent = holder
+ 		end
+ 		proto:Destroy()
+@@ -487,12 +521,7 @@
+ 		local c = Instance.new("UICorner")
+ 		c.CornerRadius = UDim.new(0.5, 0)
+ 		c.Parent = s
+-		local st = Instance.new("UIStroke")
+-		st.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+-		st.Color = Color3.new(0, 0, 0)
+-		st.Thickness = 1.5
+-		st.Transparency = 0.8
+-		st.Parent = s
++		s.BackgroundTransparency = 0.8 -- (perf: no UIStroke on the round-button studs)
+ 	end
+ end
+ 
+@@ -880,6 +909,7 @@
  	lp.PaddingRight = UDim.new(0, 8)
  	lp.Parent = list
  	w.list = list
@@ -18640,7 +20244,7 @@
  
  	-- v2.15: a grid that asked to be kept ("Keep" = its id) is only marked here; the
  	-- page that is drawn right after takes it back if nothing in it changed (so the
-@@ -912,6 +913,7 @@
+@@ -912,6 +942,7 @@
  	function w.SetTab(id)
  		local changed = w.tab ~= id
  		w.tab = id
@@ -18648,7 +20252,7 @@
  		for tid, b in w.tabs do
  			local on = tid == id
  			if book then
-@@ -989,6 +991,7 @@
+@@ -989,6 +1020,7 @@
  				w.onOpen()
  			end
  			w.SetTab(w.tab)
@@ -18656,7 +20260,7 @@
  			if instant then
  				task.defer(UIKit.fadeIn, list) -- (a page switch in a hub: the content fades in)
  			end
-@@ -1033,23 +1036,142 @@
+@@ -1033,23 +1065,142 @@
  end
  
  -- the content of a list fades in (tab changes)
@@ -18715,7 +20319,7 @@
 +			end
 +		end)
 +		tw:Play()
-+	end
+ 	end
 +	task.delay(0.24 + 0.035 * 8 + 0.15, function()
 +		for c, target in finals do
 +			if c.Parent and fadeFinal[c] == target then
@@ -18753,7 +20357,7 @@
 +	local room = list.AbsoluteCanvasSize.Y - list.AbsoluteSize.Y
 +	if room <= 2 or list.AbsoluteSize.Y <= 0 then
 +		return
- 	end
++	end
 +	local nudged = Vector2.new(p.X, if p.Y + 1 <= room then p.Y + 1 else p.Y - 1)
 +	list:SetAttribute("Nudging", true)
 +	list.CanvasPosition = nudged
@@ -19047,15 +20651,19 @@
  		sp.AnchorPoint = Vector2.new(0.5, 0.5)
  		sp.BackgroundColor3 = Color3.new(1, 1, 1)
  		sp.BackgroundTransparency = 0.3
-@@ -503,6 +544,7 @@
+@@ -501,8 +542,10 @@
+ 	local info = TweenInfo.new(t, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+ 	-- ClockTime is tweened too (a smooth sunset into Storm / Mutation Storm)
  	TweenService:Create(Lighting, info, { Brightness = vis.Brightness, ClockTime = vis.ClockTime }):Play()
- 	TweenService:Create(self.atmo, info, { Density = vis.Density, Haze = vis.Haze, Color = vis.AtmoColor }):Play()
+-	TweenService:Create(self.atmo, info, { Density = vis.Density, Haze = vis.Haze, Color = vis.AtmoColor }):Play()
++	local aD, aH = Quality.AtmoScale()
++	TweenService:Create(self.atmo, info, { Density = vis.Density * aD, Haze = vis.Haze * aH, Color = vis.AtmoColor }):Play()
  	TweenService:Create(self.cc, info, { TintColor = vis.Tint, Saturation = vis.Saturation }):Play()
 +	self:_applyFx(t, vis)
  	-- v1.0: the bar changes colour smoothly with the weather
  	local th = barTheme(cur)
  	self.barTheme = th
-@@ -519,13 +561,34 @@
+@@ -519,13 +562,35 @@
  	if not first then
  		-- a little pop of the icon when the weather changes
  		self.wIcon.TextSize = 40
@@ -19084,14 +20692,15 @@
 +	TweenService:Create(self.bloom, info, { Intensity = b[1], Size = b[2], Threshold = b[3] }):Play()
 +	TweenService:Create(self.rays, info, { Intensity = r[1], Spread = r[2] }):Play()
 +	TweenService:Create(Lighting, info, { OutdoorAmbient = fx.Ambient or B.Ambient, ColorShift_Top = fx.Shift or B.Shift }):Play()
-+	TweenService:Create(self.atmo, info, { Decay = fx.Decay or B.Decay, Glare = fx.Glare or B.Glare, Offset = fx.Offset or B.Offset }):Play()
++	local aD, aH, aG = Quality.AtmoScale()
++	TweenService:Create(self.atmo, info, { Decay = fx.Decay or B.Decay, Glare = (fx.Glare or B.Glare) * aG, Offset = fx.Offset or B.Offset, Density = (vis.Density or self.atmo.Density) * aD, Haze = (vis.Haze or self.atmo.Haze) * aH }):Play()
 +	TweenService:Create(self.cc, info, { Contrast = fx.Contrast or 0 }):Play()
 +end
 +
  function WeatherFX:_banner(def)
  	self.bannerId += 1
  	local id = self.bannerId
-@@ -562,6 +625,218 @@
+@@ -562,6 +627,218 @@
  	return math.clamp((now() - start) / math.max(self.W.Transition, 0.01), 0, 1)
  end
  
@@ -19310,7 +20919,7 @@
  function WeatherFX:Update(dt)
  	local cur, prev, start, finish = self:_state()
  	local k = self:Blend()
-@@ -573,8 +848,10 @@
+@@ -573,8 +850,10 @@
  	local flat = Vector3.new(cf.LookVector.X, 0, cf.LookVector.Z)
  	flat = if flat.Magnitude > 0.01 then flat.Unit else Vector3.new(0, 0, -1)
  	local frame = CFrame.lookAt(Vector3.zero, flat)
@@ -19322,7 +20931,7 @@
  		L.emitter.Rate = L.def.Rate * amount
  		L.emitter.Enabled = amount > 0.01
  		local off = Vector3.new(L.def.Side or 0, L.def.Height, 0)
-@@ -619,6 +896,34 @@
+@@ -619,6 +898,34 @@
  		end
  	end
  
@@ -19357,7 +20966,7 @@
  	-- lightning
  	local bolt = cur.Visual.Lightning
  	if bolt and k >= 1 then
-@@ -644,6 +949,15 @@
+@@ -644,6 +951,15 @@
  	self.flash = math.max(self.flash - dt * 3, 0)
  	self.flashCC.Brightness = self.flash * 0.45
  	self.flashCC.Contrast = self.flash * 0.2
@@ -19373,7 +20982,7 @@
  
  	-- the top bar (text changes at most once a second)
  	local left = math.max(finish - now(), 0)
-@@ -666,8 +980,9 @@
+@@ -666,8 +982,9 @@
  		s.f.Position = UDim2.fromScale(s.x, s.y + math.sin(tt * 5 + s.x * 9) * 0.12)
  		s.f.BackgroundTransparency = 0.25 + math.abs(math.sin(tt * 2 + s.x * 6)) * 0.5
  	end
@@ -19467,7 +21076,7 @@
  	if call(deps.IsOpen) then
 --- a/WorldBuilder.lua
 +++ b/WorldBuilder.lua
-@@ -63,7 +63,367 @@
+@@ -63,7 +63,390 @@
  	return Vector3.new(s.Position.X, 0, s.Position.Z)
  end
  
@@ -19701,8 +21310,31 @@
 +	-- the moving platforms carry whoever stands on them (their velocity is set every frame)
 +	if #movers > 0 then
 +		local t0 = os.clock()
++		local nearT, anyNear = -1, true
 +		RunService.Heartbeat:Connect(function()
-+			local t = os.clock() - t0
++			local clock = os.clock()
++			-- serverperf: nobody within 300 studs = nothing to carry and nobody to replicate 60 CFrames/s to
++			if clock - nearT >= 0.5 then
++				nearT, anyNear = clock, false
++				for _, pl in Players:GetPlayers() do
++					local root = pl.Character and pl.Character:FindFirstChild("HumanoidRootPart")
++					if root then
++						for _, m in movers do
++							if (root.Position - m.Base.Position).Magnitude < 300 then
++								anyNear = true
++								break
++							end
++						end
++						if anyNear then
++							break
++						end
++					end
++				end
++			end
++			if not anyNear then
++				return
++			end
++			local t = clock - t0
 +			for _, m in movers do
 +				if m.Part.Parent then
 +					local w = 1.3
