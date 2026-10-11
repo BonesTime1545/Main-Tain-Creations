@@ -62,7 +62,7 @@ end
 -- numbers equal AbilityValue / the caps of the logic
 local function has(t, s) return string.find(t, s, 1, true) ~= nil end
 if not has(P.Text("AncientSprout", "Normal", 1, nil, "en"), "×2.05") then fail("Ancient Sprout L1 normal not x2.05") end
-if not has(P.Text("AncientSprout", "Rainbow", 10, nil, "en"), "×3.6") then fail("Ancient Sprout Rainbow not x3.6") end
+if not has(P.Text("AncientSprout", "Rainbow", 10, nil, "en"), "×6") then fail("Ancient Sprout Rainbow L10 not x6") end
 if not has(P.Text("MutationBeast", "Rainbow", 10, nil, "en"), "50%") then fail("Mutation Beast chance not capped at 50%") end
 if not has(P.Text("RainFrog", "Rainbow", 10, nil, "en"), "90%") then fail("Rain Frog not capped at 90%") end
 if not has(P.Text("GardenBunny", "Normal", 10, nil, "en"), "11.4%") then fail("Garden Bunny L10: " .. P.Text("GardenBunny", "Normal", 10, nil, "en")) end
@@ -96,3 +96,25 @@ if ALL_PRINT then
 	end
 end
 print(if fails == 0 then "ALL PETTEXT TESTS PASSED" else ("FAILURES: " .. fails))
+
+-- round 12: Ancient Sprout Mult scales with level (L1 = old number, L10 = old x 6/3.6, Rainbow L10 = 6); MoonWolf speed uncapped
+do
+	local want10 = { Normal = 3.42, Golden = 4.17, Diamond = 5, Rainbow = 6 }
+	local want1 = { Normal = 2.05, Golden = 2.5, Diamond = 3, Rainbow = 3.6 }
+	local prev = {}
+	for _, v in { "Normal", "Golden", "Diamond", "Rainbow" } do
+		for L = 1, 10 do
+			local m = P.AbilityValue("AncientSprout", v, "Mult", L)
+			if L == 1 and math.abs(m - want1[v]) > 1e-9 then fail("Sprout L1 " .. v .. " = " .. m) end
+			if L == 10 and math.abs(m - want10[v]) > 1e-9 then fail("Sprout L10 " .. v .. " = " .. m) end
+			if prev[v] and m < prev[v] then fail("Sprout not monotonic " .. v) end
+			prev[v] = m
+		end
+		if not has(P.Text("AncientSprout", v, 10, nil, "en"), "×" .. (tostring(want10[v]))) then fail("Sprout text L10 " .. v .. ": " .. P.Text("AncientSprout", v, 10, nil, "en")) end
+	end
+	if not has(P.Text("AncientSprout", "Rainbow", 10, nil, "ru"), "×6") then fail("Sprout ru text") end
+	-- Moon Wolf Speed is not capped at 0.4 any more (a boosted Rainbow wolf at L10)
+	local sp = P.AbilityValue("MoonWolf", "Rainbow", "Speed", 10, 1)
+	if sp <= 0.4 and sp ~= 0.52 then fail("MoonWolf speed " .. sp) end
+	if not has(P.Text("MoonWolf", "Rainbow", 10, 1, "en"), tostring(math.floor(sp * 100 + 0.5)) .. "%") then fail("MoonWolf text " .. P.Text("MoonWolf", "Rainbow", 10, 1, "en")) end
+end
