@@ -804,17 +804,33 @@
  				for _ in data.Secrets do
 --- a/BlockConfig.lua
 +++ b/BlockConfig.lua
-@@ -24,8 +24,15 @@
+@@ -2,7 +2,7 @@
+ 	Leaf Rush · BlockConfig (shared, v2.32) — the BLOCKS of the gardens
+ 
+ 	Every cell of a garden (Config.Plot.CellSize × CellSize studs) is a COLUMN of up
+-	to MaxLevels block slots standing on the garden floor. The floor itself is
++	to MaxLevels (a safe ceiling: in practice unlimited) block slots standing on the garden floor. The floor itself is
+ 	"level 0": it is part of the island and can't be dug. One block is
+ 	CellSize × Height × CellSize studs.
+ 
+@@ -24,8 +24,22 @@
  local B = {}
  
  B.Height = 4 -- studs per level
 -B.MaxLevels = 5 -- a column is at most this many blocks tall
 -B.MaxBlocks = 1500 -- blocks (water sources count) in one garden
-+B.MaxLevels = 5 -- a column is at most this many blocks tall ABOVE the floor
++-- v2.62 UNLIMITED HEIGHT: only the bottom (the pit, Below slots under the floor) is a limit; upwards a column
++-- may grow as high as the player wants. MaxLevels is only a SAFE CEILING (256 blocks = 1024 studs, a tower no
++-- one builds by hand): a column string is at most 256 characters, a colour string Below + MaxLevels = 261, an
++-- index of WaterFlow stays far below 2^31 ((256 + 5) * 20 * 20), the networked "Blocks" attribute run-length
++-- packs tall columns (BlockMath.Encode), every per-level loop of the game runs only up to the highest
++-- block that really exists (BlockMath.TopLevel), never up to this number.
++B.MaxLevels = 256 -- a column is at most this many blocks tall ABOVE the floor (the safe ceiling, see above)
 +-- v2.50 THE PIT: five more levels UNDER the garden floor (0, -1 … -4: level 0 is the slot
 +-- right under the floor). They are solid Earth by default (nothing is stored for them) and
 +-- are dug out with the Pickaxe; blocks can be put into a dug cell. A column is therefore
-+-- Below + MaxLevels = 10 slots from its bottom to its top.
++-- Below + MaxLevels slots from its bottom to its top.
++-- v2.62: WATER can be put into the pit slots as well (any dug cell), it flows there like everywhere.
 +B.Below = 5
 +B.MinLevel = 1 - B.Below -- -4: the lowest slot
 +B.PaintVariant = 0 -- client only: the colour variant the Editor places next (0 = the block's own colour)
@@ -822,7 +838,7 @@
  B.EntranceHalf = 3.5 -- half the width of the gate (PlotSystem.EntranceWidth / 2): the cells behind it stay free
  
  -- water: a full cell (a source, or a lake cell) is filled up to WaterFull studs;
-@@ -102,4 +109,60 @@
+@@ -102,4 +116,60 @@
  	return t ~= nil and t.Solid == true
  end
  
@@ -885,7 +901,59 @@
  return B
 --- a/BlockFX.lua
 +++ b/BlockFX.lua
-@@ -244,7 +244,7 @@
+@@ -223,20 +223,41 @@
+ 		table.insert(e.Ripples, { Part = rp, X = x + ox, Y = y, Z = z + oz, Dx = dx, Dz = dz, Turn = turn, Phase = (cx * 13 + cz * 29) % 17 })
+ 	end
+ 	-- waterfalls: the falling cells of a column joined from top to bottom
++	-- (v2.62: from the falling cells themselves — the height is unlimited, no loop over every level)
+ 	local falls = 0
+-	for cz = 0, n - 1 do
+-		for cx = 0, n - 1 do
+-			local level = 1
+-			while level <= BC.MaxLevels do
+-				if w.Fall[WF.Index(n, cx, cz, level)] then
+-					local l1 = level
+-					while l1 < BC.MaxLevels and w.Fall[WF.Index(n, cx, cz, l1 + 1)] do
+-						l1 += 1
+-					end
++	local colLevels = {} -- [cz * n + cx] = { level … }
++	for index in w.Fall do
++		local fx, fz, fl = WF.Cell(n, index)
++		local list = colLevels[fz * n + fx]
++		if not list then
++			list = {}
++			colLevels[fz * n + fx] = list
++		end
++		table.insert(list, fl)
++	end
++	local colKeys = {}
++	for k in colLevels do
++		table.insert(colKeys, k)
++	end
++	table.sort(colKeys)
++	for _, ck in colKeys do
++		local cx, cz = ck % n, ck // n
++		local list = colLevels[ck]
++		table.sort(list)
++		local at = 1
++		while at <= #list do
++			local level = list[at]
++			local l1 = level
++			while list[at + 1] == l1 + 1 do
++				at += 1
++				l1 += 1
++			end
++			at += 1
++			do
+ 					local x, z = -half + (cx + 0.5) * CELL, -half + (cz + 0.5) * CELL
+ 					local y0, y1 = (level - 1) * H, l1 * H
+ 					-- (it lands on the water standing below it, if any)
+-					if level > 1 then
++					if level > BC.MinLevel then
+ 						local below = WF.Index(n, cx, cz, level - 1)
+ 						if w.Amt[below] then
+ 							y0 -= H - WF.Depth(w, below)
+@@ -244,7 +265,7 @@
  							y0 -= WF.Sunk(w, WF.Index(n, cx, cz, level)) -- (v2.41: … or on the slab below it)
  						end
  					end
@@ -894,10 +962,55 @@
  					local col = plate({ Name = "Waterfall", Size = Vector3.new(side, y1 - y0, side), Color = WATER_FALL, Transparency = 0.6 })
  					col.CFrame = e.CF * CFrame.new(x, (y0 + y1) / 2, z)
  					col.Parent = e.Folder
-@@ -470,8 +470,9 @@
+@@ -296,10 +317,6 @@
+ 							table.insert(e.Rings, { Part = ring, X = x, Y = y0 + 0.06, Z = z, Phase = k * 0.5 + ((cx + cz) % 3) * 0.17, Max = CELL * 1.25 })
+ 						end
+ 					end
+-					level = l1 + 1
+-				else
+-					level += 1
+-				end
+ 			end
+ 		end
+ 	end
+@@ -386,14 +403,18 @@
+ 	local e = entries[model]
+ 	local text = model:GetAttribute("Blocks")
+ 	if e and e.Text == text and e.Blocks then
+-		return e.Blocks, n, size, cf
++		if not e.Top then
++			e.Top = BM.TopLevel(e.Blocks)
++		end
++		return e.Blocks, n, size, cf, e.Top
+ 	end
+ 	local d = decoded[model]
+ 	if not d or d.Text ~= text then
+ 		d = { Text = text, Blocks = BM.Decode(text) }
++		d.Top = BM.TopLevel(d.Blocks)
+ 		decoded[model] = d
+ 	end
+-	return d.Blocks, n, size, cf
++	return d.Blocks, n, size, cf, d.Top -- (v2.62: + the highest level that holds a block)
+ end
+ 
+ function BlockFX.CellCFrame(model, cx, cz, level)
+@@ -462,16 +483,20 @@
+ 	          ray lands in { Cx, Cz, Level } — where a new block would go
+ ]]
+ function BlockFX.Trace(model, origin, dir, breaking)
+-	local blocks, n, size, cf = BlockFX.Blocks(model)
++	local blocks, n, size, cf, topLevel = BlockFX.Blocks(model)
+ 	if not blocks or typeof(origin) ~= "Vector3" or typeof(dir) ~= "Vector3" or dir.Magnitude < 1e-6 then
+ 		return nil, nil
+ 	end
+ 	local o = cf:PointToObjectSpace(origin)
  	local d = cf:VectorToObjectSpace(dir.Unit)
  	local half = size / 2
- 	local top = BC.MaxLevels * H
+-	local top = BC.MaxLevels * H
++	-- v2.62: the height is unlimited; the ray only needs the cells up to one empty level over the highest block
++	-- (+ the cell a new block would go into): no walk through hundreds of empty levels
++	local levels = math.min(BC.MaxLevels, (topLevel or BC.MaxLevels) + 2)
++	local top = levels * H
 +	local below = BC.Below or 0 -- v2.50: the pit: levels under the floor
  	-- the ray against the box of all cells
 -	local lo = { -half, 0, -half }
@@ -905,27 +1018,27 @@
  	local hi = { half, top, half }
  	local oo = { o.X, o.Y, o.Z }
  	local dd = { d.X, d.Y, d.Z }
-@@ -493,7 +494,7 @@
+@@ -493,7 +518,7 @@
  		return nil, nil
  	end
  	local sizes = { CELL, H, CELL }
 -	local counts = { n, BC.MaxLevels, n }
-+	local counts = { n, BC.MaxLevels + below, n }
++	local counts = { n, levels + below, n }
  	local t = t0 + 1e-4
  	local cell, stepDir, tMax, tDelta = {}, {}, {}, {}
  	for a = 1, 3 do
-@@ -515,8 +516,8 @@
+@@ -515,8 +540,8 @@
  		end
  	end
  	local prev
 -	for _ = 1, n * 2 + BC.MaxLevels + 4 do
 -		local cx, level, cz = cell[1], cell[2] + 1, cell[3]
-+	for _ = 1, n * 2 + BC.MaxLevels + below + 4 do
++	for _ = 1, n * 2 + levels + below + 4 do
 +		local cx, level, cz = cell[1], cell[2] + 1 - below, cell[3]
  		local code = BM.Get(blocks, cx, cz, level)
  		if code and (breaking or BC.IsSolid(code)) then
  			if BC.IsHalf(code) then
-@@ -583,7 +584,7 @@
+@@ -583,7 +608,7 @@
  		ghost = plate({ Name = "BlockGhost" })
  	end
  	ghost.Size = Vector3.new(CELL - 0.1, (gh or H) - 0.1, CELL - 0.1)
@@ -934,7 +1047,7 @@
  	ghost.Transparency = if code == "W" then 0.6 else 0.4
  	ghost.CFrame = cf
  	ghost.Parent = folderRoot
-@@ -953,7 +954,7 @@
+@@ -953,7 +978,7 @@
  	  • the lines are pooled parts: nothing is created per hit once the pool is warm
  ]]
  local STAGES = 5
@@ -943,7 +1056,7 @@
  local FADE_TIME = 0.6
  local crackPool = {} -- spare crack lines
  local pulses = {} -- short-lived shells / rings: { Part, T0, Len, Tr0, Size0, Size1, CF, Amp }
-@@ -1151,6 +1152,39 @@
+@@ -1151,6 +1176,39 @@
  	local dark = color:Lerp(Color3.new(0, 0, 0), 0.82)
  	local ext = Vector3.new(CELL / 2, bh / 2, CELL / 2)
  	local open = {}
@@ -983,7 +1096,7 @@
  	for i, seg in c.Plan do
  		if seg.S <= stage and not c.Drawn[i] then
  			local f = seg.F
-@@ -1159,19 +1193,23 @@
+@@ -1159,19 +1217,23 @@
  			end
  			if open[f] then
  				c.Drawn[i] = true
@@ -1018,7 +1131,7 @@
  			end
  		end
  	end
-@@ -1187,7 +1225,7 @@
+@@ -1187,7 +1249,7 @@
  				clearCracks(key)
  			else
  				for _, e in c.Parts do
@@ -1027,7 +1140,7 @@
  				end
  			end
  		elseif c.Shake then
-@@ -1230,35 +1268,37 @@
+@@ -1230,35 +1292,37 @@
  
  -- one hit lands on a block: it shudders, dust and chips fly
  -- (v2.41: cf, bh = the box of the block; a slab's is half as tall)
@@ -1078,7 +1191,7 @@
  	end
  end
  
-@@ -1292,7 +1332,7 @@
+@@ -1292,7 +1356,7 @@
  end
  
  -- BlockFX remote: a hit or a break, by anybody
@@ -1087,7 +1200,7 @@
  	if type(kind) ~= "string" or type(plotIndex) ~= "number" or type(cx) ~= "number" or type(cz) ~= "number" or type(level) ~= "number" then
  		return
  	end
-@@ -1339,7 +1379,7 @@
+@@ -1339,7 +1403,7 @@
  					-- (the blocks burst one after another, outward from the middle)
  					local big = n <= 5
  					task.delay((n - 1) * 0.035, function()
@@ -1096,7 +1209,7 @@
  					end)
  				end
  			end
-@@ -1347,6 +1387,7 @@
+@@ -1347,6 +1411,7 @@
  		return
  	end
  	local def = BC.Types[code] or BC.Types.R
@@ -1104,7 +1217,7 @@
  	local key = plotIndex .. ":" .. cx .. "," .. cz .. "," .. level
  	local water = code == "W"
  	-- v2.41: the box of the block that was hit (a slab = the lower half of its slot)
-@@ -1362,7 +1403,7 @@
+@@ -1362,7 +1427,7 @@
  		if lastKeyOf[userId] == key then
  			lastKeyOf[userId] = nil
  		end
@@ -1113,7 +1226,7 @@
  		if not water then
  			shakeFor(userId, cf.Position, 0.22, 0.2)
  		end
-@@ -1376,9 +1417,9 @@
+@@ -1376,9 +1441,9 @@
  		end
  		lastKeyOf[userId] = key
  		if not water then
@@ -1172,7 +1285,7 @@
 +		if ch == "E" then
 +			return "D"
 +		end
-+		return if ch ~= "W" and Cfg.Types[ch] then ch else nil
++		return if Cfg.Types[ch] then ch else nil -- (v2.62: "W" = a water source in the pit)
 +	end
  	local col = blocks and blocks[key(cx, cz)]
 -	if type(col) ~= "string" or level < 1 or level > #col then
@@ -1221,7 +1334,7 @@
 +	local out = {}
 +	for i = 1, math.min(#p, Cfg.Below) do
 +		local ch = string.sub(p, i, i)
-+		out[i] = if ch == "E" or ch == "-" or (ch ~= "W" and Cfg.Types[ch]) then ch else "E"
++		out[i] = if ch == "E" or ch == "-" or Cfg.Types[ch] then ch else "E"
 +	end
 +	local text = string.gsub(table.concat(out), "E+$", "")
 +	return if text ~= "" then text else nil
@@ -1231,7 +1344,7 @@
 +	if type(v) ~= "string" then
 +		return nil
 +	end
-+	local text = string.gsub(string.gsub(string.sub(v, 1, 10), "[^0-9]", "0"), "0+$", "")
++	local text = string.gsub(string.gsub(string.sub(v, 1, Cfg.Below + Cfg.MaxLevels), "[^0-9]", "0"), "0+$", "")
 +	return if text ~= "" then text else nil
 +end
 +
@@ -1256,7 +1369,7 @@
 +		if #p < i then
 +			p ..= string.rep("E", i - #p)
 +		end
-+		local ch = if code == nil or code == "W" or not Cfg.Types[code] then "-" elseif code == "D" and v == 0 then "E" else code
++		local ch = if code == nil or not Cfg.Types[code] then "-" elseif code == "D" and v == 0 then "E" else code
 +		p = string.sub(p, 1, i - 1) .. ch .. string.sub(p, i + 1)
 +		p = string.gsub(p, "E+$", "")
 +		nt[k] = if p ~= "" then p else nil
@@ -1278,7 +1391,26 @@
  -- height of a column: the level of its highest SOLID block (0 = none) and that block
  function BlockMath.Top(blocks, cx, cz)
  	local col = blocks and blocks[key(cx, cz)]
-@@ -114,7 +228,30 @@
+@@ -100,6 +214,18 @@
+ 	return 0, nil
+ end
+ 
++-- v2.62: the highest level that holds anything in any column (0 = no column at all). EVERY per-level
++-- loop of the game runs only up to this (the height is unlimited, the ceiling BlockConfig.MaxLevels is not a loop bound)
++function BlockMath.TopLevel(blocks)
++	local top = 0
++	for k, col in blocks or {} do
++		if type(k) == "string" and type(col) == "string" and #col > top then
++			top = #col
++		end
++	end
++	return math.min(top, Cfg.MaxLevels)
++end
++
+ --[[
+ 	v2.41 SLABS: a column that ends with a slab (BlockConfig: "d" "s" "r" "l") is half a
+ 	block lower than its level says.
+@@ -114,7 +240,30 @@
  	if level > 0 and Cfg.IsHalf(code) then
  		return level - 0.5, level, code
  	end
@@ -1298,7 +1430,7 @@
 +		if ch == "" then
 +			ch = "E"
 +		end
-+		if ch ~= "-" then
++		if ch ~= "-" and ch ~= "W" then -- (v2.62: water in a hole is no ground)
 +			local lv = 1 - i
 +			if Cfg.IsHalf(ch) then
 +				return lv - 0.5, lv, ch
@@ -1310,7 +1442,7 @@
  end
  
  function BlockMath.TopY(blocks, cx, cz)
-@@ -133,7 +270,12 @@
+@@ -133,7 +282,12 @@
  -- is there any block (water too) in this column?
  function BlockMath.HasAny(blocks, cx, cz)
  	local col = blocks and blocks[key(cx, cz)]
@@ -1324,7 +1456,7 @@
  end
  
  function BlockMath.Count(blocks)
-@@ -147,6 +289,20 @@
+@@ -147,6 +301,20 @@
  			end
  		end
  	end
@@ -1345,7 +1477,7 @@
  	return c
  end
  
-@@ -173,36 +329,99 @@
+@@ -173,36 +341,120 @@
  			end
  		end
  	end
@@ -1383,7 +1515,24 @@
  -- one string for the plot attribute "Blocks": "0,0:DS;3,1:W-W" ("" = no blocks)
 -function BlockMath.Encode(blocks)
 +-- v2.50: + "|pit|variants" when the garden has a pit / coloured blocks: "…|2,3:--D;4,4:-|0,0:001"
-+local function encodeTable(t)
++-- (v2.62: a run of 4 or more equal characters is written as the character and its count: "DDDDDDDD" = "D8";
++-- a column string never holds digits itself, so this is unambiguous. Pit / colour strings are short and stay plain)
++local function packColumn(col)
++	local out, i, len = {}, 1, #col
++	while i <= len do
++		local c = string.sub(col, i, i)
++		local j = i
++		while j < len and string.sub(col, j + 1, j + 1) == c do
++			j += 1
++		end
++		local run = j - i + 1
++		table.insert(out, if run >= 4 then c .. run else string.rep(c, run))
++		i = j + 1
++	end
++	return table.concat(out)
++end
++
++local function encodeTable(t, pack)
  	local keys = {}
 -	for k, col in blocks or {} do
 -		if type(k) == "string" and type(col) == "string" and col ~= "" then
@@ -1396,13 +1545,13 @@
  	local out = table.create(#keys)
  	for i, k in keys do
 -		out[i] = k .. ":" .. blocks[k]
-+		out[i] = k .. ":" .. t[k]
++		out[i] = k .. ":" .. (if pack then packColumn(t[k]) else t[k])
  	end
  	return table.concat(out, ";")
  end
  
 +function BlockMath.Encode(blocks)
-+	local text = encodeTable(blocks)
++	local text = encodeTable(blocks, true)
 +	local pit = encodeTable(blocks and blocks.Pit)
 +	local var = encodeTable(blocks and blocks.Var)
 +	if pit ~= "" or var ~= "" then
@@ -1417,12 +1566,17 @@
  		return blocks
  	end
 -	for k, col in string.gmatch(text, "(%d+,%d+):([%a%-]+)") do
+-		local clean = BlockMath.CleanColumn(col)
 +	local main, pits, vars = string.match(text, "^([^|]*)|?([^|]*)|?([^|]*)$")
 +	if not main then
 +		return blocks
 +	end
-+	for k, col in string.gmatch(main, "(%d+,%d+):([%a%-]+)") do
- 		local clean = BlockMath.CleanColumn(col)
++	for k, col in string.gmatch(main, "(%d+,%d+):([%a%-%d]+)") do
++		-- (v2.62: "D8" = eight Earth blocks; a count is capped, a bad one can't blow up the string)
++		local plain = string.gsub(col, "(%D)(%d+)", function(c, count)
++			return string.rep(c, math.clamp(tonumber(count) or 1, 1, Cfg.MaxLevels))
++		end)
++		local clean = BlockMath.CleanColumn(plain)
  		if clean then
  			blocks[k] = clean
  		end
@@ -1450,7 +1604,7 @@
  	return blocks
  end
  
-@@ -240,9 +459,9 @@
+@@ -240,9 +492,9 @@
  	return cx0, cx1, cz0, cz1
  end
  
@@ -1462,7 +1616,7 @@
  	if type(blocks) ~= "table" or next(blocks) == nil then
  		return 0
  	end
-@@ -250,16 +469,97 @@
+@@ -250,16 +502,97 @@
  	if not cx0 then
  		return 0
  	end
@@ -1563,7 +1717,7 @@
  end
  
  -- studs above the garden floor
-@@ -313,181 +613,89 @@
+@@ -313,181 +646,131 @@
  	if not cx0 then
  		return 0
  	end
@@ -1603,10 +1757,7 @@
  	end
 -	if type(blocks) ~= "table" or next(blocks) == nil then
 -		return true, nil, 0
-+	local want = BlockMath.CleanLv(lv)
-+	if want == nil then
-+		return true, nil, BlockMath.SpotLevel(blocks, x, z, radius, plotSize, cellSize)
- 	end
+-	end
 -	-- (v2.41: h0 = the height in levels — x.5 on a slab; l0 = the slot of the top block)
 -	local h0, l0 = BlockMath.TopH(blocks, cx0, cz0)
 -	for cx = cx0, cx1 do
@@ -1615,7 +1766,10 @@
 -				return false, "Needs a flat spot (blocks of the same height)", h0
 -			end
 -		end
--	end
++	local want = BlockMath.CleanLv(lv)
++	if want == nil then
++		return true, nil, BlockMath.SpotLevel(blocks, x, z, radius, plotSize, cellSize)
+ 	end
 -	local n = PlotMath.GridN(plotSize, cellSize)
 -	local above = l0 + 1
 -	if above <= Cfg.MaxLevels then
@@ -1693,8 +1847,26 @@
  	cellSize = cellSize or 5
 -	local cx0, cx1, cz0, cz1 = BlockMath.CellsOf(record, plotSize, cellSize)
 -	if not cx0 then
--		return true
--	end
++	-- v2.52: no flat-spot / bare-ground / earth / sand / water rules any more: a thing may stand
++	-- anywhere, only not embedded in a block
++	return BlockMath.BodyCheck(record, blocks, plotSize, cellSize, BlockMath.BaseLevel(record, blocks, plotSize, cellSize))
++end
++
++--[[
++	v2.62 TREE SUPPORT — a tree needs ground under its WHOLE foot: every cell of its footprint
++	(PlotMath.CellSpan: a 4x4 tree covers 16 cells) must hold, at the level the tree stands at
++	(BaseLevel), a solid block whose TOP is exactly that level: level 0 = the floor (the earth of
++	the pit's first slot, so a cell that is dug out has no floor), level n = a full block in slot n,
++	a half level (n.5) = a slab in slot n + 1; in the pit the earth / the placed block of that slot,
++	under the lowest slot the bed. Water plants float and are not asked. Only PLACING a tree asks
++	this (TreePlacement.Check, server and preview alike): a tree that stands already keeps its
++	height when the blocks under it are broken (GroundCheck / TreeSystem do not ask).
++	-> ok, reason
++]]
++function BlockMath.TreeSupport(record, blocks, plotSize, cellSize)
++	if type(record) ~= "table" or record.Type ~= "Tree" then
+ 		return true
+ 	end
 -	local n = PlotMath.GridN(plotSize, cellSize)
 -	local isTree = record.Type == "Tree"
 -	local cosmetic = PlotMath.IsCosmetic(record)
@@ -1707,8 +1879,10 @@
 -				end
 -			end
 -		end
--		return true
--	end
++	local def = TreeTypes.Get(record.TreeType)
++	if def and def.Ground == "Water" then
+ 		return true
+ 	end
 -	-- a flat spot: every cell under it has the same height
 -	-- (v2.41: the height in levels — x.5 when a slab is on top; l0 = the slot of the top block)
 -	local h0, l0, top0 = BlockMath.TopH(blocks, cx0, cz0)
@@ -1719,16 +1893,26 @@
 -				return false, "Needs a flat spot (blocks of the same height)"
 -			end
 -		end
--	end
++	cellSize = cellSize or 5
++	blocks = blocks or {}
++	local cx0, cx1, cz0, cz1 = PlotMath.CellSpan(record, plotSize, cellSize)
++	if not cx0 then
++		return true
+ 	end
 -	if not isTree then
 -		return true -- (a cosmetic stands on any flat top — a top of slabs too)
--	end
++	local lv = BlockMath.BaseLevel(record, blocks, plotSize, cellSize)
++	local onSlab = lv % 1 ~= 0
++	local slot = if onSlab then lv + 0.5 else lv
++	if slot < Cfg.MinLevel then
++		return true -- (standing on the bed of the pit)
+ 	end
 -	local def = TreeTypes.Get(record.TreeType)
 -	local want = def and def.Ground
 -	full = full or WaterFlow.FullSet(blocks, n)
 -	local above = l0 + 1
--	for cx = cx0, cx1 do
--		for cz = cz0, cz1 do
+ 	for cx = cx0, cx1 do
+ 		for cz = cz0, cz1 do
 -			local _, top = BlockMath.Top(blocks, cx, cz)
 -			-- v2.41: a tree (a water plant too) needs a FULL block under it — half a block
 -			-- of earth is too thin for roots
@@ -1751,9 +1935,12 @@
 -				if wet then
 -					return false, "Can't grow in water"
 -				end
--			end
--		end
--	end
++			local code = BlockMath.Get(blocks, cx, cz, slot)
++			if not Cfg.IsSolid(code) or Cfg.IsHalf(code) ~= onSlab then
++				return false, "Needs blocks under the whole tree"
+ 			end
+ 		end
+ 	end
 -	_ = top0
 -	if def and def.NearWater then
 -		for cx = math.max(cx0 - 1, 0), math.min(cx1 + 1, n - 1) do
@@ -1767,10 +1954,7 @@
 -		end
 -		return false, "Has to stand next to WATER"
 -	end
--	return true
-+	-- v2.52: no flat-spot / bare-ground / earth / sand / water rules any more: a thing may stand
-+	-- anywhere, only not embedded in a block
-+	return BlockMath.BodyCheck(record, blocks, plotSize, cellSize, BlockMath.BaseLevel(record, blocks, plotSize, cellSize))
+ 	return true
  end
  
  ---------------------------------------------------------------- placing / breaking a block
@@ -1794,7 +1978,7 @@
  		return true
  	end
  	for _, d in { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } } do
-@@ -499,7 +707,7 @@
+@@ -499,7 +782,7 @@
  	return false
  end
  
@@ -1803,7 +1987,7 @@
  function BlockMath.IsEntrance(cx, cz, plotSize, cellSize)
  	cellSize = cellSize or 5
  	local n = PlotMath.GridN(plotSize, cellSize)
-@@ -530,14 +738,24 @@
+@@ -530,14 +813,22 @@
  	if cx < 0 or cz < 0 or cx >= n or cz >= n then
  		return false, "Outside your yard"
  	end
@@ -1818,11 +2002,9 @@
  	local cur = BlockMath.Get(blocks, cx, cz, level)
  	local put = code -- (v2.41: what ends up in the cell)
 +	if level <= 0 then
-+		-- v2.50 THE PIT (under the floor): no water in it, the gate stays whole, and you dig
++		-- v2.50 THE PIT (under the floor): the gate stays whole, and you dig
 +		-- from the top: nothing may be on top of the block you break
-+		if code == "W" then
-+			return false, "Water can't go into a pit"
-+		end
++		-- (v2.62: WATER can go into any dug slot of the pit as well — no rule for water at all)
 +		-- (v2.6x: the cells at the gate can be dug too, and a pit there can be filled again)
 +		-- (v2.51: no "top first" rule any more — like in Minecraft any block can go, what was
 +		-- on top of it stays where it is)
@@ -1830,16 +2012,18 @@
  	if code ~= nil then
  		if not Cfg.Types[code] then
  			return false, "Unknown block"
-@@ -552,43 +770,27 @@
+@@ -552,43 +843,28 @@
  				return false, "There is a block here already"
  			end
  		end
 -		if BlockMath.IsEntrance(cx, cz, plotSize, cellSize) then
 -			return false, "Keep the entrance of your garden free"
-+		if level >= 1 and BlockMath.IsEntrance(cx, cz, plotSize, cellSize) then
++		if code ~= "W" and level >= 1 and BlockMath.IsEntrance(cx, cz, plotSize, cellSize) then
 +			return false, "Keep the entrance of your garden free" -- (above the ground only: the walkway stays free)
  		end
- 		if put == code then -- (a second slab adds no new block: nothing more to ask)
+-		if put == code then -- (a second slab adds no new block: nothing more to ask)
++		-- (v2.62: water needs no support: it can be put into ANY empty cell, also floating in the air)
++		if put == code and code ~= "W" then -- (a second slab adds no new block: nothing more to ask)
  			if not BlockMath.Supported(blocks, cx, cz, level, n) then
  				return false, "A block has to touch the ground or another block"
  			end
@@ -1876,7 +2060,7 @@
 +	-- v2.52: things keep the height they stand at (they may float when what held them is broken,
 +	-- blocks may go above / below / around them). Only a block that would appear INSIDE a thing
 +	-- (the slot its foot is in) is refused — cosmetics are small and free: they never block.
-+	if code ~= nil and objects ~= nil then
++	if code ~= nil and code ~= "W" and objects ~= nil then -- (v2.62: water is no solid: it may flow into a thing's slot)
 +		for _, rec in objects do
 +			if type(rec) == "table" and not PlotMath.IsCosmetic(rec) then
 +				local a, b, c, d = BlockMath.CellsOf(rec, plotSize, cellSize)
@@ -1886,7 +2070,7 @@
  					end
  				end
  			end
-@@ -612,4 +814,110 @@
+@@ -612,4 +888,146 @@
  	return blocks
  end
  
@@ -1894,7 +2078,7 @@
 +	as rows of rectangles that may reach INTO the polygon by up to one strip (never a gap). A part of the
 +	island is axis-aligned, the garden is turned (diagonal islands): the part is cut in strips of `step` studs.
 +	Returns touched, rects = { { x0, x1, z0, z1 } }.  touched = false: the polygon does not reach the box. ]]
-+function BlockMath.RingRects(hx, hz, poly, step)
++function BlockMath.RingRects(hx, hz, poly, step, outward)
 +	local n = #poly
 +	local pzmin, pzmax = math.huge, -math.huge
 +	for _, q in poly do
@@ -1955,8 +2139,10 @@
 +			if rmax > -hx and lmin < hx then
 +				touched = true
 +			end
-+			local left = if lmax > -hx + 0.05 then { -hx, math.min(lmax, hx) } else nil
-+			local right = if rmin < hx - 0.05 then { math.max(rmin, -hx), hx } else nil
++			-- (v2.61 outward: the rows stop AT the polygon's outermost point of the strip instead of reaching into it)
++			local lx, rx = if outward then lmin else lmax, if outward then rmax else rmin
++			local left = if lx > -hx + 0.05 then { -hx, math.min(lx, hx) } else nil
++			local right = if rx < hx - 0.05 then { math.max(rx, -hx), hx } else nil
 +			if left and right and left[2] >= right[1] then
 +				segs = { { -hx, hx } }
 +			else
@@ -1994,6 +2180,40 @@
 +		end
 +	end
 +	return touched, out
++end
++
++
++--[[ v2.61 (ground): the garden islands are deeper UNDER the yard. The island's underside is a stack of 4-stud layers
++	(each narrower than the one above); the pit digs down to BlockConfig.Below slots, so the layer whose bottom is at
++	`wideBottom` (the widest rock layer: it holds the whole 100x100 yard) is stretched down by `delta` studs and
++	every layer under it moves down by `delta`. DeepenBox(bottom, delta, wideBottom) -> dy (move the part's centre),
++	dh (grow its height): the part is not touched when it lies above the wide layer. ]]
++BlockMath.IslandWideBottom = -10
++-- v2.61: a ray (plot-local origin o, direction d) that flew down an open pit and left through the BOTTOM (Trace's `place` is then
++-- the lowest slot) lands on the bed: -> level (= -Below), plot-local point; nil when it is something else
++function BlockMath.BedAim(place, o, d)
++	if type(place) ~= "table" or place.Level ~= Cfg.MinLevel or d.Y > -1e-4 then
++		return nil
++	end
++	local lv = place.Level - 1
++	local t = (lv * Cfg.Height - o.Y) / d.Y
++	if t <= 0 then
++		return nil
++	end
++	return lv, o + d * t
++end
++function BlockMath.IslandDeepen()
++	-- the bed's underside (BlockConfig.Below slots + the bed) + 6 studs of rock under it, in whole 4-stud layers
++	return math.ceil((Cfg.Below * Cfg.Height + 1 + 6 + BlockMath.IslandWideBottom) / 4) * 4
++end
++function BlockMath.DeepenBox(bottom, delta, wideBottom)
++	if bottom > wideBottom + 0.5 then
++		return 0, 0
++	end
++	if bottom >= wideBottom - 0.5 then
++		return -delta / 2, delta
++	end
++	return -delta, 0
 +end
 +
  return BlockMath
@@ -2075,7 +2295,7 @@
 +				end
 +			end
 +		end
-+	elseif level > 0 or s.PitMode then
++	elseif (level > 0 and level <= (s.CurTop or BC.MaxLevels)) or (level <= 0 and s.PitMode) then -- (v2.62: a layer above the highest block is empty: no walk over its cells)
 +		for cz = 0, n - 1 do
 +			for cx = 0, n - 1 do
 +				local code = BM.Get(blocks, cx, cz, level)
@@ -2117,7 +2337,7 @@
  				end
  			end
  		end
-@@ -202,23 +254,222 @@
+@@ -202,23 +254,272 @@
  	local y0 = (level - 1) * H
  	-- (v2.41: Recolor finds every green top — a block's and a slab's — by this one name)
  	local topName = BC.Types.D.Id .. "Top"
@@ -2131,7 +2351,7 @@
 +				local w, d = r[3] * cell, r[4] * cell
 +				local x, z = -half + r[1] * cell + w / 2, -half + r[2] * cell + d / 2
 +				local bedTop = (BC.MinLevel - 1) * H
-+				table.insert(parts, brick(folder, "DirtBed", Vector3.new(w, 1, d), plot.CFrame * CFrame.new(x, bedTop - 0.5, z), color, Enum.Material.Plastic))
++				table.insert(parts, brick(folder, "DirtBed", Vector3.new(w, 2, d), plot.CFrame * CFrame.new(x, bedTop - 1, z), color, Enum.Material.Plastic))
 +			end
 +			continue
 +		end
@@ -2247,6 +2467,40 @@
 +	return gardens and gardens:FindFirstChild("GardenIsland" .. plot.Index)
 +end
 +
++-- v2.61 (ground): make the island's body deeper under the yard (once per island; no new parts, see BlockMath.DeepenBox)
++local function deepenIsland(model)
++	local under = model and model:FindFirstChild("Underside")
++	if not under or model:GetAttribute("LRDeep") then
++		return
++	end
++	model:SetAttribute("LRDeep", true)
++	local delta, wide = BM.IslandDeepen(), BM.IslandWideBottom
++	for _, p in under:GetDescendants() do
++		if p:IsA("BasePart") then
++			local cf, sz = p.CFrame, p.Size
++			local dy, dh = BM.DeepenBox(cf.Position.Y - sz.Y / 2, delta, wide)
++			if dy ~= 0 then
++				if dh ~= 0 then
++					p.Size = Vector3.new(sz.X, sz.Y + dh, sz.Z)
++				end
++				p.CFrame = cf + Vector3.new(0, dy, 0)
++			end
++		end
++	end
++end
++
++local function deepenAllIslands()
++	local root = workspace:FindFirstChild("LeafRush")
++	local map = root and root:FindFirstChild("Map")
++	local gardens = map and map:FindFirstChild("GardenIslands")
++	if not gardens then
++		return
++	end
++	for i = 1, ctx.Config.Plot.Count or 6 do
++		pcall(deepenIsland, gardens:FindFirstChild("GardenIsland" .. i))
++	end
++end
++
 +local function uncarve(s)
 +	for _, o in s.Carved or {} do
 +		local p = o.Part
@@ -2280,6 +2534,7 @@
 +	if not model then
 +		return
 +	end
++	pcall(deepenIsland, model) -- v2.61 (idempotent)
 +	-- v2.60: the island is axis-aligned, the garden is TURNED on diagonal islands: every part that the yard's footprint
 +	-- touches is cut EXACTLY (in strips, BlockMath.RingRects) — the rest of it stays as clones of the part with its
 +	-- own colour / size / height, so the rim of the island keeps its voxel outline. The island grass under the yard
@@ -2291,6 +2546,21 @@
 +	local cutY = plotCF.Position.Y + bottom
 +	local folder = folderOf(plot)
 +	s.Carved, s.Fill, s.FillSrc = {}, {}, {}
++	if deep then
++		-- v2.61 (ground): the side walls of the pit are ORDINARY EARTH all the way down: four plates (3 studs thick) around the
++		-- yard's footprint, from the bed to just under the lawn. The island ring around the yard stops OUTSIDE the footprint
++		-- (RingRects outward), so no rock / other-coloured island part shows in the pit and nothing is see-through.
++		local t = 3
++		local y0, y1 = bottom, -0.2
++		for _, w in {
++			{ Vector3.new(t, y1 - y0, size + 2 * t), Vector3.new(half + t / 2, (y0 + y1) / 2, 0) },
++			{ Vector3.new(t, y1 - y0, size + 2 * t), Vector3.new(-half - t / 2, (y0 + y1) / 2, 0) },
++			{ Vector3.new(size, y1 - y0, t), Vector3.new(0, (y0 + y1) / 2, half + t / 2) },
++			{ Vector3.new(size, y1 - y0, t), Vector3.new(0, (y0 + y1) / 2, -half - t / 2) },
++		} do
++			s.Fill[brick(folder, "DirtWall", w[1], plotCF * CFrame.new(w[2]), BC.Types.D.Color, Enum.Material.Plastic)] = true
++		end
++	end
 +	local corners = {}
 +	for _, c in { { -1, -1 }, { 1, -1 }, { 1, 1 }, { -1, 1 } } do
 +		table.insert(corners, plotCF:PointToWorldSpace(Vector3.new(c[1] * half, 0, c[2] * half)))
@@ -2322,7 +2592,7 @@
 +					end
 +					local touched, rects = true, {}
 +					if upright then
-+						touched, rects = BM.RingRects(sz.X / 2, sz.Z / 2, poly, 1)
++						touched, rects = BM.RingRects(sz.X / 2, sz.Z / 2, poly, 1, deep)
 +					end
 +					if touched and wy1 > cutY + 0.01 and wy0 < plotCF.Position.Y + 0.5 then
 +						table.insert(s.Carved, { Part = p, T = p.Transparency, C = p.CanCollide, Q = p.CanQuery, Size = sz, CF = cf })
@@ -2349,7 +2619,7 @@
  			end
  		end
  	end
-@@ -231,13 +482,48 @@
+@@ -231,13 +532,48 @@
  		local model = plot.Objects[id]
  		if model then
  			local y = BM.BaseY(rec, data.Plot.Blocks, size, cellSize())
@@ -2399,7 +2669,7 @@
  local function flush(plot)
  	local s = st(plot)
  	s.Scheduled = false
-@@ -249,7 +535,22 @@
+@@ -249,7 +585,28 @@
  	local blocks = if type(data.Plot.Blocks) == "table" then data.Plot.Blocks else {}
  	local size = ctx.PlotMath.PlotSize(ctx.Config.Plot, data.Plot.Expansion)
  	local n = ctx.PlotMath.GridN(size, cellSize())
@@ -2408,6 +2678,7 @@
 +	-- by bricks (earth you can dig out) — see rebuildLayer; when the last hole is filled
 +	-- the floor comes back
 +	local pit = type(blocks.Pit) == "table" and next(blocks.Pit) ~= nil
++	s.CurTop = BM.TopLevel(blocks) -- v2.62: the height is unlimited: layers are only built up to the highest block
 +	if pit ~= (s.PitMode == true) then
 +		s.PitMode = pit
 +		for level = BC.MinLevel - 1, 0 do
@@ -2419,11 +2690,16 @@
 +			pcall(applyPit, plot, s)
 +		end
 +	end
-+	for level = BC.MinLevel - 1, BC.MaxLevels do
++	local dirtyLevels = {}
++	for level in s.Dirty do
++		table.insert(dirtyLevels, level)
++	end
++	table.sort(dirtyLevels)
++	for _, level in dirtyLevels do
  		if s.Dirty[level] then
  			s.Dirty[level] = nil
  			local ok, err = pcall(rebuildLayer, plot, s, blocks, n, level)
-@@ -258,8 +559,26 @@
+@@ -258,8 +615,26 @@
  			end
  		end
  	end
@@ -2451,7 +2727,7 @@
  	pcall(resettle, plot, data, size)
  	-- v2.34: incubating eggs stand ON the blocks — put them on top again as well
  	if ctx.IncubatorService and ctx.IncubatorService.Resettle then
-@@ -281,8 +600,8 @@
+@@ -281,8 +656,8 @@
  	local s = st(plot)
  	s.Water = nil
  	s.Dirty[level] = true
@@ -2462,7 +2738,7 @@
  	end
  	if not s.Scheduled then
  		s.Scheduled = true
-@@ -361,6 +680,26 @@
+@@ -361,6 +736,26 @@
  	end
  end
  
@@ -2489,18 +2765,23 @@
  -- the garden was loaded, grew or was reset: everything again, right now
  function BlockService.Refresh(player)
  	local data, plot, size, n = garden(player)
-@@ -373,8 +712,9 @@
+@@ -373,8 +768,14 @@
  		data._tilesToBlocks = nil
  		pcall(repair, data, size)
  	end
 +	pcall(freeze, data, size)
  	local s = st(plot)
 -	for level = 1, BC.MaxLevels do
-+	for level = BC.MinLevel - 1, BC.MaxLevels do
++	-- (v2.62: up to the highest block — and up to the highest layer that exists, so a layer whose blocks are gone is cleared)
++	local topL = BM.TopLevel(data.Plot.Blocks)
++	for level in s.Layers do
++		topL = math.max(topL, level)
++	end
++	for level = BC.MinLevel - 1, topL do
  		s.Dirty[level] = true
  	end
  	local ok, err = pcall(flush, plot)
-@@ -393,11 +733,21 @@
+@@ -393,11 +794,21 @@
  		return
  	end
  	local green = plot.Floor.Color
@@ -2522,7 +2803,7 @@
  			end
  		end
  	end
-@@ -408,6 +758,14 @@
+@@ -408,6 +819,14 @@
  	local s = state[plot.Index]
  	state[plot.Index] = nil
  	if s then
@@ -2537,7 +2818,7 @@
  		for _, parts in s.Layers do
  			for _, p in parts do
  				p:Destroy()
-@@ -456,6 +814,77 @@
+@@ -456,6 +875,81 @@
  	return BM.TopY(blocks, cx, cz) -- (v2.41: a slab on top = half a block lower)
  end
  
@@ -2553,7 +2834,9 @@
 +		return 0
 +	end
 +	local H = BC.Height
-+	for k = math.clamp(math.floor(y / H) + 1, BC.MinLevel, BC.MaxLevels), BC.MinLevel, -1 do
++	local colS = blocks[BM.Key(cx, cz)]
++	local topK = if type(colS) == "string" then #colS else 0 -- (v2.62: nothing above the column; no walk through empty levels)
++	for k = math.min(math.clamp(math.floor(y / H) + 1, BC.MinLevel, BC.MaxLevels), topK), BC.MinLevel, -1 do
 +		local code = BM.Get(blocks, cx, cz, k)
 +		if BC.IsSolid(code) then
 +			local top = (k - (if BC.IsHalf(code) then 0.5 else 0)) * H
@@ -2577,7 +2860,9 @@
 +		return nil
 +	end
 +	local H = BC.Height
-+	for k = math.max(math.floor(y / H + 1e-6) + 1, BC.MinLevel), BC.MaxLevels do
++	local colS = blocks[BM.Key(cx, cz)]
++	local topK = if type(colS) == "string" then #colS else 0 -- (v2.62)
++	for k = math.max(math.floor(y / H + 1e-6) + 1, BC.MinLevel), math.min(BC.MaxLevels, topK) do
 +		if BC.IsSolid(BM.Get(blocks, cx, cz, k)) and (k - 1) * H >= y - 0.01 then
 +			return (k - 1) * H
 +		end
@@ -2598,7 +2883,7 @@
 +	end
 +	local blocks = blocksOfPlot(plot)
 +	local slot = math.floor(BM.BaseLevel(record, blocks, size, cell)) + 1
-+	if slot < 1 or slot > BC.MaxLevels then
++	if slot < BC.MinLevel or slot > BC.MaxLevels then -- (v2.62: water can stand in the pit too)
 +		return false
 +	end
 +	local n = water.N
@@ -2615,7 +2900,16 @@
  -- the water of a garden right now (WaterFlow.Compute; nil = none)
  function BlockService.Water(plot)
  	local blocks = blocksOfPlot(plot)
-@@ -533,7 +962,11 @@
+@@ -479,7 +973,7 @@
+ 			local lp = plot.CFrame:PointToObjectSpace(pos)
+ 			local half = plot.Size / 2
+ 			if math.abs(lp.X) <= half and math.abs(lp.Z) <= half then
+-				if lp.Y < -2 or lp.Y > BC.Height * BC.MaxLevels + 6 then
++				if lp.Y < -(BC.Below * BC.Height + 8) or lp.Y > BC.Height * BC.MaxLevels + 6 then -- (v2.62: you swim in the pit too)
+ 					return false
+ 				end
+ 				local water = BlockService.Water(plot)
+@@ -533,7 +1027,11 @@
  	  SpotCheck(player, x, z, radius)  may it be put there? -> ok, reason, y
  	                                   (a flat top or the bare floor, not in water)
  ]]
@@ -2628,7 +2922,7 @@
  	local blocks = blocksOfPlot(plot)
  	if not blocks or next(blocks) == nil then
  		return 0
-@@ -541,14 +974,15 @@
+@@ -541,14 +1039,15 @@
  	return BM.SpotY(blocks, x, z, radius or BM.NestRadius, plot.Size or 20, cellSize())
  end
  
@@ -2647,7 +2941,7 @@
  end
  
  -- are there blocks in the cell of this plot-local point?
-@@ -588,7 +1022,7 @@
+@@ -588,7 +1087,7 @@
  	end
  	for _, nest in nests do
  		if type(nest) == "table" and type(nest.X) == "number" and type(nest.Z) == "number" then
@@ -2656,7 +2950,7 @@
  			if ok and keep == false then
  				return false
  			end
-@@ -620,7 +1054,7 @@
+@@ -620,7 +1119,7 @@
  	end
  	for _, nest in boxNests(data) or {} do
  		if type(nest) == "table" and type(nest.X) == "number" and type(nest.Z) == "number" then
@@ -2665,7 +2959,7 @@
  			if ok and keep == false then
  				return false
  			end
-@@ -648,11 +1082,17 @@
+@@ -648,11 +1147,17 @@
  	return false
  end
  
@@ -2684,7 +2978,7 @@
  	if type(cx) ~= "number" or type(cz) ~= "number" or type(level) ~= "number" or type(code) ~= "string" then
  		return false, "Invalid cell"
  	end
-@@ -660,6 +1100,11 @@
+@@ -660,6 +1165,11 @@
  	if not def then
  		return false, "Unknown block"
  	end
@@ -2696,20 +2990,20 @@
  	if ctx.BuildService and ctx.BuildService.InYard and ctx.BuildService.InYard(player, plot) == false then
  		return false, "Go to your garden to build"
  	end
-@@ -680,10 +1125,10 @@
+@@ -680,10 +1190,10 @@
  	local merged = put ~= code
  	-- v2.34: eggs stand ON blocks now — a block may not appear in / over an egg, or
  	-- change the height of the spot it stands on
 -	if nestIn(data, cx, cz, size) or not nestsKeep(data, cx, cz, level, code, size) then
-+	if not nestsKeep(data, cx, cz, level, code, size) then
++	if code ~= "W" and not nestsKeep(data, cx, cz, level, code, size) then -- (v2.62: water is no solid: no rule for it)
  		return false, "An egg is incubating here"
  	end
 -	if boxIn(data, cx, cz, size) or not boxesKeep(data, cx, cz, level, code, size) then
-+	if not boxesKeep(data, cx, cz, level, code, size) then
++	if code ~= "W" and not boxesKeep(data, cx, cz, level, code, size) then
  		return false, "A cosmetic box is unpacking here" -- v2.34
  	end
  	if def.Solid then
-@@ -699,7 +1144,12 @@
+@@ -699,7 +1209,12 @@
  			return false, "Somebody is standing there"
  		end
  	end
@@ -2723,7 +3017,7 @@
  	if put == "S" and not data.Plot.HadSand then
  		data.Plot.HadSand = true -- (the Cactus is sold from now on)
  		if ctx.BuildService and ctx.BuildService.PublishSlots then
-@@ -710,19 +1160,34 @@
+@@ -710,19 +1225,34 @@
  		data.Grass.Cells[BM.Key(cx, cz)] = nil -- (no grass under blocks)
  	end
  	touch(plot, level)
@@ -2760,7 +3054,7 @@
  -- v2.38: the pickaxe of this save — its tier (ToolConfig.PickaxeTiers: Reach, HitEvery,
  -- Smash …) and how many blocks it can still break before it is broken
  local FALLBACK_PICK = { Index = 1, HitEvery = 0.34, Reach = 14, Durability = math.huge, Smash = 90 }
-@@ -766,7 +1231,7 @@
+@@ -766,7 +1296,7 @@
  	if type(cx) ~= "number" or type(cz) ~= "number" or type(level) ~= "number" then
  		return
  	end
@@ -2769,7 +3063,7 @@
  		return
  	end
  	if not (data.Tools and data.Tools.Owned and data.Tools.Owned.Pickaxe) then
-@@ -786,6 +1251,7 @@
+@@ -786,6 +1316,7 @@
  	if not def then
  		return
  	end
@@ -2777,7 +3071,7 @@
  	-- reach: from you to the nearest point of the block
  	local cell, H = cellSize(), BC.Height
  	local x, z = ctx.PlotMath.CellCenter(cx, cz, size, cell)
-@@ -825,13 +1291,13 @@
+@@ -825,13 +1356,13 @@
  	s.N += 1
  	local need = pickHits(pick, code, def)
  	if s.N < need then
@@ -2793,7 +3087,7 @@
  		if now - s.Warned > 1.5 then
  			s.Warned = now
  			notify(player, "⛏ " .. tostring(why or "This block can't be broken"))
-@@ -840,7 +1306,7 @@
+@@ -840,7 +1371,7 @@
  	end
  	-- v2.34: a block an incubating egg stands on can't be broken (like under a tree)
  	if not nestsKeep(data, cx, cz, level, nil, size) then
@@ -2802,7 +3096,7 @@
  		if now - s.Warned > 1.5 then
  			s.Warned = now
  			notify(player, "⛏ An egg stands on this block — open it first")
-@@ -849,7 +1315,7 @@
+@@ -849,7 +1380,7 @@
  	end
  	-- v2.34: …and a block a cosmetic box stands on
  	if not boxesKeep(data, cx, cz, level, nil, size) then
@@ -2811,7 +3105,7 @@
  		if now - s.Warned > 1.5 then
  			s.Warned = now
  			notify(player, "⛏ A cosmetic box stands on this block — open it first")
-@@ -857,8 +1323,9 @@
+@@ -857,8 +1388,9 @@
  		return
  	end
  	BM.Set(blocks, cx, cz, level, nil)
@@ -2822,7 +3116,7 @@
  	-- v2.38: every block broken wears the pickaxe (water is only scooped up: free)
  	-- (v2.41: a slab wears it like a block — 1 — it only takes fewer swings)
  	if code ~= "W" and ctx.ToolService and ctx.ToolService.PickWear then
-@@ -888,7 +1355,7 @@
+@@ -888,7 +1420,7 @@
  	if type(cx) ~= "number" or type(cz) ~= "number" or type(level) ~= "number" then
  		return
  	end
@@ -2831,7 +3125,7 @@
  		return
  	end
  	if not (data.Tools and data.Tools.Owned and data.Tools.Owned.Pickaxe) then
-@@ -965,9 +1432,11 @@
+@@ -965,9 +1497,11 @@
  		if code and BC.Types[code] then
  			local ok = BM.CheckChange(blocks, data.Plot.Objects, bx, bz, bl, nil, size, cell)
  			if ok and nestsKeep(data, bx, bz, bl, nil, size) and boxesKeep(data, bx, bz, bl, nil, size) then
@@ -2844,7 +3138,7 @@
  				if code ~= "W" then
  					wear += 1
  				end
-@@ -1005,13 +1474,42 @@
+@@ -1005,13 +1539,42 @@
  	end
  end
  
@@ -2888,7 +3182,7 @@
  	end
  	return false, "Unknown action"
  end
-@@ -1020,6 +1518,165 @@
+@@ -1020,7 +1583,168 @@
  	hits[player] = nil
  end
  
@@ -2906,7 +3200,7 @@
 +	             20 s (there is no jumping out of a 20-stud shaft): lifted back to the garden's spawn
 +]]
 +local guard = {} -- [player] = { N = noclip checks in a row, Pos, Idle = os.clock() it last did something }
-+local IDLE_PIT = 20
++local IDLE_PIT = 90
 +
 +-- is the point at plot-local height y inside a solid block of this column? (the pit under the floor
 +-- only counts while there is a pit; under its lowest slot: bedrock; a slab fills the lower half)
@@ -2935,7 +3229,8 @@
 +-- the lowest feet height at or above fromY where a character fits (2 studs steps = slab steps)
 +local function freeFeetY(blocks, pit, cx, cz, fromY)
 +	local y = math.floor(fromY / 2) * 2
-+	local top = BC.Height * BC.MaxLevels + 2
++	local colS = blocks[BM.Key(cx, cz)]
++	local top = BC.Height * (if type(colS) == "string" then #colS else 0) + 6 -- (v2.62: unlimited height: only up to the top of this column)
 +	while y < top do
 +		if not solidAtY(blocks, pit, cx, cz, y + 0.1) and not solidAtY(blocks, pit, cx, cz, y + 2.5) and not solidAtY(blocks, pit, cx, cz, y + 4.9) then
 +			return y
@@ -3052,9 +3347,11 @@
 +end
 +
  function BlockService.Start()
++	pcall(deepenAllIslands) -- v2.61 (ground)
  	ctx.Net.BlockRequest.OnServerInvoke = function(player, req)
  		return BlockService.Handle(player, req)
-@@ -1033,6 +1690,16 @@
+ 	end
+@@ -1033,6 +1757,16 @@
  	end)
  	ctx.Players.PlayerRemoving:Connect(function(player)
  		hits[player] = nil
@@ -3603,7 +3900,7 @@
  	if math.abs(ray.Direction.Y) < 1e-4 then
  		return nil
  	end
-@@ -760,15 +798,29 @@
+@@ -760,15 +798,38 @@
  	-- flat columns), not the ground far behind it
  	local FX = self.BlockFX
  	if FX and self.plot then
@@ -3625,6 +3922,15 @@
 +				self.aimLv = BM.CleanLv(lv)
 +			end
 +			return cf:PointToObjectSpace(ray.Origin + ray.Direction.Unit * dist)
++		end
++		-- v2.61 (ground): the ray flew down an open pit and left through the BOTTOM: it lands on the bed
++		-- (the floor of the lowest slot, level -Below) — not on the plane of the lawn far above it
++		if okT and not hit and place and BM and BM.BedAim then
++			local lv, pt = BM.BedAim(place, cf:PointToObjectSpace(ray.Origin), cf:VectorToObjectSpace(ray.Direction))
++			if lv then
++				self.aimLv = BM.CleanLv(lv)
++				return pt
++			end
  		end
  	end
  	local t = (cf.Y - ray.Origin.Y) / ray.Direction.Y
@@ -3635,7 +3941,7 @@
  	return cf:PointToObjectSpace(ray.Origin + ray.Direction * t)
  end
  
-@@ -875,7 +927,58 @@
+@@ -875,7 +936,58 @@
  end
  
  -- the ＋ / － bar over the ✔ bar: on while such a cosmetic is held, off otherwise
@@ -3694,7 +4000,7 @@
  	local UI = self.UI
  	if not UI or not UI.ShowScale then
  		return
-@@ -1011,7 +1114,7 @@
+@@ -1011,7 +1123,7 @@
  	local at = self.BlockFX and self.plot and self.BlockFX.CellCFrame(self.plot, cx, cz, level)
  	task.spawn(function()
  		local ok, a, b = pcall(function()
@@ -3703,7 +4009,7 @@
  		end)
  		self.blockBusy = math.max((self.blockBusy or 1) - 1, 0)
  		local J = self.Juice
-@@ -1174,12 +1277,33 @@
+@@ -1174,12 +1286,33 @@
  	end
  end
  
@@ -3737,7 +4043,7 @@
  	if self.mode ~= "idle" then
  		self:Cancel()
  	elseif self.wantStack then
-@@ -1259,6 +1383,10 @@
+@@ -1259,6 +1392,10 @@
  	if not self.active then
  		return
  	end
@@ -3748,7 +4054,7 @@
  	self:_endPreview()
  	self:_deselect()
  	local record
-@@ -1287,6 +1415,10 @@
+@@ -1287,6 +1424,10 @@
  	if not self.active or type(entry) ~= "table" then
  		return
  	end
@@ -3759,7 +4065,7 @@
  	self:_endPreview()
  	self:_deselect()
  	local record = { Type = entry.Type, TreeType = entry.TreeType, DecorType = entry.DecorType, Level = entry.Level or 1, SizeX = entry.SizeX, SizeZ = entry.SizeZ, X = 0, Z = 0, Rot = 0 }
-@@ -1351,6 +1483,7 @@
+@@ -1351,6 +1492,7 @@
  	self:_endPreview()
  	self.mode = "move"
  	self.storedId = nil
@@ -3767,7 +4073,7 @@
  	self.template = rec
  	self.ignoreId = self.selectedId
  	self.rot = rec.Rot
-@@ -1409,12 +1542,12 @@
+@@ -1409,12 +1551,12 @@
  	local scale = if rec.Type == "Decor" and self.DecorTypes.ScaleOf then self.DecorTypes.ScaleOf(rec) else nil
  	if self.ignoreId then
  		-- v0.9: after a move the selection is cleared (nothing stays held)
@@ -3782,7 +4088,7 @@
  			task.defer(function()
  				self:_continueStored(stack, id, rot)
  			end)
-@@ -1429,7 +1562,7 @@
+@@ -1429,7 +1571,7 @@
  		end)
  		self.storedId = nil
  	else
@@ -3791,7 +4097,7 @@
  	end
  	self:_endPreview()
  	self.mode = "idle"
-@@ -1442,7 +1575,7 @@
+@@ -1442,7 +1584,7 @@
  		return
  	end
  	local rec = self.pending
@@ -3800,7 +4106,7 @@
  	self:_endPreview()
  	self.mode = "idle"
  	self.UI:ShowConfirm(false)
-@@ -1451,6 +1584,7 @@
+@@ -1451,6 +1593,7 @@
  
  -- cancel placing / moving completely (T, or ✖ on the confirm bar)
  function BuildMode:Cancel()
@@ -3808,7 +4114,7 @@
  	if self.mode ~= "idle" then
  		local wasStored = self.storedId
  		if wasStored and self.onCancelStored then
-@@ -1584,8 +1718,8 @@
+@@ -1584,8 +1727,8 @@
  	-- v2.19: with a broom (or any tool) in your hand a click is SWEEPING — the info
  	-- card never opens then
  	local char = Players.LocalPlayer.Character
@@ -3819,7 +4125,7 @@
  		return
  	end
  	local plot = self:_plot()
-@@ -1614,7 +1748,19 @@
+@@ -1614,7 +1757,19 @@
  	if m and m:GetAttribute("Type") then
  		self:_inspect(m)
  	else
@@ -3840,7 +4146,7 @@
  	end
  end
  
-@@ -1733,6 +1879,8 @@
+@@ -1733,6 +1888,8 @@
  				{ Id = "Store", Text = "📦 STORE", Color = Color3.fromRGB(120, 110, 160) },
  			},
  		}
@@ -3849,7 +4155,7 @@
  		-- v1.1: Robux — finish the wait now, or pay the upgrade in Robux
  		local R = self.RobuxUI
  		if R then
-@@ -1800,9 +1948,14 @@
+@@ -1800,9 +1957,14 @@
  				{ Id = "Store", Text = "📦 STORE", Color = Color3.fromRGB(120, 110, 160) },
  			},
  		}
@@ -3867,7 +4173,7 @@
  		end
  		-- v2.32: its SIZE — smaller / bigger in steps, free
  		local DT = self.DecorTypes
-@@ -1917,8 +2070,12 @@
+@@ -1917,8 +2079,12 @@
  				end
  			end)
  		end)
@@ -3882,7 +4188,7 @@
  			-- the server rebuilds the model: select the new one
  			task.delay(0.2, function()
  				for _, c in self.plot.Objects:GetChildren() do
-@@ -1938,7 +2095,7 @@
+@@ -1938,7 +2104,7 @@
  			if nxt == cur then
  				self.Hud:Toast(if id == "Bigger" then "It can't get any bigger" else "It can't get any smaller", 1.2)
  			else
@@ -3891,7 +4197,7 @@
  					task.delay(0.2, function()
  						if not self.active or self.mode ~= "idle" or not self.plot or not self.plot.Parent then
  							return
-@@ -1956,7 +2113,7 @@
+@@ -1956,7 +2122,7 @@
  		self:BeginMove()
  	elseif id == "Rotate" then
  		local step = if rec.Type == "Decor" then P.DecorRotationStep * 3 else P.RotationStep
@@ -3900,7 +4206,7 @@
  			self:_showSelection()
  		end)
  	elseif id == "Upgrade" then
-@@ -2044,6 +2201,9 @@
+@@ -2044,6 +2210,9 @@
  	local rec = table.clone(self.template)
  	rec.X, rec.Z, rec.Rot = x, z, self.rot
  	self.TreePlacement.Snap(rec, size, P)
@@ -3910,7 +4216,7 @@
  	local ok, why = self.TreePlacement.Check(rec, self:_records(), self.ignoreId, size, P, self:_tiles())
  	if ok and not self.ignoreId then
  		local price = self:_price(self.newKind, self.newType)
-@@ -2319,6 +2479,12 @@
+@@ -2319,6 +2488,12 @@
  				self:_hint()
  			end
  		end
@@ -4207,7 +4513,7 @@
  	local lp = plot.CFrame:PointToObjectSpace(root.Position)
  	local half = plot.Size / 2 + (margin or 6)
 -	return math.abs(lp.X) <= half and math.abs(lp.Z) <= half and lp.Y > -10 and lp.Y < 60
-+	return math.abs(lp.X) <= half and math.abs(lp.Z) <= half and lp.Y > -26 and lp.Y < 60 -- (v2.50: -26 = the pit under the floor)
++	return math.abs(lp.X) <= half and math.abs(lp.Z) <= half and lp.Y > -26 and lp.Y < 1100 -- (v2.62: unlimited height; v2.50: -26 = the pit under the floor)
  end
  
  function BuildService.Handle(player, req)
@@ -4430,7 +4736,7 @@
  end
  
  function BuildUI:SetCoop(_on)
-@@ -626,6 +693,32 @@
+@@ -626,8 +693,34 @@
  			end)
  		end
  	end
@@ -4461,8 +4767,11 @@
 +		end
 +	end
  	-- (v2.41: after the tiles of the slabs; the note tells what a slab is)
- 	local note = label(self.list, { Size = UDim2.fromOffset(330, TILE_H), LayoutOrder = #BCfg.Order + 4, TextScaled = false, TextSize = 12, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = Color3.fromRGB(255, 240, 220), Text = "Pick a block, then click in your garden — hold and drag for a row. Up to 5 high. Blocks are free; break them with the Pickaxe (SHOP · TOOLS). Water flows! A SLAB is half a block: two slabs of one kind make a block — build stairs with them." })
+-	local note = label(self.list, { Size = UDim2.fromOffset(330, TILE_H), LayoutOrder = #BCfg.Order + 4, TextScaled = false, TextSize = 12, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = Color3.fromRGB(255, 240, 220), Text = "Pick a block, then click in your garden — hold and drag for a row. Up to 5 high. Blocks are free; break them with the Pickaxe (SHOP · TOOLS). Water flows! A SLAB is half a block: two slabs of one kind make a block — build stairs with them." })
++	local note = label(self.list, { Size = UDim2.fromOffset(330, TILE_H), LayoutOrder = #BCfg.Order + 4, TextScaled = false, TextSize = 12, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = Color3.fromRGB(255, 240, 220), Text = "Pick a block, then click in your garden — hold and drag for a row. Build as high as you like. Blocks are free; break them with the Pickaxe (SHOP · TOOLS). Water flows - also in the pit! A SLAB is half a block: two slabs of one kind make a block — build stairs with them." })
  	note.ZIndex = 3
+ end
+ 
 @@ -662,7 +755,7 @@
  			local have = math.floor(tonumber(boxesOwned[bid]) or 0)
  			if box and have > 0 then
@@ -4711,7 +5020,7 @@
  			rec.Spent = math.floor(cleanNumber(rec.Spent, 0))
  			cleanScale(rec) -- v2.32
 +			-- v2.52: the level it stands at (half levels; -5 = the bottom of the pit … 5); none = where it always stood
-+			rec.Lv = if type(rec.Lv) == "number" and rec.Lv == rec.Lv and math.abs(rec.Lv) < 1e3 then math.clamp(math.floor(rec.Lv * 2 + 0.5) / 2, -5, 5) else nil
++			rec.Lv = if type(rec.Lv) == "number" and rec.Lv == rec.Lv and math.abs(rec.Lv) < 1e3 then math.clamp(math.floor(rec.Lv * 2 + 0.5) / 2, -5, 256) else nil
  			if rec.Type == "Tree" then
  				-- (a missing / broken level is 1; a real 0 is a tree being built — keep it)
  				cleanTreeFields(rec)
@@ -4774,7 +5083,7 @@
  			nest.Z = math.clamp(cleanNumber(nest.Z, 0), -60, 60)
  			nest.Ready = cleanNumber(nest.Ready, 0)
  			nest.Total = math.max(cleanNumber(nest.Total, 0), 0)
-+			nest.Lv = if type(nest.Lv) == "number" and nest.Lv == nest.Lv and math.abs(nest.Lv) < 1e3 then math.clamp(math.floor(nest.Lv * 2 + 0.5) / 2, -5, 5) else nil -- v2.52
++			nest.Lv = if type(nest.Lv) == "number" and nest.Lv == nest.Lv and math.abs(nest.Lv) < 1e3 then math.clamp(math.floor(nest.Lv * 2 + 0.5) / 2, -5, 256) else nil -- v2.52
  		end
  	end
  	E.NextNest = math.max(math.floor(cleanNumber(E.NextNest, 1)), 1)
@@ -4914,6 +5223,15 @@
  			st.Keys[action] = nil
  		end
  	end
+@@ -1340,7 +1444,7 @@
+ 				local sx, sz = string.match(k, "^(%d+),(%d+)$")
+ 				local cx, cz = tonumber(sx), tonumber(sz)
+ 				if cx and cz and cx < 20 and cz < 20 then
+-					local col = string.gsub(string.sub(v, 1, 5), "[^DSRLWdsrl]", "-")
++					local col = string.gsub(string.sub(v, 1, 256), "[^DSRLWdsrl]", "-") -- (v2.62: unlimited height — BlockConfig.MaxLevels)
+ 					col = string.gsub(col, "%-+$", "")
+ 					if col ~= "" then
+ 						blocks[string.format("%d,%d", cx, cz)] = col
 @@ -1350,7 +1454,60 @@
  			end
  		end
@@ -4932,10 +5250,10 @@
 +						if cx and cz and cx < 20 and cz < 20 then
 +							local cleaned
 +							if name == "Pit" then
-+								cleaned = string.gsub(string.sub(v, 1, 5), "[^E%-DSRLdsrl]", "E")
++								cleaned = string.gsub(string.sub(v, 1, 5), "[^E%-DSRLWdsrl]", "E") -- (v2.62: W = water in the pit)
 +								cleaned = string.gsub(cleaned, "E+$", "")
 +							else
-+								cleaned = string.gsub(string.sub(v, 1, 10), "[^0-9]", "0")
++								cleaned = string.gsub(string.sub(v, 1, 261), "[^0-9]", "0") -- (v2.62: Below + MaxLevels)
 +								cleaned = string.gsub(cleaned, "0+$", "")
 +							end
 +							if cleaned ~= "" then
@@ -4960,7 +5278,7 @@
 +				if type(k) == "string" and #k <= 5 and type(v) == "string" and nBare < 400 then
 +					local sx, sz = string.match(k, "^(%d+),(%d+)$")
 +					if sx and tonumber(sx) < 20 and tonumber(sz) < 20 then
-+						local text = string.gsub(string.sub(v, 1, 12), "[^01]", "0")
++						local text = string.gsub(string.sub(v, 1, 270), "[^01]", "0") -- (v2.62: one char per slot, now up to the highest block)
 +						text = string.gsub(text, "0+$", "")
 +						if text ~= "" then
 +							bare[k] = text
@@ -4980,7 +5298,7 @@
  						-- (the garden size X / Z belong to: BoxService shifts Z when the garden grew; 0 = unknown)
  						S = math.clamp(cleanNumber(nest.S, 0), 0, 1000),
 +						-- v2.52: the level it stands at (nil = where it always stood)
-+						Lv = if type(nest.Lv) == "number" and nest.Lv == nest.Lv and math.abs(nest.Lv) < 1e3 then math.clamp(math.floor(nest.Lv * 2 + 0.5) / 2, -5, 5) else nil,
++						Lv = if type(nest.Lv) == "number" and nest.Lv == nest.Lv and math.abs(nest.Lv) < 1e3 then math.clamp(math.floor(nest.Lv * 2 + 0.5) / 2, -5, 256) else nil,
  					}
  					nNests += 1
  				end
@@ -6714,7 +7032,7 @@
  			local lp = plot.CFrame:PointToObjectSpace(pos)
  			local half = plot.Size / 2 + (margin or 1)
 -			if math.abs(lp.X) <= half and math.abs(lp.Z) <= half and lp.Y > -6 and lp.Y < 40 then
-+			if math.abs(lp.X) <= half and math.abs(lp.Z) <= half and lp.Y > -26 and lp.Y < 40 then
++			if math.abs(lp.X) <= half and math.abs(lp.Z) <= half and lp.Y > -26 and lp.Y < 1100 then -- (v2.62: unlimited height)
  				return plot
  			end
  		end
@@ -11672,7 +11990,7 @@
  	local lp = floor.CFrame:PointToObjectSpace(root.Position)
  	local half = floor.Size.X / 2 + 4
 -	return math.abs(lp.X) <= half and math.abs(lp.Z) <= half and lp.Y > -6 and lp.Y < 40
-+	return math.abs(lp.X) <= half and math.abs(lp.Z) <= half and lp.Y > -26 and lp.Y < 40
++	return math.abs(lp.X) <= half and math.abs(lp.Z) <= half and lp.Y > -26 and lp.Y < 1100 -- (v2.62: unlimited height)
  end
  build.CanBuildHere = inGarden
 +build.HandBusy = function() -- v2.46: something (not only a Tool) is held in the hand: clicks on trees / eggs / boxes don't inspect
@@ -22066,7 +22384,7 @@
  					e.Locked, e.Why = true, "Unequip this pet first — a pet that follows you can't be traded"
 --- a/TreePlacement.lua
 +++ b/TreePlacement.lua
-@@ -24,6 +24,14 @@
+@@ -24,16 +24,43 @@
  -- v2.32: `blocks` (optional) = the garden's blocks (data.Plot.Blocks): what the
  -- object stands on (BlockMath.GroundCheck — flat tops, sand / water trees)
  function TreePlacement.Check(record, objects, ignoreId, plotSize, P, blocks)
@@ -22081,7 +22399,17 @@
  	local ok, why, other = PlotMath.CanPlace(record, objects, ignoreId, plotSize, P.EdgeMargin, P.CellSize, P.KeepOut)
  	if ok and blocks then
  		local okG, whyG = BlockMath.GroundCheck(record, blocks, plotSize, P.CellSize)
-@@ -34,6 +42,18 @@
+ 		if not okG then
+ 			return false, whyG
+ 		end
++		-- v2.62: a tree needs ground under its WHOLE foot (blocks / the floor at the level it stands at)
++		if record.Type == "Tree" then
++			local okS, whyS = BlockMath.TreeSupport(record, blocks, plotSize, P.CellSize)
++			if not okS then
++				return false, whyS
++			end
++		end
+ 	end
  	return ok, why, other
  end
  
@@ -22100,7 +22428,7 @@
  function TreePlacement.FindFreeSpot(record, objects, ignoreId, plotSize, P)
  	return PlotMath.FindFreeSpot(record, objects, ignoreId, plotSize, P.CellSize, P.KeepOut)
  end
-@@ -48,7 +68,7 @@
+@@ -48,7 +75,7 @@
  		return out -- (v2.15: cosmetics take no room)
  	end
  	for id, other in objects do
@@ -22490,6 +22818,194 @@
  end
  
  --[[
+--- a/WaterFlow.lua
++++ b/WaterFlow.lua
+@@ -17,9 +17,14 @@
+ 	  • running water that reaches an edge only falls (it doesn't keep running in
+ 	    the air); what falls onto a lake just joins it
+ 	  • water never enters a solid block and never leaves the garden
+-	Everything is bounded by the grid (n × n × MaxLevels cells).
++	Everything is bounded by the grid (n × n cells, from the bottom of the pit up to the highest block).
++	v2.62 WATER ANYWHERE: the PIT (levels 0 … -4 under the floor) is part of the grid: a slot that is
++	still earth is solid, a dug-out slot is open space (water falls into it, runs in it and lands on the
++	bed), "W" in the pit string is a water source like above the floor. Level 1 rests on the earth of
++	level 0 (no more "the floor"): over a hole it falls in. Below the lowest slot: bedrock.
+ 
+-	Cells are numbered  index = ((level-1) * n + cz) * n + cx   (cx, cz from 0).
++	Cells are numbered  index = ((level-1) * n + cz) * n + cx   (cx, cz from 0). Levels <= 0 (the pit)
++	give NEGATIVE indexes (level 0 = -n*n … -1): WaterFlow.Cell / Index work the same for them.
+ 
+ 	WaterFlow.Compute(blocks, n) -> {
+ 		N      = n,
+@@ -29,6 +34,7 @@
+ 		Solid  = { [index] = true }    the solid blocks (for the callers)
+ 		Half   = { [index] = true }    v2.41: the solid cells that are slabs (half blocks)
+ 		Count  = cells with water
++		Lo, Hi = the lowest / highest level that holds water (Lo > Hi: none)
+ 	}
+ 	v2.41 SLABS: a slab's slot is SOLID for the water (it flows around a slab like around
+ 	a block and rests on it). Water in the cell right above a slab reaches down to the
+@@ -57,8 +63,45 @@
+ -- never enters a slab's slot from the side. Only water standing right ABOVE a slab
+ -- sinks into the empty upper half of that slot — WaterFlow.Sunk — so it rests on the
+ -- slab instead of hanging in the air)
++-- (v2.62) the slots under the floor: untouched earth is solid, "-" is open, "W" a source, a block / slab solid
++local function addPit(blocks, n, solid, source, half)
++	local pit = blocks and blocks.Pit
++	if type(pit) ~= "table" or next(pit) == nil then
++		-- (no hole anywhere: only the earth right under the floor matters, level 1 rests on it)
++		for cz = 0, n - 1 do
++			for cx = 0, n - 1 do
++				solid[WaterFlow.Index(n, cx, cz, 0)] = true
++			end
++		end
++		return
++	end
++	for cz = 0, n - 1 do
++		for cx = 0, n - 1 do
++			local p = pit[cx .. "," .. cz]
++			if type(p) ~= "string" then
++				p = ""
++			end
++			for i = 1, Cfg.Below do
++				local ch = string.sub(p, i, i)
++				if ch == "" or ch == "E" then
++					solid[WaterFlow.Index(n, cx, cz, 1 - i)] = true
++				elseif ch == "W" then
++					source[WaterFlow.Index(n, cx, cz, 1 - i)] = true
++				elseif Cfg.IsSolid(ch) then
++					local index = WaterFlow.Index(n, cx, cz, 1 - i)
++					solid[index] = true
++					if Cfg.IsHalf(ch) then
++						half[index] = true
++					end
++				end
++			end
++		end
++	end
++end
++
+ function WaterFlow.Grid(blocks, n)
+ 	local solid, source, half = {}, {}, {}
++	addPit(blocks, n, solid, source, half)
+ 	local maxL = Cfg.MaxLevels
+ 	for key, col in blocks or {} do
+ 		if type(key) == "string" and type(col) == "string" then
+@@ -97,14 +140,14 @@
+ 	local layer = n * n
+ 	local maxL = Cfg.MaxLevels
+ 	local function try(cx, cz, level)
+-		if cx < 0 or cz < 0 or cx >= n or cz >= n or level > maxL then
++		if cx < 0 or cz < 0 or cx >= n or cz >= n or level > maxL or level < Cfg.MinLevel then
+ 			return
+ 		end
+ 		local index = WaterFlow.Index(n, cx, cz, level)
+ 		if full[index] or solid[index] then
+ 			return
+ 		end
+-		if level > 1 and not (solid[index - layer] or full[index - layer]) then
++		if level > Cfg.MinLevel and not (solid[index - layer] or full[index - layer]) then
+ 			return -- nothing under it: water can't stand here
+ 		end
+ 		local c = 0
+@@ -168,13 +211,20 @@
+ 			table.insert(stack, index)
+ 		end
+ 	end
+-	local guard = layer * Cfg.MaxLevels * 8 + 64
++	-- (bounded by the cells that can hold water: from the bed of the pit to the highest column + the sources in it)
++	local top = 0
++	for k, col in blocks or {} do
++		if type(k) == "string" and type(col) == "string" and #col > top then
++			top = #col
++		end
++	end
++	local guard = layer * (math.min(top, Cfg.MaxLevels) + Cfg.Below + 2) * 8 + 64
+ 	while #stack > 0 and guard > 0 do
+ 		guard -= 1
+ 		local index = table.remove(stack)
+ 		local cx, cz, level = WaterFlow.Cell(n, index)
+ 		local isFull, isFall = full[index] == true, fall[index] == true
+-		local below = if level > 1 then index - layer else nil
++		local below = if level > Cfg.MinLevel then index - layer else nil -- (nil: on the bed of the pit)
+ 		local falls = below ~= nil and not solid[below] and not full[below]
+ 		if falls then
+ 			give(below, 4, true)
+@@ -194,7 +244,17 @@
+ 			end
+ 		end
+ 	end
+-	return { N = n, Amt = amt, Full = full, Fall = fall, Solid = solid, Half = half or {}, Count = count }
++	local lo, hi = math.huge, -math.huge
++	for index in amt do
++		local level = index // layer + 1
++		if level < lo then
++			lo = level
++		end
++		if level > hi then
++			hi = level
++		end
++	end
++	return { N = n, Amt = amt, Full = full, Fall = fall, Solid = solid, Half = half or {}, Count = count, Lo = lo, Hi = hi }
+ end
+ 
+ -- v2.41: how far the water of a cell reaches BELOW the cell's bottom (studs): half a
+@@ -205,7 +265,7 @@
+ 		return 0
+ 	end
+ 	local below = index - water.N * water.N
+-	if below >= 0 and half[below] then
++	if half[below] then
+ 		return Cfg.Height / 2
+ 	end
+ 	return 0
+@@ -244,23 +304,32 @@
+ 	end
+ 	over = over or 0.3
+ 	local H = Cfg.Height
+-	local runBottom, runTop
+-	for level = 1, Cfg.MaxLevels do
++	-- (v2.62: the height is unlimited: only the levels around y are looked at, a body of standing
++	-- water is followed up and down from there)
++	local function depthOf(level)
+ 		local index = WaterFlow.Index(n, cx, cz, level)
+-		local bottom = (level - 1) * H
+-		local d = if water.Amt[index] and not water.Fall[index] then WaterFlow.Depth(water, index) else 0
+-		if d > 0 then
+-			if runBottom == nil or runTop < bottom - 1e-3 then
+-				if runBottom ~= nil and y >= runBottom - 0.5 and y <= runTop + over then
+-					return runTop, runBottom
+-				end
+-				runBottom = bottom - WaterFlow.Sunk(water, index) -- (v2.41: down to the slab under it)
+-			end
+-			runTop = bottom + d
++		if water.Amt[index] and not water.Fall[index] then
++			return WaterFlow.Depth(water, index)
+ 		end
++		return 0
+ 	end
+-	if runBottom ~= nil and y >= runBottom - 0.5 and y <= runTop + over then
+-		return runTop, runBottom
++	local L = math.floor(y / H) + 1
++	for seed = L - 1, L + 1 do
++		if depthOf(seed) > 0 then
++			local lo = seed
++			while depthOf(lo - 1) >= H - 1e-3 do
++				lo -= 1
++			end
++			local hi = seed
++			while depthOf(hi) >= H - 1e-3 and depthOf(hi + 1) > 0 do
++				hi += 1
++			end
++			local runBottom = (lo - 1) * H - WaterFlow.Sunk(water, WaterFlow.Index(n, cx, cz, lo)) -- (v2.41: down to the slab under it)
++			local runTop = (hi - 1) * H + depthOf(hi)
++			if y >= runBottom - 0.5 and y <= runTop + over then
++				return runTop, runBottom
++			end
++		end
+ 	end
+ 	return nil
+ end
 --- a/WeatherConfig.lua
 +++ b/WeatherConfig.lua
 @@ -323,4 +323,82 @@
@@ -23671,7 +24187,7 @@
  		ball:Destroy()
 --- a/ru.lua
 +++ b/ru.lua
-@@ -5887,4 +5887,510 @@
+@@ -5887,4 +5887,512 @@
  L.Strings["There is a slab here already — only the same slab fits onto it"] = "Здесь уже лежит плита — на неё можно положить только такую же"
  L.Strings["Trees need a full block — not a slab"] = "Деревьям нужен целый блок, а не плита"
  
@@ -24181,4 +24697,6 @@
 +L.Strings["Height: automatic"] = "Высота: авто"
 +L.Templates["Height: level %s"] = "Высота: уровень %1"
 +L.Strings["Tip: [ and ] change the height · \\ = automatic"] = "Подсказка: [ и ] меняют высоту · \\ = авто"
++L.Strings["Pick a block, then click in your garden — hold and drag for a row. Build as high as you like. Blocks are free; break them with the Pickaxe (SHOP · TOOLS). Water flows - also in the pit! A SLAB is half a block: two slabs of one kind make a block — build stairs with them."] = "Выбери блок и кликни в саду — зажми и веди, чтобы поставить целый ряд. Строй сколько хочешь вверх. Блоки бесплатные; ломать их можно киркой (МАГАЗИН · ИНСТРУМЕНТЫ). Вода течёт — и в яме тоже! ПЛИТА — это половинка блока: две одинаковые плиты дают целый блок. Строй из них лестницы!"
++L.Strings["Needs blocks under the whole tree"] = "Под всем деревом нужны блоки"
  return L

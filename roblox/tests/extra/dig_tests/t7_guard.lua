@@ -37,7 +37,7 @@ data.Plot.Blocks["1,1"]=nil
 BlockService.Refresh(player); RUN_DELAYED()
 root.Position=base+Vector3.new(-2.5,-11,-2.5)
 STEP(3) print("in pit, y=",root.Position.Y-base.Y)
-STEP(45) print("after 22 s idle y=",root.Position.Y-base.Y, "z",root.Position.Z-base.Z)
+STEP(195) print("after 97 s idle y=",root.Position.Y-base.Y, "z",root.Position.Z-base.Z)
 -- 4. atomic rebuild: break the colour then place
 local function count() local c=0 for _,p in ALL_PARTS do if p.Parent and (p.Name=="Dirt" or p.Name=="DirtTop") then c+=1 end end return c end
 local before=count()

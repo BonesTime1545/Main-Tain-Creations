@@ -20,6 +20,7 @@ Vector3=V3
 local CF={}
 local function rot(yaw,v) local c,s=math.cos(yaw),math.sin(yaw) return mkvec(v.X*c+v.Z*s, v.Y, -v.X*s+v.Z*c) end
 CF.__index=function(t,k) if k=="X" then return t.P.X elseif k=="Y" then return t.P.Y elseif k=="Z" then return t.P.Z elseif k=="Position" then return t.P elseif k=="Rotation" then return setmetatable({P=mkvec(0,0,0),yaw=t.yaw},CF) elseif k=="UpVector" then return mkvec(0,1,0) end return rawget(CF,k) end
+CF.__add=function(a,b) return setmetatable({P=a.P+b,yaw=a.yaw},CF) end
 function CF.new(x,y,z) if type(x)=="table" then return setmetatable({P=x,yaw=0},CF) end return setmetatable({P=mkvec(x or 0,y or 0,z or 0),yaw=0},CF) end
 function CF.Angles(rx,ry,rz) return setmetatable({P=mkvec(0,0,0),yaw=ry or 0},CF) end
 CF.__mul=function(a,b) if getmetatable(b)==CF then return setmetatable({P=a.P+rot(a.yaw,b.P),yaw=a.yaw+b.yaw},CF) else return a.P+rot(a.yaw,b) end end
@@ -53,6 +54,7 @@ Inst.__newindex=function(t,k,v)
 	end
 	rawget(t,"_p")[k]=v
 end
+function Inst:Clone() local c=Instance.new(self._p.ClassName) for k,v in pairs(self._p) do c._p[k]=v end for k,v in pairs(self._attr) do c._attr[k]=v end return c end
 function Inst:Destroy() self.Parent=nil; self._destroyed=true end
 function Inst:ClearAllChildren() for k in pairs(self._kids) do k.Parent=nil end end
 function Inst:GetChildren() local o={} for k in pairs(self._kids) do table.insert(o,k) end return o end
