@@ -11539,7 +11539,7 @@
  	f.Id = id
 --- a/IslandService.lua
 +++ b/IslandService.lua
-@@ -17,6 +17,46 @@
+@@ -17,6 +17,31 @@
  
  local ctx
  local original = {} -- [part] = Color3 (the baked meadow colours)
@@ -11552,33 +11552,18 @@
 +	if not under then
 +		return
 +	end
++	-- v2.63 (isles): EARTH ONLY. Every layer is exactly the colour of the garden's Earth block (BlockService.soilOf: the look's
++	-- Soil, or BlockConfig.Types.D.Color on the Meadow): no brightness variation, no rock colours, no hanging rocks.
 +	local pal = ctx.IslandConfig.BodyOf(tierIndex) -- (IC() is declared further down: it is no upvalue here)
++	local bc = ctx.BlockConfig
++	local earth = if pal then pal.Soil else (if bc and bc.Types and bc.Types.D then bc.Types.D.Color else Color3.fromRGB(124, 92, 62))
 +	for _, d in under:GetDescendants() do
 +		if d:IsA("BasePart") then
-+			local o = bodyOrig[d]
-+			if not o then
-+				o = d.Color
-+				bodyOrig[d] = o
-+			end
-+			if not pal then
-+				d.Color = o
++			if d.Name == "Hanging" then
++				d:Destroy()
 +			else
-+				local lum = (o.R + o.G + o.B) / 3
-+				local base, ref
-+				if d.Name == "Dirt" then
-+					base, ref = pal.Soil, 0.36
-+				elseif d.Name == "Hanging" then
-+					base, ref = pal.Deep, 0.47
-+				else
-+					local warm = math.clamp((o.R - o.B) / 0.17, 0, 1)
-+					base, ref = pal.Rock:Lerp(pal.Warm, warm), 0.39
-+					if pal.Mix then
-+						local pos = d.Position
-+						base = pal.Mix[(math.floor(pos.X * 0.37 + pos.Z * 0.53 + pos.Y * 0.9) % #pal.Mix) + 1]
-+					end
-+				end
-+				local f = math.clamp(lum / ref, 0.75, 1.3)
-+				d.Color = Color3.new(math.clamp(base.R * f, 0, 1), math.clamp(base.G * f, 0, 1), math.clamp(base.B * f, 0, 1))
++				d.Color = earth
++				d.Material = Enum.Material.Plastic
 +			end
 +		end
 +	end
@@ -11586,7 +11571,7 @@
  
  function IslandService.Init(context)
  	ctx = context
-@@ -26,6 +66,135 @@
+@@ -26,6 +51,135 @@
  	return ctx.IslandConfig
  end
  
@@ -11722,7 +11707,7 @@
  local function islandData(data)
  	data.Island = data.Island or { Tier = 1, Look = 0 }
  	data.Island.Tier = math.clamp(math.floor(tonumber(data.Island.Tier) or 1), 1, #IC().Tiers)
-@@ -128,6 +297,847 @@
+@@ -128,6 +282,848 @@
  	return themes and themes:FindFirstChild(tier.Id)
  end
  
@@ -12211,10 +12196,11 @@
 +		local o = s.Out
 +		local pos = Vector3.new(s.P.X + o.X * dist, up, s.P.Z + o.Z * dist)
 +		local pal = IC().BodyOf(tierIndex)
-+		local rock = if pal then pal.Rock else rgb(120, 104, 92)
++		local bc = ctx.BlockConfig
++		local rock = if pal then pal.Soil else (if bc and bc.Types and bc.Types.D then bc.Types.D.Color else rgb(124, 92, 62)) -- (v2.63: earth, like the island)
 +		E.add("IsletRock", Vector3.new(7, 3, 7), CFrame.new(pos + Vector3.new(0, -1.5, 0)), rock)
-+		E.add("IsletRock", Vector3.new(5, 3, 5), CFrame.new(pos + Vector3.new(0, -4, 0)), rock:Lerp(Color3.new(0, 0, 0), 0.13))
-+		E.add("IsletRock", Vector3.new(3, 3, 3), CFrame.new(pos + Vector3.new(0, -6.5, 0)), rock:Lerp(Color3.new(0, 0, 0), 0.25))
++		E.add("IsletRock", Vector3.new(5, 3, 5), CFrame.new(pos + Vector3.new(0, -4, 0)), rock)
++		E.add("IsletRock", Vector3.new(3, 3, 3), CFrame.new(pos + Vector3.new(0, -6.5, 0)), rock)
 +		E.add("IsletGrass", Vector3.new(7.4, 1, 7.4), CFrame.new(pos + Vector3.new(0, 0.3, 0)), grass)
 +		if top then
 +			top(pos + Vector3.new(0, 0.8, 0))
@@ -12570,7 +12556,7 @@
  -- give island `index` the look of tier `tierIndex` (1 = the plain meadow)
  function IslandService.ApplyLook(index, tierIndex)
  	local model = islandModel(index)
-@@ -139,7 +1149,17 @@
+@@ -139,7 +1135,17 @@
  	-- v2.16: the lawn INSIDE the garden takes the island's colour too (the tall grass
  	-- is drawn from the floor's colour by every client: GrassFX)
  	local plot = ctx.PlotSystem.GetByIndex and ctx.PlotSystem.GetByIndex(index)
@@ -12588,7 +12574,7 @@
  		plot.Floor.Color = if tierIndex <= 1 then Color3.fromRGB(96, 150, 62) else tier.Grass[1]
  		-- v2.38: … and the grass tops of the Earth blocks that stand there already
  		if ctx.BlockService and ctx.BlockService.Recolor then
-@@ -165,12 +1185,15 @@
+@@ -165,12 +1171,15 @@
  	for _, d in model:GetDescendants() do
  		if d:IsA("Model") and (d.Name == "Tuft" or (d.Name == "Flower" and d:FindFirstChild("Bloom"))) then
  			for _, p in d:GetChildren() do
@@ -12605,7 +12591,7 @@
  	local old = model:FindFirstChild("Theme")
  	if old then
  		old:Destroy()
-@@ -194,7 +1217,8 @@
+@@ -194,7 +1203,8 @@
  	for _, tree in theme:GetChildren() do
  		local p = if tree:IsA("Model") then tree:GetBoundingBox().Position elseif tree:IsA("BasePart") then tree.Position else nil
  		if p then
@@ -12615,7 +12601,7 @@
  			if (dx ^ 4 + dz ^ 4) ^ 0.25 >= 0.9 then
  				tree:Destroy()
  			end
-@@ -203,12 +1227,20 @@
+@@ -203,12 +1213,20 @@
  	theme.Parent = model
  end
  
@@ -12637,7 +12623,7 @@
  	end
  end
  
-@@ -219,6 +1251,9 @@
+@@ -219,6 +1237,9 @@
  	end
  	local d = islandData(data)
  	player:SetAttribute("IslandTier", d.Tier)
@@ -12647,7 +12633,7 @@
  	player:SetAttribute("IslandLook", IslandService.LookTier(data))
  	local open = {}
  	for id, on in d.Unlocked do
-@@ -240,12 +1275,28 @@
+@@ -240,12 +1261,28 @@
  end
  
  ---------------------------------------------------------------- fence skins (v2.15)
@@ -12676,7 +12662,7 @@
  	local d = islandData(data)
  	if d.Fences[id] then
  		return IslandService.SetFence(player, id)
-@@ -257,8 +1308,7 @@
+@@ -257,8 +1294,7 @@
  	end
  	d.Fences[id] = true
  	d.Fence = id
@@ -12686,7 +12672,7 @@
  	return true, string.format("%s %s is yours!", skin.Icon, skin.Display)
  end
  
-@@ -273,8 +1323,7 @@
+@@ -273,8 +1309,7 @@
  		return false, "Buy this fence first"
  	end
  	d.Fence = id
@@ -12696,7 +12682,7 @@
  	return true, string.format("%s %s", skin.Icon, skin.Display)
  end
  
-@@ -362,6 +1411,15 @@
+@@ -362,6 +1397,15 @@
  	ctx.Net.IslandRequest.OnServerInvoke = function(player, req)
  		return IslandService.Handle(player, req)
  	end
@@ -14063,7 +14049,15 @@
  			box(model, "ChestLid", CFrame.new(x, 0.9, o.fd * 0.3) * CFrame.Angles(0, 0.5, 0), Vector3.new(1.36, 0.22, 0.96), RGB(255, 205, 60), Enum.Material.Foil)
 --- a/MonetizationService.lua
 +++ b/MonetizationService.lua
-@@ -69,7 +69,7 @@
+@@ -12,7 +12,6 @@
+ 	           "Build"      a BuildRequest: { Action = "Place" | "Upgrade" | "Expand", … }
+ 	           "Gear"       { Id }
+ 	           "PetSlot"    {}
+-	           "PetUpgrade" { Uid }
+ 	  { Action = "Skip",  Kind = "Tree" | "Egg", Id }                 (finish a wait)
+ 	v1.4:
+ 	  { Action = "Buy", Kind = "Gems", Payload = { Pack } }  a 💎 pack (RobuxConfig.GemPacks)
+@@ -69,7 +68,7 @@
  	end
  	return def.Price, function()
  		return ctx.BroomShopService.Buy(player, p.Id)
@@ -14072,7 +14066,7 @@
  end
  
  BUY.Egg = function(player, data, p)
-@@ -85,7 +85,7 @@
+@@ -85,7 +84,7 @@
  	end
  	return egg.Price, function()
  		return ctx.PetService.BuyEgg(player, p.Egg)
@@ -14081,7 +14075,7 @@
  end
  
  -- v2.34: a cosmetic box (BoxService; the same rules as buying it for Money — its
-@@ -101,7 +101,7 @@
+@@ -101,7 +100,7 @@
  	end
  	return box.Price, function()
  		return Box.Buy(player, p.Box)
@@ -14090,7 +14084,7 @@
  end
  
  BUY.Build = function(player, data, p)
-@@ -117,7 +117,7 @@
+@@ -117,7 +116,7 @@
  		-- v2.12: the Build Shop (the item goes to your inventory)
  		money = ctx.BuildService.PriceOf(data, p.Kind, p.TypeId)
  		local def = p.Kind == "Decor" and ctx.DecorTypes.Get(p.TypeId)
@@ -14099,7 +14093,7 @@
  			return nil, "Not for Robux"
  		end
  		-- v2.28: the tree's own rules (gift trees, one per garden, sand first …)
-@@ -140,7 +140,7 @@
+@@ -140,7 +139,7 @@
  	elseif p.Action == "Place" then
  		money = ctx.BuildService.PriceOf(data, p.Kind, p.TypeId)
  		local def = p.Kind == "Decor" and ctx.DecorTypes.Get(p.TypeId)
@@ -14108,7 +14102,7 @@
  			return nil, "Not for Robux"
  		end
  		local tdef = p.Kind == "Tree" and ctx.TreeTypes.Get(p.TypeId)
-@@ -161,9 +161,19 @@
+@@ -161,9 +160,19 @@
  	if not money or money <= 0 then
  		return nil, "Nothing to buy"
  	end
@@ -14129,7 +14123,7 @@
  end
  
  -- v2.2 more decorations after 640 (BuildService.DecorUpgradeCost: Robux levels only)
-@@ -197,7 +207,7 @@
+@@ -197,7 +206,7 @@
  BUY.Gear = function(player, data, p)
  	local def = type(p.Id) == "string" and ctx.Economy.EquipmentById[p.Id]
  	local cost = def and def.Cost and ctx.Economy.ToMoney(def.Cost)
@@ -14138,7 +14132,25 @@
  		return nil, "Not for Robux"
  	end
  	if data.Equipment.Owned[p.Id] then
-@@ -246,7 +256,7 @@
+@@ -219,16 +228,7 @@
+ 	end
+ end
+ 
+-BUY.PetUpgrade = function(player, data, p)
+-	local pet = type(p.Uid) == "string" and data.Pets.Owned[p.Uid]
+-	local cost = pet and ctx.PetConfig.UpgradeCost(pet.Id, pet.Level)
+-	if not cost then
+-		return nil, "Max level"
+-	end
+-	return cost, function()
+-		return ctx.PetService.Upgrade(player, p.Uid)
+-	end
+-end
++-- (round 12: BUY.PetUpgrade / BUY.PetUpgradeMax were REMOVED — pets level up with Money only)
+ 
+ -- v1.2 tools, their upgrades, the vacuum repair, one-use items
+ BUY.Tool = function(player, data, p)
+@@ -246,7 +246,7 @@
  	end
  	return price, function()
  		return ctx.ToolService.Buy(player, p.Id)
@@ -14147,7 +14159,7 @@
  end
  
  BUY.ToolUpgrade = function(player, data, p)
-@@ -304,7 +314,124 @@
+@@ -304,7 +304,111 @@
  	end
  	return def.Price * n, function()
  		return ctx.ToolService.BuyItem(player, p.Id, n)
@@ -14195,7 +14207,7 @@
 +	end
 +	if (skin.Cost or 0) <= 0 then
 +		return nil, "It's free"
- 	end
++	end
 +	return skin.Cost, run, skin.Display
 +end
 +
@@ -14222,19 +14234,6 @@
 +	end
 +end
 +
-+BUY.PetUpgradeMax = function(player, data, p)
-+	local pet = type(p.Uid) == "string" and data.Pets.Owned[p.Uid]
-+	if not pet then
-+		return nil, "Not your pet"
-+	end
-+	local total, levels = ctx.PetConfig.UpgradeTotal(pet.Id, pet.Level)
-+	if levels < 1 or total <= 0 then
-+		return nil, "Max level"
-+	end
-+	return total, function()
-+		return ctx.PetService.UpgradeMax(player, p.Uid)
-+	end
-+end
 +
 +-- SHOP · UPGRADES: a 💎 step bought with Robux (the Gems are added, then the normal upgrade runs)
 +BUY.GemUpgrade = function(player, data, p)
@@ -14247,7 +14246,7 @@
 +		if not can then
 +			return nil, why
 +		end
-+	end
+ 	end
 +	local gems
 +	if p.Id == "BuildHeight" then
 +		local step = E.BuildHeight and E.BuildHeight.Steps[US.BuildHeightLevel(data) + 1]
@@ -14272,7 +14271,7 @@
  end
  
  -- a wait: seconds left, finish(player) -> ok, msg
-@@ -380,6 +507,26 @@
+@@ -380,6 +484,26 @@
  	if not data then
  		return nil
  	end
@@ -14299,7 +14298,7 @@
  	if req.Kind == "Gems" and req.Action ~= "Skip" then
  		-- v1.4: a gem pack — its Robux price is fixed (a tier), no Money involved
  		local pack = type(req.Payload) == "table" and type(req.Payload.Pack) == "string" and RC().GemPackById[req.Payload.Pack]
-@@ -413,11 +560,22 @@
+@@ -413,11 +537,22 @@
  	if not f then
  		return nil, "Unknown"
  	end
@@ -14324,7 +14323,7 @@
  end
  
  -- give what was bought (the Money, then the purchase / the finished wait)
-@@ -425,6 +583,9 @@
+@@ -425,6 +560,9 @@
  	if p.Money and p.Money > 0 then
  		ctx.CurrencyService.Grant(player, { LeafValue = p.Money }, "robux")
  	end
@@ -14334,7 +14333,7 @@
  	local ok, msg = false, nil
  	if p.Run then
  		-- v2.32: a Robux purchase doesn't depend on the shop's stock (StockService)
-@@ -439,6 +600,8 @@
+@@ -439,6 +577,8 @@
  	end
  	if not ok and p.Money and p.Money > 0 then
  		msg = "💰 " .. tostring(p.Money) .. " Money added — buy it any time"
@@ -14343,7 +14342,7 @@
  	end
  	if ctx.Net and ctx.Net.Notify then
  		ctx.Net.Notify:FireClient(player, msg or "✅ Thank you!")
-@@ -452,6 +615,12 @@
+@@ -452,6 +592,12 @@
  		return false, why or "Not possible"
  	end
  	local productId = RC().ProductOf(p.Robux)
@@ -14356,7 +14355,7 @@
  	p.T = os.clock()
  	pending[player] = p
  	-- v2.33: a 💎 pack shares its Developer Product with every other purchase of that
-@@ -465,6 +634,14 @@
+@@ -465,6 +611,14 @@
  			data.Robux.PendingGems = { Pack = p.Pack, T = MonetizationService.Now() }
  		end
  	end
@@ -14371,7 +14370,7 @@
  	if not productId then
  		if MonetizationService.IsStudio() and RC().StudioSimulate then
  			pending[player] = nil
-@@ -472,6 +649,10 @@
+@@ -472,6 +626,10 @@
  			return true, "🛠 Studio: purchase simulated (" .. p.Robux .. " R$)"
  		end
  		pending[player] = nil
@@ -14382,7 +14381,7 @@
  		return false, "Robux purchases aren't set up yet"
  	end
  	local ok = pcall(MonetizationService.Prompt, player, productId)
-@@ -572,6 +753,11 @@
+@@ -572,6 +730,11 @@
  	end
  	local tier = RC().TierOfProduct(info.ProductId)
  	if not tier then
@@ -14394,7 +14393,7 @@
  		return Enum.ProductPurchaseDecision.NotProcessedYet -- not one of ours (another script's)
  	end
  	local spent = tonumber(info.CurrencySpent) or tier
-@@ -580,7 +766,7 @@
+@@ -580,7 +743,7 @@
  	unsaved[player] = unsaved[player] or {}
  	unsaved[player][key] = true
  	local p = pending[player]
@@ -14403,7 +14402,7 @@
  		pending[player] = nil
  	else
  		p = nil
-@@ -592,6 +778,13 @@
+@@ -592,6 +755,13 @@
  			p = resolve(player, { Action = "Buy", Kind = "Gems", Payload = { Pack = pack.Id } })
  		end
  	end
@@ -14417,7 +14416,7 @@
  	if type(data.Robux.PendingGems) == "table" then
  		local pack = RC().GemPackById[data.Robux.PendingGems.Pack]
  		if not pack or pack.Robux == tier then
-@@ -637,4 +830,287 @@
+@@ -637,4 +807,287 @@
  	Players.PlayerRemoving:Connect(MonetizationService.Clear)
  end
  
@@ -15470,7 +15469,7 @@
  pet("AncientSprout", "Mythic", "Ancient Sprout", rgb(110, 150, 80), "Tree Keeper",
 -	{ Kind = "Roots", Name = "Ancient Roots", Mult = { 1.25, 1.5, 1.75, 2 }, Range = 28, Passive = true },
 -	"Ancient Roots: trees near you that are being built or upgraded grow ×1.25 faster (Golden ×1.5 · Diamond ×1.75 · Rainbow ×2)", "Sprout")
-+	{ Kind = "Roots", Name = "Ancient Roots", Mult = { 2.05, 2.5, 3, 3.6 }, Range = 28, Passive = true },
++	{ Kind = "Roots", Name = "Ancient Roots", Mult = { 2.05, 2.5, 3, 3.6 }, MultLevelMax = 6 / 3.6, Range = 28, Passive = true },
 +	"Ancient Roots: trees near you grow ×2.05 faster while being built or upgraded", "Sprout")
  
  ---------------------------------------------------------------- 🌙 NIGHT EGG
@@ -15814,7 +15813,18 @@
  		return math.min(v * P.LevelMult(L), 1)
  	elseif key == "SlideSpeed" then
  		return v * P.LevelMult(L) -- (v2.32 fix: it was capped at 1 like a chance, so a levelled snail's slime was SLOWER)
-@@ -902,4 +947,342 @@
+@@ -857,6 +902,10 @@
+ 		return math.floor(v / (1 + P.AbilityEveryPerLevel * (L - 1)) * 10 + 0.5) / 10
+ 	elseif key == "Count" then
+ 		return v + (L - 1) // 4
++	elseif key == "Mult" and a.MultLevelMax then
++		-- round 12 (Ancient Sprout): linear over Lvl 1..10, Lvl 10 = v × MultLevelMax (Rainbow 3.6 -> 6), 2 decimals
++		local k = 1 + (a.MultLevelMax - 1) * (L - 1) / math.max(P.MaxLevel - 1, 1)
++		return math.floor(v * k * 100 + 0.5) / 100
+ 	end
+ 	return v
+ end
+@@ -902,4 +951,342 @@
  	return out
  end
  
@@ -15974,7 +15984,7 @@
 +T.WiseOwl = { cap = { XP = 1 }, calc = function(V) return { Night = math.min(V("XP") or 0, 1) * 2 } end,
 +	en = "You get +{XP:p} XP for what you turn in (+{Night:p} at night)",
 +	ru = "Ты получаешь +{XP:p} опыта за сданное (ночью +{Night:p})" }
-+T.MoonWolf = { cap = { Chance = 1, Speed = 0.4 },
++T.MoonWolf = { cap = { Chance = 1 },
 +	en = "Moonlit and Bloodlit items show up {Chance:p} more often in their weather; you walk {Speed:p} faster",
 +	ru = "Лунные и Кровавые предметы выпадают на {Chance:p} чаще в своей погоде; ты бежишь на {Speed:p} быстрее" }
 +T.RabidBat = {
@@ -17757,6 +17767,15 @@
  function PetPowers.SpeedMult(player)
  	local total = 0
  	for _, e in equipped(player) do
+@@ -2209,7 +2403,7 @@
+ 			total += AV(e, "Speed") or 0
+ 		end
+ 	end
+-	return 1 + math.min(total, 0.4)
++	return 1 + total -- (round 12: NO cap — several Moon Wolves keep adding)
+ end
+ 
+ function PetPowers.XPMult(player)
 @@ -2244,6 +2438,14 @@
  	local t = now()
  	for i = #s.Zones, 1, -1 do
@@ -18878,21 +18897,25 @@
  			self.selUid = p.Uid
  			self:_send({ Action = "Evolve", Uid = p.Uid }, function(msg)
  				self.Hud:Toast(msg, 3)
-@@ -1232,6 +1393,13 @@
- 				self.selUid = p.Uid
- 				self:_send({ Action = "UpgradeMax", Uid = p.Uid })
- 			end })
-+			-- v3.0: …and the same MAX level-up for Robux
-+			local rbM = R and R.ForMoney(total)
-+			if rbM and R.Available(rbM) then
-+				table.insert(specs, 4, { Text = "R$ " .. rbM .. "  →  MAX Lvl " .. P.MaxLevel, Color = Color3.fromRGB(40, 170, 90), OnClick = function()
-+					R.Buy("PetUpgradeMax", { Uid = p.Uid })
-+				end })
-+			end
- 		end
- 	end
- 	-- v2.12: any pet can sit on the hotbar
-@@ -1260,9 +1428,13 @@
+@@ -1211,16 +1372,7 @@
+ 				end)
+ 			end
+ 		end }
+-	-- v1.1: the level-up for Robux too (v2.39: like the level-up button, not at the top level)
+-	local R = self.RobuxUI
+-	if R and cost and not atTop then
+-		local rb = R.ForMoney(cost)
+-		if R.Available(rb) then
+-			table.insert(specs, 3, { Text = "R$ " .. rb .. "  →  Lvl " .. (p.Level + 1), Color = Color3.fromRGB(40, 170, 90), OnClick = function()
+-				R.Buy("PetUpgrade", { Uid = p.Uid })
+-			end })
+-		end
+-	end
++	-- (round 12: no Robux level-up buttons for pets any more — Money only)
+ 	-- v2.34: MAX ⬆ — every level-up that is left in ONE payment (all or nothing: the
+ 	-- button shows the whole price and is grey until you can pay all of it). It stands
+ 	-- right after the level-up button; hidden at the top level, and when only one level
+@@ -1260,9 +1412,13 @@
  			end
  		end })
  	end
@@ -29228,7 +29251,7 @@
  	TweenService:Create(sc, TweenInfo.new(0.5, Enum.EasingStyle.Back), { Scale = 1 }):Play()
 --- a/WorldBuilder.lua
 +++ b/WorldBuilder.lua
-@@ -63,7 +63,494 @@
+@@ -63,7 +63,905 @@
  	return Vector3.new(s.Position.X, 0, s.Position.Z)
  end
  
@@ -29668,6 +29691,417 @@
 +	end
 +end
 +
++-- ===== v2.63 (isles): pure helpers (tested by tests/extra/isles_test.lua; no Roblox API in here) =====
++-- BEGIN isles pure
++local CELL_ROW = 2048
++local function cellKey(i, j)
++	return (i + 1024) * CELL_ROW + (j + 1024)
++end
++
++-- rectangles {i0, i1, j0, j1} (inclusive) that tile the cells of the box (i0, j0, ni, nj) for which has(i, j) is true
++local function cellRects(has, i0, j0, ni, nj)
++	local rects, open = {}, {}
++	for j = j0, j0 + nj - 1 do
++		local nextOpen = {}
++		local i = i0
++		while i < i0 + ni do
++			if has(i, j) then
++				local a = i
++				while i + 1 < i0 + ni and has(i + 1, j) do
++					i += 1
++				end
++				local k = a .. ":" .. i
++				local r = open[k]
++				if r then
++					r[4] = j
++				else
++					r = { a, i, j, j }
++					table.insert(rects, r)
++				end
++				nextOpen[k] = r
++			end
++			i += 1
++		end
++		open = nextOpen
++	end
++	local out = {}
++	for _, r in rects do
++		table.insert(out, { i0 = r[1], i1 = r[2], j0 = r[3], j1 = r[4] })
++	end
++	return out
++end
++
++-- one pass: drop the cells that touch at most one other cell of the set (single blocks / tips that stick out)
++local function pruneSpurs(keep)
++	local drop = {}
++	for k in keep do
++		local c = (if keep[k + 1] then 1 else 0) + (if keep[k - 1] then 1 else 0) + (if keep[k + CELL_ROW] then 1 else 0) + (if keep[k - CELL_ROW] then 1 else 0)
++		if c <= 1 then
++			drop[k] = true
++		end
++	end
++	local n = 0
++	for k in drop do
++		keep[k] = nil
++		n += 1
++	end
++	return n
++end
++
++-- how far a bridge deck has to be lengthened so that its last `window` studs lie on solid ground at every lateral sample.
++-- covered(w, u) -> bool: is the island top under lateral offset w, u studs beyond the deck's tip (u < 0 = under the deck)?
++-- Returns 0 when the deck already touches (nothing to do), else the extension + `extra` studs; nil = no ground within `cap`.
++local function bridgeExtension(covered, laterals, window, cap, extra)
++	local function ok(ext)
++		for _, w in laterals do
++			local u = ext - window
++			while u <= ext + 1e-6 do
++				if not covered(w, u) then
++					return false
++				end
++				u += 0.5
++			end
++		end
++		return true
++	end
++	if ok(0) then
++		return 0
++	end
++	local ext = 0.5
++	while ext <= cap do
++		if ok(ext) then
++			return ext + extra
++		end
++		ext += 0.5
++	end
++	return nil
++end
++-- END isles pure
++
++-- v2.63 (isles): the island BODY is EARTH ONLY. Every part of an island's Underside (Dirt / Rock layers) takes the colour of
++-- the Earth block, the Hanging stalactites are removed, and the layers are trimmed to a clean silhouette: working top-down
++-- on the 4-stud lattice of the body, a layer may only cover cells that the layer above (the lawn for the first one) covers,
++-- and single blocks / tips that touch at most one other block of their layer are dropped. Runs once per island at server
++-- start, BEFORE the diagonal islands are turned and BEFORE BlockService deepens / carves them.
++local function earthColor()
++	local bc = ctx.BlockConfig
++	local d = bc and bc.Types and bc.Types.D
++	return if d and d.Color then d.Color else Color3.fromRGB(124, 92, 62)
++end
++
++local function footprint(p, ox, oz)
++	local cf = p.CFrame
++	if math.abs(cf.UpVector.Y) < 0.999 or math.abs(cf.RightVector.X) < 0.999 then
++		return nil
++	end
++	local s, pos = p.Size, cf.Position
++	local fi, fj = (pos.X - s.X / 2 - ox) / 4, (pos.Z - s.Z / 2 - oz) / 4
++	local ni, nj = s.X / 4, s.Z / 4
++	local i0, j0, ci, cj = math.round(fi), math.round(fj), math.round(ni), math.round(nj)
++	if math.abs(fi - i0) > 0.05 or math.abs(fj - j0) > 0.05 or math.abs(ni - ci) > 0.05 or math.abs(nj - cj) > 0.05 or ci < 1 or cj < 1 then
++		return nil
++	end
++	return i0, j0, ci, cj
++end
++
++local function shapeBody(holder, earth)
++	if holder:GetAttribute("LRBodyShaped") then
++		return
++	end
++	local grass, under = holder:FindFirstChild("Grass"), holder:FindFirstChild("Underside")
++	if not grass or not under then
++		return
++	end
++	holder:SetAttribute("LRBodyShaped", true)
++	local ox, oz
++	local layers, tops = {}, {}
++	for _, d in under:GetDescendants() do
++		if d:IsA("BasePart") then
++			if d.Name == "Hanging" then
++				d:Destroy()
++			else
++				d.Color = earth
++				d.Material = Enum.Material.Plastic
++				if not ox and d.Name == "Dirt" then
++					ox, oz = (d.Position.X - d.Size.X / 2) % 4, (d.Position.Z - d.Size.Z / 2) % 4
++				end
++				local top = math.round((d.Position.Y + d.Size.Y / 2) * 2)
++				if not layers[top] then
++					layers[top] = {}
++					table.insert(tops, top)
++				end
++				table.insert(layers[top], d)
++			end
++		end
++	end
++	if not ox then
++		return
++	end
++	local allowed = {}
++	for _, g in grass:GetDescendants() do
++		if g:IsA("BasePart") and g.Name == "Grass" then
++			local i0, j0, ni, nj = footprint(g, ox, oz)
++			if i0 then
++				for i = i0, i0 + ni - 1 do
++					for j = j0, j0 + nj - 1 do
++						allowed[cellKey(i, j)] = true
++					end
++				end
++			end
++		end
++	end
++	table.sort(tops, function(a, b)
++		return a > b
++	end)
++	for n, top in tops do
++		local items, keep = {}, {}
++		for _, p in layers[top] do
++			local i0, j0, ni, nj = footprint(p, ox, oz)
++			if i0 then
++				table.insert(items, { p, i0, j0, ni, nj })
++				for i = i0, i0 + ni - 1 do
++					for j = j0, j0 + nj - 1 do
++						local k = cellKey(i, j)
++						if allowed[k] then
++							keep[k] = true
++						end
++					end
++				end
++			end
++		end
++		if n > 1 then
++			pruneSpurs(keep)
++		end
++		local function has(i, j)
++			return keep[cellKey(i, j)] == true
++		end
++		for _, it in items do
++			local p, i0, j0, ni, nj = it[1], it[2], it[3], it[4], it[5]
++			local rects = cellRects(has, i0, j0, ni, nj)
++			local r1 = rects[1]
++			if #rects == 0 then
++				p:Destroy()
++			elseif not (#rects == 1 and r1.i0 == i0 and r1.i1 == i0 + ni - 1 and r1.j0 == j0 and r1.j1 == j0 + nj - 1) then
++				local y, sy, parent = p.Position.Y, p.Size.Y, p.Parent
++				for k, r in rects do
++					local q = if k == 1 then p else p:Clone()
++					local wi, wj = r.i1 - r.i0 + 1, r.j1 - r.j0 + 1
++					q.Size = Vector3.new(wi * 4, sy, wj * 4)
++					q.CFrame = CFrame.new(ox + 2 * (r.i0 + r.i1 + 1), y, oz + 2 * (r.j0 + r.j1 + 1))
++					q.Parent = parent
++				end
++			end
++		end
++		allowed = keep
++	end
++end
++
++local function shapeBodies(map)
++	local earth = earthColor()
++	local gardens = map:FindFirstChild("GardenIslands")
++	local cfg = ctx.Config
++	for i = 1, (cfg.Plot and cfg.Plot.Count) or 6 do
++		local model = gardens and gardens:FindFirstChild("GardenIsland" .. i)
++		if model then
++			local ok, err = pcall(shapeBody, model, earth)
++			if not ok then
++				warn("[LeafRush] island body " .. i .. ": " .. tostring(err))
++			end
++		end
++	end
++	for _, name in { "HubIsland", "EventIsland" } do
++		local isle = map:FindFirstChild(name)
++		local ground = isle and isle:FindFirstChild("Ground")
++		if ground then
++			local ok, err = pcall(shapeBody, ground, earth)
++			if not ok then
++				warn("[LeafRush] island body " .. name .. ": " .. tostring(err))
++			end
++		end
++	end
++end
++
++-- v2.63 (isles): every bridge end must lie ON an island top (hub, garden island, event island). The ends of the turned
++-- diagonal islands stopped 5 studs short of the rim: the deck is lengthened (flat clones of its last plank, beams, rails,
++-- end posts; the end lamps move with it) until it overlaps the grass by >= 3 studs. Ends that already touch are left alone.
++local SEAT_WINDOW, SEAT_EXTRA, SEAT_CAP = 2.5, 0.5, 20
++local SEAT_LATERALS = { -4.5, -3, -1.5, 0, 1.5, 3, 4.5 }
++
++local function seatBridge(bridge, tops)
++	if bridge:GetAttribute("LRSeated") then
++		return
++	end
++	local planks, beams, posts, rails, lows = {}, {}, {}, {}, {}
++	local pf = bridge:FindFirstChild("Planks")
++	local rf = bridge:FindFirstChild("Railing")
++	local lf = bridge:FindFirstChild("Lamps")
++	if not pf then
++		return
++	end
++	for _, p in pf:GetChildren() do
++		if p:IsA("BasePart") then
++			table.insert(if p.Name == "Plank" then planks else beams, p)
++		end
++	end
++	if rf then
++		for _, p in rf:GetChildren() do
++			if p:IsA("BasePart") then
++				table.insert(if p.Name == "Post" then posts elseif p.Name == "LowRail" then lows else rails, p)
++			end
++		end
++	end
++	if #planks < 2 then
++		return
++	end
++	bridge:SetAttribute("LRSeated", true)
++	local function flat(v)
++		return Vector3.new(v.X, 0, v.Z)
++	end
++	local first, last = planks[1], planks[1]
++	for _, p in planks do
++		if flat(p.Position).Magnitude < flat(first.Position).Magnitude then
++			first = p
++		end
++		if flat(p.Position).Magnitude > flat(last.Position).Magnitude then
++			last = p
++		end
++	end
++	local d = flat(last.Position - first.Position).Unit
++	local n = Vector3.new(-d.Z, 0, d.X)
++	local c0 = first.Position:Dot(n)
++	local tMin, tMax = math.huge, -math.huge
++	for _, p in planks do
++		local cf = p.CFrame
++		local half = math.abs(cf.LookVector:Dot(d)) * p.Size.Z / 2 + math.abs(cf.RightVector:Dot(d)) * p.Size.X / 2
++		local t = p.Position:Dot(d)
++		tMin, tMax = math.min(tMin, t - half), math.max(tMax, t + half)
++	end
++	for _, sg in { -1, 1 } do
++		local tTip = if sg < 0 then tMin else tMax
++		local base = d * tTip + n * c0
++		local near = {}
++		for _, t in tops do
++			if math.abs(t.X - base.X) < 60 and math.abs(t.Z - base.Z) < 60 then
++				table.insert(near, t)
++			end
++		end
++		local function covered(w, u)
++			local x, z = base.X + d.X * sg * u + n.X * w, base.Z + d.Z * sg * u + n.Z * w
++			for _, t in near do
++				local dx, dz = x - t.X, z - t.Z
++				if dx * dx + dz * dz <= t.R2 then
++					local lp = t.Part.CFrame:PointToObjectSpace(Vector3.new(x, t.Part.Position.Y, z))
++					if math.abs(lp.X) <= t.Part.Size.X / 2 + 0.01 and math.abs(lp.Z) <= t.Part.Size.Z / 2 + 0.01 then
++						return true
++					end
++				end
++			end
++			return false
++		end
++		local ext = bridgeExtension(covered, SEAT_LATERALS, SEAT_WINDOW, SEAT_CAP, SEAT_EXTRA)
++		if ext == nil then
++			warn("[LeafRush] bridge " .. bridge.Name .. ": no island within " .. SEAT_CAP .. " studs of its end")
++		elseif ext > 0 then
++			local m = d * sg
++			-- the far end of a part's long (Z) axis, and a flat clone that continues it by `ext`
++			local function zEnd(p)
++				local cf = p.CFrame
++				local zs = if (-cf.LookVector):Dot(m) > 0 then 1 else -1
++				return cf * Vector3.new(0, 0, zs * p.Size.Z / 2)
++			end
++			local function lateral(p)
++				return p.Position:Dot(n) - c0
++			end
++			local function outermost(list, side)
++				local best, bt = nil, -math.huge
++				for _, p in list do
++					if side == nil or (lateral(p) > 0) == (side > 0) then
++						local t = sg * zEnd(p):Dot(d)
++						if t > bt then
++							best, bt = p, t
++						end
++					end
++				end
++				return best
++			end
++			local function continueLong(p)
++				if not p then
++					return
++				end
++				local e = zEnd(p)
++				local c = e + m * ((ext - 0.3) / 2)
++				local q = p:Clone()
++				q.Size = Vector3.new(p.Size.X, p.Size.Y, ext + 0.3)
++				q.CFrame = CFrame.lookAt(c, c + d)
++				q:SetAttribute("LRExt", true)
++				q.Parent = p.Parent
++			end
++			-- the deck: one flat plank from the last plank's outer top edge
++			local endPlank = outermost(planks, nil)
++			local cf = endPlank.CFrame
++			local zs = if (-cf.LookVector):Dot(m) > 0 then 1 else -1
++			local tip = cf * Vector3.new(0, endPlank.Size.Y / 2, zs * endPlank.Size.Z / 2)
++			local c = Vector3.new(tip.X, tip.Y - endPlank.Size.Y / 2, tip.Z) + m * ((ext - 0.5) / 2)
++			local q = endPlank:Clone()
++			q.Size = Vector3.new(endPlank.Size.X, endPlank.Size.Y, ext + 0.5)
++			q.CFrame = CFrame.lookAt(c, c + d)
++			q:SetAttribute("LRExt", true)
++			q.Parent = endPlank.Parent
++			for _, side in { -1, 1 } do
++				continueLong(outermost(beams, side))
++				continueLong(outermost(rails, side))
++				continueLong(outermost(lows, side))
++				-- the end post of that side stands at the new tip
++				local post = outermost(posts, side)
++				if post and sg * (post.Position:Dot(d) - tTip) > -2.5 then
++					local pc = post:Clone()
++					pc.Position = post.Position + m * ext
++					pc:SetAttribute("LRExt", true)
++					pc.Parent = post.Parent
++				end
++			end
++			-- the lamps that stood beyond the old tip go with it
++			if lf then
++				for _, lamp in lf:GetChildren() do
++					local pivot = if lamp:IsA("Model") then lamp:GetPivot() else (lamp :: any).CFrame
++					if sg * (pivot.Position:Dot(d) - tTip) > -1 then
++						if lamp:IsA("Model") then
++							lamp:PivotTo(pivot + m * ext)
++						elseif lamp:IsA("BasePart") then
++							lamp.CFrame = pivot + m * ext
++						end
++					end
++				end
++			end
++		end
++	end
++end
++
++local function seatBridges(map)
++	local bridges = map:FindFirstChild("Bridges")
++	if not bridges then
++		return
++	end
++	local tops = {}
++	for _, name in { "GardenIslands", "HubIsland", "EventIsland" } do
++		local folder = map:FindFirstChild(name)
++		if folder then
++			for _, g in folder:GetDescendants() do
++				if g:IsA("BasePart") and g.Name == "Grass" and g.Transparency < 0.9 then
++					local s = g.Size
++					table.insert(tops, { Part = g, X = g.Position.X, Z = g.Position.Z, R2 = (s.X * s.X + s.Z * s.Z) / 4 + 1 })
++				end
++			end
++		end
++	end
++	for _, bridge in bridges:GetChildren() do
++		local ok, err = pcall(seatBridge, bridge, tops)
++		if not ok then
++			warn("[LeafRush] bridge " .. bridge.Name .. ": " .. tostring(err))
++		end
++	end
++end
++
 +local function straightenIslands(map)
 +	local gardens = map:FindFirstChild("GardenIslands")
 +	local cfg = ctx.Config
@@ -29691,7 +30125,7 @@
 +					end
 +				end
 +			end
-+			local ok, err = pcall(addLanding, map, model, i, c, ang)
++			local ok, err = true, nil -- v2.63 (isles): no landing pad any more; seatBridges lengthens the bridge instead
 +			if not ok then
 +				warn("[LeafRush] island landing " .. i .. ": " .. tostring(err))
 +			end
@@ -29723,13 +30157,21 @@
  	local map = ctx.WorldFolder:FindFirstChild("Map")
  	if not map then
  		warn("[LeafRush] Workspace.LeafRush.Map is missing — the islands were deleted in Studio?")
-@@ -72,6 +559,10 @@
+@@ -72,6 +970,18 @@
  		map.Parent = ctx.WorldFolder
  	end
  	WorldBuilder.Root = map
++	local okB, errB = pcall(shapeBodies, map) -- v2.63 (isles): earth-only bodies, before the islands are turned
++	if not okB then
++		warn("[LeafRush] island bodies: " .. tostring(errB))
++	end
 +	local okT, errT = pcall(straightenIslands, map) -- v2.62 (straight)
 +	if not okT then
 +		warn("[LeafRush] straighten islands: " .. tostring(errT))
++	end
++	local okS, errS = pcall(seatBridges, map) -- v2.63 (isles): after the turn: the bridge ends meet the real rims
++	if not okS then
++		warn("[LeafRush] bridges: " .. tostring(errS))
 +	end
  	-- v2.6: the spawn pads stand in a ring around the tree (Map > HubIsland > Spawns)
  	WorldBuilder.Spawns = {}
