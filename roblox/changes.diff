@@ -973,7 +973,15 @@
  			end
  		end
  	end
-@@ -386,14 +403,18 @@
+@@ -330,6 +347,7 @@
+ 	end
+ 	e.Text = text
+ 	e.Blocks = BM.Decode(text)
++	e.Top = nil -- v2.70: the highest level changed with the blocks (a stale one capped Trace's box: no building higher)
+ 	local ok, water = pcall(WF.Compute, e.Blocks, n)
+ 	e.Water = if ok then water else nil
+ 	local okB, err = pcall(buildWater, e)
+@@ -386,14 +404,56 @@
  	local e = entries[model]
  	local text = model:GetAttribute("Blocks")
  	if e and e.Text == text and e.Blocks then
@@ -991,10 +999,48 @@
  	end
 -	return d.Blocks, n, size, cf
 +	return d.Blocks, n, size, cf, d.Top -- (v2.62: + the highest level that holds a block)
++end
++
++-- v2.70: "A tree stands on this block" | "The Collection Zone stands on this block" | nil: the cell can't be
++-- broken because a tree / zone of this garden stands on it (the same rule as BlockMath.CheckChange on the server)
++function BlockFX.Protected(model, cx, cz, level)
++	local objs = model and model:FindFirstChild("Objects")
++	if not objs then
++		return nil
++	end
++	local okB, blocks, _, size = pcall(BlockFX.Blocks, model)
++	if not okB or type(blocks) ~= "table" or not size then
++		return nil
++	end
++	local recs = {}
++	for _, m in objs:GetChildren() do
++		local t = m:GetAttribute("Type")
++		if t == "Tree" or t == "CollectionZone" then
++			table.insert(recs, {
++				Type = t,
++				TreeType = m:GetAttribute("TreeType"),
++				Lv = m:GetAttribute("Lv"),
++				X = m:GetAttribute("X") or 0,
++				Z = m:GetAttribute("Z") or 0,
++				Rot = m:GetAttribute("Rot") or 0,
++				SizeX = m:GetAttribute("SizeX"),
++				SizeZ = m:GetAttribute("SizeZ"),
++				Ghost = m:GetAttribute("Ghost") == true,
++			})
++		end
++	end
++	if #recs == 0 then
++		return nil
++	end
++	local ok, what = pcall(BM.StandsOn, blocks, recs, cx, cz, level, size, CELL)
++	if not ok or what == nil then
++		return nil
++	end
++	return if what == "Tree" then "A tree stands on this block" else "The Collection Zone stands on this block"
  end
  
  function BlockFX.CellCFrame(model, cx, cz, level)
-@@ -462,16 +483,20 @@
+@@ -462,16 +522,20 @@
  	          ray lands in { Cx, Cz, Level } — where a new block would go
  ]]
  function BlockFX.Trace(model, origin, dir, breaking)
@@ -1018,7 +1064,7 @@
  	local hi = { half, top, half }
  	local oo = { o.X, o.Y, o.Z }
  	local dd = { d.X, d.Y, d.Z }
-@@ -493,7 +518,7 @@
+@@ -493,7 +557,7 @@
  		return nil, nil
  	end
  	local sizes = { CELL, H, CELL }
@@ -1027,7 +1073,7 @@
  	local t = t0 + 1e-4
  	local cell, stepDir, tMax, tDelta = {}, {}, {}, {}
  	for a = 1, 3 do
-@@ -515,8 +540,8 @@
+@@ -515,8 +579,8 @@
  		end
  	end
  	local prev
@@ -1038,7 +1084,7 @@
  		local code = BM.Get(blocks, cx, cz, level)
  		if code and (breaking or BC.IsSolid(code)) then
  			if BC.IsHalf(code) then
-@@ -583,7 +608,7 @@
+@@ -583,7 +647,7 @@
  		ghost = plate({ Name = "BlockGhost" })
  	end
  	ghost.Size = Vector3.new(CELL - 0.1, (gh or H) - 0.1, CELL - 0.1)
@@ -1047,7 +1093,7 @@
  	ghost.Transparency = if code == "W" then 0.6 else 0.4
  	ghost.CFrame = cf
  	ghost.Parent = folderRoot
-@@ -953,7 +978,7 @@
+@@ -953,7 +1017,7 @@
  	  • the lines are pooled parts: nothing is created per hit once the pool is warm
  ]]
  local STAGES = 5
@@ -1056,7 +1102,7 @@
  local FADE_TIME = 0.6
  local crackPool = {} -- spare crack lines
  local pulses = {} -- short-lived shells / rings: { Part, T0, Len, Tr0, Size0, Size1, CF, Amp }
-@@ -1151,6 +1176,39 @@
+@@ -1151,6 +1215,39 @@
  	local dark = color:Lerp(Color3.new(0, 0, 0), 0.82)
  	local ext = Vector3.new(CELL / 2, bh / 2, CELL / 2)
  	local open = {}
@@ -1096,7 +1142,7 @@
  	for i, seg in c.Plan do
  		if seg.S <= stage and not c.Drawn[i] then
  			local f = seg.F
-@@ -1159,19 +1217,23 @@
+@@ -1159,19 +1256,23 @@
  			end
  			if open[f] then
  				c.Drawn[i] = true
@@ -1131,7 +1177,7 @@
  			end
  		end
  	end
-@@ -1187,7 +1249,7 @@
+@@ -1187,7 +1288,7 @@
  				clearCracks(key)
  			else
  				for _, e in c.Parts do
@@ -1140,7 +1186,7 @@
  				end
  			end
  		elseif c.Shake then
-@@ -1230,35 +1292,37 @@
+@@ -1230,35 +1331,37 @@
  
  -- one hit lands on a block: it shudders, dust and chips fly
  -- (v2.41: cf, bh = the box of the block; a slab's is half as tall)
@@ -1191,7 +1237,7 @@
  	end
  end
  
-@@ -1292,7 +1356,7 @@
+@@ -1292,7 +1395,7 @@
  end
  
  -- BlockFX remote: a hit or a break, by anybody
@@ -1200,7 +1246,7 @@
  	if type(kind) ~= "string" or type(plotIndex) ~= "number" or type(cx) ~= "number" or type(cz) ~= "number" or type(level) ~= "number" then
  		return
  	end
-@@ -1339,7 +1403,7 @@
+@@ -1339,7 +1442,7 @@
  					-- (the blocks burst one after another, outward from the middle)
  					local big = n <= 5
  					task.delay((n - 1) * 0.035, function()
@@ -1209,7 +1255,7 @@
  					end)
  				end
  			end
-@@ -1347,6 +1411,7 @@
+@@ -1347,6 +1450,7 @@
  		return
  	end
  	local def = BC.Types[code] or BC.Types.R
@@ -1217,7 +1263,7 @@
  	local key = plotIndex .. ":" .. cx .. "," .. cz .. "," .. level
  	local water = code == "W"
  	-- v2.41: the box of the block that was hit (a slab = the lower half of its slot)
-@@ -1362,7 +1427,7 @@
+@@ -1362,7 +1466,7 @@
  		if lastKeyOf[userId] == key then
  			lastKeyOf[userId] = nil
  		end
@@ -1226,7 +1272,7 @@
  		if not water then
  			shakeFor(userId, cf.Position, 0.22, 0.2)
  		end
-@@ -1376,9 +1441,9 @@
+@@ -1376,9 +1480,9 @@
  		end
  		lastKeyOf[userId] = key
  		if not water then
@@ -1757,7 +1803,10 @@
  	end
 -	if type(blocks) ~= "table" or next(blocks) == nil then
 -		return true, nil, 0
--	end
++	local want = BlockMath.CleanLv(lv)
++	if want == nil then
++		return true, nil, BlockMath.SpotLevel(blocks, x, z, radius, plotSize, cellSize)
+ 	end
 -	-- (v2.41: h0 = the height in levels — x.5 on a slab; l0 = the slot of the top block)
 -	local h0, l0 = BlockMath.TopH(blocks, cx0, cz0)
 -	for cx = cx0, cx1 do
@@ -1766,10 +1815,7 @@
 -				return false, "Needs a flat spot (blocks of the same height)", h0
 -			end
 -		end
-+	local want = BlockMath.CleanLv(lv)
-+	if want == nil then
-+		return true, nil, BlockMath.SpotLevel(blocks, x, z, radius, plotSize, cellSize)
- 	end
+-	end
 -	local n = PlotMath.GridN(plotSize, cellSize)
 -	local above = l0 + 1
 -	if above <= Cfg.MaxLevels then
@@ -1935,12 +1981,9 @@
 -				if wet then
 -					return false, "Can't grow in water"
 -				end
-+			local code = BlockMath.Get(blocks, cx, cz, slot)
-+			if not Cfg.IsSolid(code) or Cfg.IsHalf(code) ~= onSlab then
-+				return false, "Needs blocks under the whole tree"
- 			end
- 		end
- 	end
+-			end
+-		end
+-	end
 -	_ = top0
 -	if def and def.NearWater then
 -		for cx = math.max(cx0 - 1, 0), math.min(cx1 + 1, n - 1) do
@@ -1950,10 +1993,13 @@
 -						return true
 -					end
 -				end
--			end
--		end
++			local code = BlockMath.Get(blocks, cx, cz, slot)
++			if not Cfg.IsSolid(code) or Cfg.IsHalf(code) ~= onSlab then
++				return false, "Needs blocks under the whole tree"
+ 			end
+ 		end
 -		return false, "Has to stand next to WATER"
--	end
+ 	end
  	return true
  end
  
@@ -1987,7 +2033,54 @@
  function BlockMath.IsEntrance(cx, cz, plotSize, cellSize)
  	cellSize = cellSize or 5
  	local n = PlotMath.GridN(plotSize, cellSize)
-@@ -530,14 +813,22 @@
+@@ -511,6 +794,46 @@
+ end
+ 
+ --[[
++	v2.70 PROTECTED SUPPORTS — which tree / Collection Zone stands ON the block of cell (cx, cz, level)?
++	-> "Tree" | "CollectionZone" | nil. Derived from the objects every time (nothing is stored): a Tree
++	(not a water plant, which floats) or a Zone stands on the blocks of its whole footprint (PlotMath.CellSpan)
++	whose TOP is the level it stands at (BaseLevel): level n = the full block of slot n, level n.5 = the slab of
++	slot n + 1, level 0 = the earth of the pit's first slot (the floor). Blocks beside / above are free.
++]]
++function BlockMath.StandsOn(blocks, objects, cx, cz, level, plotSize, cellSize)
++	if type(objects) ~= "table" then
++		return nil
++	end
++	cellSize = cellSize or 5
++	local cur = BlockMath.Get(blocks or {}, cx, cz, level)
++	if not Cfg.IsSolid(cur) then
++		return nil
++	end
++	local isHalf = Cfg.IsHalf(cur)
++	for _, rec in objects do
++		if type(rec) == "table" and rec.Ghost ~= true and (rec.Type == "Tree" or rec.Type == "CollectionZone") then
++			local floats = false
++			if rec.Type == "Tree" then
++				local def = TreeTypes.Get(rec.TreeType)
++				floats = def ~= nil and def.Ground == "Water"
++			end
++			if not floats then
++				local a, b, c, d = PlotMath.CellSpan(rec, plotSize, cellSize)
++				if a ~= nil and cx >= a and cx <= b and cz >= c and cz <= d then
++					local lv = BlockMath.BaseLevel(rec, blocks or {}, plotSize, cellSize)
++					local onSlab = lv % 1 ~= 0
++					local slot = if onSlab then lv + 0.5 else lv
++					if slot == level and isHalf == onSlab then
++						return rec.Type
++					end
++				end
++			end
++		end
++	end
++	return nil
++end
++
++--[[
+ 	May the block `code` be put into cell (cx, cz, level) — or, with code = nil, may
+ 	the block there be broken? objects = the garden's objects (id -> record).
+ 	-> ok, reason, put
+@@ -530,14 +853,22 @@
  	if cx < 0 or cz < 0 or cx >= n or cz >= n then
  		return false, "Outside your yard"
  	end
@@ -2012,7 +2105,7 @@
  	if code ~= nil then
  		if not Cfg.Types[code] then
  			return false, "Unknown block"
-@@ -552,43 +843,28 @@
+@@ -552,43 +883,37 @@
  				return false, "There is a block here already"
  			end
  		end
@@ -2057,6 +2150,15 @@
 -							return false, if code ~= nil then "Something stands here — move it first" else "Something stands on this block — move it first"
 -						end
 -						return false, "A tree needs it: " .. tostring(why or "it would stop growing")
++	-- v2.70: the block a tree / a Collection Zone stands on can't be broken (while it stands there)
++	if code == nil and objects ~= nil then
++		local what = BlockMath.StandsOn(blocks, objects, cx, cz, level, plotSize, cellSize)
++		if what == "Tree" then
++			return false, "A tree stands on this block"
++		elseif what ~= nil then
++			return false, "The Collection Zone stands on this block"
++		end
++	end
 +	-- v2.52: things keep the height they stand at (they may float when what held them is broken,
 +	-- blocks may go above / below / around them). Only a block that would appear INSIDE a thing
 +	-- (the slot its foot is in) is refused — cosmetics are small and free: they never block.
@@ -2070,7 +2172,7 @@
  					end
  				end
  			end
-@@ -612,4 +888,146 @@
+@@ -612,4 +937,146 @@
  	return blocks
  end
  
@@ -2240,7 +2342,7 @@
  	p.Name = name
  	p.Anchored = true
  	p.Material = material or Enum.Material.Plastic
-@@ -167,34 +179,74 @@
+@@ -167,34 +179,82 @@
  	return p
  end
  
@@ -2249,6 +2351,14 @@
 -		p:Destroy()
 -	end
 +local SIDES4 = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }
++
++-- v2.8 ISLES: the soil colour of this island (IslandService.ApplyLook sets it on the Floor): the default
++-- Earth blocks, the pit walls and the pit bed all wear it, so they match the island's body
++local function soilOf(plot)
++	local f = plot.Floor
++	local c = if f and f.Parent then f:GetAttribute("LRSoil") else nil
++	return if typeof(c) == "Color3" then c else BC.Types.D.Color
++end
 +
 +local function rebuildLayerRaw(plot, s, blocks, n, level)
  	local parts = {}
@@ -2337,7 +2447,7 @@
  				end
  			end
  		end
-@@ -202,23 +254,272 @@
+@@ -202,23 +262,275 @@
  	local y0 = (level - 1) * H
  	-- (v2.41: Recolor finds every green top — a block's and a slab's — by this one name)
  	local topName = BC.Types.D.Id .. "Top"
@@ -2346,7 +2456,7 @@
 +		local kind, vs = string.match(setKey, "^(%w+)|(%d+)$")
 +		local variant = tonumber(vs) or 0
 +		if kind == "bed" then
-+			local color = BC.Types.D.Color
++			local color = soilOf(plot)
 +			for _, r in rectangles(set, n) do
 +				local w, d = r[3] * cell, r[4] * cell
 +				local x, z = -half + r[1] * cell + w / 2, -half + r[2] * cell + d / 2
@@ -2363,6 +2473,9 @@
 +			continue
 +		end
 +		local bodyColor, topColor = BC.ColorOf(code, variant)
++		if (code == "D" or code == "d") and variant == 0 then
++			bodyColor = soilOf(plot) -- (v2.8: an untinted Earth block is the island's soil)
++		end
  		-- v2.41 SLABS: the same bricks, half as tall, at the bottom of their slot — their
  		-- own boxes (never joined with the full blocks of the layer)
 -		local h = if def and def.Half then (BC.SlabHeight or H / 2) else H
@@ -2558,7 +2671,7 @@
 +			{ Vector3.new(size, y1 - y0, t), Vector3.new(0, (y0 + y1) / 2, half + t / 2) },
 +			{ Vector3.new(size, y1 - y0, t), Vector3.new(0, (y0 + y1) / 2, -half - t / 2) },
 +		} do
-+			s.Fill[brick(folder, "DirtWall", w[1], plotCF * CFrame.new(w[2]), BC.Types.D.Color, Enum.Material.Plastic)] = true
++			s.Fill[brick(folder, "DirtWall", w[1], plotCF * CFrame.new(w[2]), soilOf(plot), Enum.Material.Plastic)] = true
 +		end
 +	end
 +	local corners = {}
@@ -2619,7 +2732,7 @@
  			end
  		end
  	end
-@@ -231,13 +532,48 @@
+@@ -231,13 +543,48 @@
  		local model = plot.Objects[id]
  		if model then
  			local y = BM.BaseY(rec, data.Plot.Blocks, size, cellSize())
@@ -2669,7 +2782,7 @@
  local function flush(plot)
  	local s = st(plot)
  	s.Scheduled = false
-@@ -249,7 +585,28 @@
+@@ -249,7 +596,28 @@
  	local blocks = if type(data.Plot.Blocks) == "table" then data.Plot.Blocks else {}
  	local size = ctx.PlotMath.PlotSize(ctx.Config.Plot, data.Plot.Expansion)
  	local n = ctx.PlotMath.GridN(size, cellSize())
@@ -2699,7 +2812,7 @@
  		if s.Dirty[level] then
  			s.Dirty[level] = nil
  			local ok, err = pcall(rebuildLayer, plot, s, blocks, n, level)
-@@ -258,8 +615,26 @@
+@@ -258,8 +626,26 @@
  			end
  		end
  	end
@@ -2727,7 +2840,7 @@
  	pcall(resettle, plot, data, size)
  	-- v2.34: incubating eggs stand ON the blocks — put them on top again as well
  	if ctx.IncubatorService and ctx.IncubatorService.Resettle then
-@@ -281,8 +656,8 @@
+@@ -281,8 +667,8 @@
  	local s = st(plot)
  	s.Water = nil
  	s.Dirty[level] = true
@@ -2738,7 +2851,7 @@
  	end
  	if not s.Scheduled then
  		s.Scheduled = true
-@@ -361,6 +736,26 @@
+@@ -361,6 +747,26 @@
  	end
  end
  
@@ -2765,7 +2878,7 @@
  -- the garden was loaded, grew or was reset: everything again, right now
  function BlockService.Refresh(player)
  	local data, plot, size, n = garden(player)
-@@ -373,8 +768,14 @@
+@@ -373,8 +779,14 @@
  		data._tilesToBlocks = nil
  		pcall(repair, data, size)
  	end
@@ -2781,7 +2894,7 @@
  		s.Dirty[level] = true
  	end
  	local ok, err = pcall(flush, plot)
-@@ -393,11 +794,21 @@
+@@ -393,14 +805,36 @@
  		return
  	end
  	local green = plot.Floor.Color
@@ -2795,15 +2908,30 @@
 +		end)
 +	end
  	local topName = BC.Types.D.Id .. "Top"
++	-- v2.8: … and the soil (Earth bodies, slabs, the pit bed and walls) takes the island's soil colour
++	local soilOld, soilNew = s.SoilCol or BC.Types.D.Color, soilOf(plot)
++	local bodyName, slabName, bedName = BC.Types.D.Id, BC.Types.D.Id .. "Slab", "DirtBed"
  	for _, parts in s.Layers do
  		for _, p in parts do
  			if p.Name == topName and p.Parent then
  				p.Color = green
 +				sigOf[p] = nil -- (v2.53: its signature still names the old colour: it must not be reused for that one)
++			elseif (p.Name == bodyName or p.Name == slabName or p.Name == bedName) and p.Parent and p.Color == soilOld then
++				p.Color = soilNew
++				sigOf[p] = nil
  			end
  		end
  	end
-@@ -408,6 +819,14 @@
++	for p in s.Fill or {} do
++		if p.Name == "DirtWall" and p.Parent then
++			p.Color = soilNew
++		end
++	end
++	s.SoilCol = soilNew
+ end
+ 
+ -- the owner left: no blocks, no water
+@@ -408,6 +842,14 @@
  	local s = state[plot.Index]
  	state[plot.Index] = nil
  	if s then
@@ -2818,7 +2946,7 @@
  		for _, parts in s.Layers do
  			for _, p in parts do
  				p:Destroy()
-@@ -456,6 +875,81 @@
+@@ -456,6 +898,81 @@
  	return BM.TopY(blocks, cx, cz) -- (v2.41: a slab on top = half a block lower)
  end
  
@@ -2900,7 +3028,7 @@
  -- the water of a garden right now (WaterFlow.Compute; nil = none)
  function BlockService.Water(plot)
  	local blocks = blocksOfPlot(plot)
-@@ -479,7 +973,7 @@
+@@ -479,7 +996,7 @@
  			local lp = plot.CFrame:PointToObjectSpace(pos)
  			local half = plot.Size / 2
  			if math.abs(lp.X) <= half and math.abs(lp.Z) <= half then
@@ -2909,7 +3037,7 @@
  					return false
  				end
  				local water = BlockService.Water(plot)
-@@ -533,7 +1027,11 @@
+@@ -533,7 +1050,11 @@
  	  SpotCheck(player, x, z, radius)  may it be put there? -> ok, reason, y
  	                                   (a flat top or the bare floor, not in water)
  ]]
@@ -2922,7 +3050,7 @@
  	local blocks = blocksOfPlot(plot)
  	if not blocks or next(blocks) == nil then
  		return 0
-@@ -541,14 +1039,15 @@
+@@ -541,14 +1062,15 @@
  	return BM.SpotY(blocks, x, z, radius or BM.NestRadius, plot.Size or 20, cellSize())
  end
  
@@ -2941,7 +3069,7 @@
  end
  
  -- are there blocks in the cell of this plot-local point?
-@@ -588,7 +1087,7 @@
+@@ -588,7 +1110,7 @@
  	end
  	for _, nest in nests do
  		if type(nest) == "table" and type(nest.X) == "number" and type(nest.Z) == "number" then
@@ -2950,7 +3078,7 @@
  			if ok and keep == false then
  				return false
  			end
-@@ -620,7 +1119,7 @@
+@@ -620,7 +1142,7 @@
  	end
  	for _, nest in boxNests(data) or {} do
  		if type(nest) == "table" and type(nest.X) == "number" and type(nest.Z) == "number" then
@@ -2959,7 +3087,7 @@
  			if ok and keep == false then
  				return false
  			end
-@@ -648,11 +1147,17 @@
+@@ -648,11 +1170,17 @@
  	return false
  end
  
@@ -2978,7 +3106,7 @@
  	if type(cx) ~= "number" or type(cz) ~= "number" or type(level) ~= "number" or type(code) ~= "string" then
  		return false, "Invalid cell"
  	end
-@@ -660,6 +1165,11 @@
+@@ -660,6 +1188,11 @@
  	if not def then
  		return false, "Unknown block"
  	end
@@ -2990,7 +3118,7 @@
  	if ctx.BuildService and ctx.BuildService.InYard and ctx.BuildService.InYard(player, plot) == false then
  		return false, "Go to your garden to build"
  	end
-@@ -680,10 +1190,10 @@
+@@ -680,10 +1213,10 @@
  	local merged = put ~= code
  	-- v2.34: eggs stand ON blocks now — a block may not appear in / over an egg, or
  	-- change the height of the spot it stands on
@@ -3003,7 +3131,7 @@
  		return false, "A cosmetic box is unpacking here" -- v2.34
  	end
  	if def.Solid then
-@@ -699,7 +1209,12 @@
+@@ -699,7 +1232,12 @@
  			return false, "Somebody is standing there"
  		end
  	end
@@ -3017,7 +3145,7 @@
  	if put == "S" and not data.Plot.HadSand then
  		data.Plot.HadSand = true -- (the Cactus is sold from now on)
  		if ctx.BuildService and ctx.BuildService.PublishSlots then
-@@ -710,19 +1225,34 @@
+@@ -710,19 +1248,34 @@
  		data.Grass.Cells[BM.Key(cx, cz)] = nil -- (no grass under blocks)
  	end
  	touch(plot, level)
@@ -3054,7 +3182,7 @@
  -- v2.38: the pickaxe of this save — its tier (ToolConfig.PickaxeTiers: Reach, HitEvery,
  -- Smash …) and how many blocks it can still break before it is broken
  local FALLBACK_PICK = { Index = 1, HitEvery = 0.34, Reach = 14, Durability = math.huge, Smash = 90 }
-@@ -766,7 +1296,7 @@
+@@ -766,7 +1319,7 @@
  	if type(cx) ~= "number" or type(cz) ~= "number" or type(level) ~= "number" then
  		return
  	end
@@ -3063,7 +3191,7 @@
  		return
  	end
  	if not (data.Tools and data.Tools.Owned and data.Tools.Owned.Pickaxe) then
-@@ -786,6 +1316,7 @@
+@@ -786,6 +1339,7 @@
  	if not def then
  		return
  	end
@@ -3071,7 +3199,7 @@
  	-- reach: from you to the nearest point of the block
  	local cell, H = cellSize(), BC.Height
  	local x, z = ctx.PlotMath.CellCenter(cx, cz, size, cell)
-@@ -825,13 +1356,13 @@
+@@ -825,13 +1379,13 @@
  	s.N += 1
  	local need = pickHits(pick, code, def)
  	if s.N < need then
@@ -3087,7 +3215,7 @@
  		if now - s.Warned > 1.5 then
  			s.Warned = now
  			notify(player, "⛏ " .. tostring(why or "This block can't be broken"))
-@@ -840,7 +1371,7 @@
+@@ -840,7 +1394,7 @@
  	end
  	-- v2.34: a block an incubating egg stands on can't be broken (like under a tree)
  	if not nestsKeep(data, cx, cz, level, nil, size) then
@@ -3096,7 +3224,7 @@
  		if now - s.Warned > 1.5 then
  			s.Warned = now
  			notify(player, "⛏ An egg stands on this block — open it first")
-@@ -849,7 +1380,7 @@
+@@ -849,7 +1403,7 @@
  	end
  	-- v2.34: …and a block a cosmetic box stands on
  	if not boxesKeep(data, cx, cz, level, nil, size) then
@@ -3105,7 +3233,7 @@
  		if now - s.Warned > 1.5 then
  			s.Warned = now
  			notify(player, "⛏ A cosmetic box stands on this block — open it first")
-@@ -857,8 +1388,9 @@
+@@ -857,8 +1411,9 @@
  		return
  	end
  	BM.Set(blocks, cx, cz, level, nil)
@@ -3116,7 +3244,7 @@
  	-- v2.38: every block broken wears the pickaxe (water is only scooped up: free)
  	-- (v2.41: a slab wears it like a block — 1 — it only takes fewer swings)
  	if code ~= "W" and ctx.ToolService and ctx.ToolService.PickWear then
-@@ -888,7 +1420,7 @@
+@@ -888,7 +1443,7 @@
  	if type(cx) ~= "number" or type(cz) ~= "number" or type(level) ~= "number" then
  		return
  	end
@@ -3125,7 +3253,7 @@
  		return
  	end
  	if not (data.Tools and data.Tools.Owned and data.Tools.Owned.Pickaxe) then
-@@ -965,9 +1497,11 @@
+@@ -965,9 +1520,11 @@
  		if code and BC.Types[code] then
  			local ok = BM.CheckChange(blocks, data.Plot.Objects, bx, bz, bl, nil, size, cell)
  			if ok and nestsKeep(data, bx, bz, bl, nil, size) and boxesKeep(data, bx, bz, bl, nil, size) then
@@ -3138,7 +3266,7 @@
  				if code ~= "W" then
  					wear += 1
  				end
-@@ -1005,13 +1539,42 @@
+@@ -1005,13 +1562,42 @@
  	end
  end
  
@@ -3182,7 +3310,7 @@
  	end
  	return false, "Unknown action"
  end
-@@ -1020,7 +1583,168 @@
+@@ -1020,7 +1606,168 @@
  	hits[player] = nil
  end
  
@@ -3351,7 +3479,7 @@
  	ctx.Net.BlockRequest.OnServerInvoke = function(player, req)
  		return BlockService.Handle(player, req)
  	end
-@@ -1033,6 +1757,16 @@
+@@ -1033,6 +1780,16 @@
  	end)
  	ctx.Players.PlayerRemoving:Connect(function(player)
  		hits[player] = nil
@@ -3573,9 +3701,12 @@
  end
  
  -- v2.39: a COSMETIC BOX is a slot kind too ({ K = "Box", Id = box id } — like an egg: its
-@@ -100,14 +118,37 @@
+@@ -98,16 +116,39 @@
+ 		end
+ 	end)
  	self:_build()
- 	for _, a in { "BroomId", "BroomData", "Tools", "Hotbar", "HotbarSet", "Stored", "EggsOwned", "PetData", "BoxesOwned" } do -- (v2.39: + the cosmetic boxes)
+-	for _, a in { "BroomId", "BroomData", "Tools", "Hotbar", "HotbarSet", "Stored", "EggsOwned", "PetData", "BoxesOwned" } do -- (v2.39: + the cosmetic boxes)
++	for _, a in { "BroomId", "BroomData", "Tools", "Hotbar", "HotbarSet", "Stored", "EggsOwned", "PetData", "BoxesOwned", "Broom_Speed" } do -- (v2.39: + the cosmetic boxes)
  		self.player:GetAttributeChangedSignal(a):Connect(function()
 -			self:_refresh()
 +			-- perf: the server sets several of these in a row -> one redraw (<= 10 Hz)
@@ -3613,7 +3744,80 @@
  	self.player.CharacterAdded:Connect(function(char)
  		self:_setHeld(nil)
  		self:_watch(char)
-@@ -540,6 +581,45 @@
+@@ -306,6 +347,72 @@
+ 	return nil
+ end
+ 
++-- the speed stat an entry shows on its slot (nil = none): a broom's Speed (with gear / tokens), a mower's speed
++function BroomHotbar:_speedOf(e, cache)
++	if e.K == "Broom" then
++		local defs = self.BroomTypes.Defs
++		local def = defs and defs[e.Id]
++		local base = def and def.Stats and def.Stats.Speed
++		if type(base) ~= "number" then
++			return nil
++		end
++		local cur = self.player:GetAttribute("Broom_Speed")
++		local curDef = defs[self.player:GetAttribute("BroomId") or "Basic"]
++		if type(cur) == "number" and curDef and curDef.Stats and type(curDef.Stats.Speed) == "number" then
++			base += cur - curDef.Stats.Speed -- (gear / Leaf Tokens add the same points to every broom)
++		end
++		return base
++	elseif e.K == "Tool" and self.ToolConfig.GrassStats then
++		local ok, st = pcall(self.ToolConfig.GrassStats, e.Id, ((cache.toolState or {}).Up or {})[e.Id])
++		if ok and type(st) == "table" and type(st.Speed) == "number" then
++			return st.Speed
++		end
++	end
++	return nil
++end
++
++-- draw the chips (cheap: only writes what changed; runs after a refresh and at 8 Hz for the Overdrive / Nitro boost)
++function BroomHotbar:_speedChips()
++	local now
++	for i, s in self.slots do
++		local chip = s.Spd
++		local e = self.entries[i]
++		if chip then
++			local txt, boosted
++			if e and e.Speed then
++				txt = "⚡ " .. tostring(math.floor(e.Speed + 0.5))
++				local attr = if e.Id == "PushMower" then "OverdriveUntil" elseif e.Id == "RidingMower" then "NitroUntil" else nil
++				local until_ = attr and e.K == "Tool" and self.player:GetAttribute(attr)
++				if type(until_) == "number" then
++					if now == nil then
++						local okT, t = pcall(function()
++							return workspace:GetServerTimeNow()
++						end)
++						now = if okT then t else false
++					end
++					local ab = self.ToolConfig.Abilities and self.ToolConfig.Abilities[e.Id]
++					local m = ab and (if e.Id == "PushMower" then ab.Walk else ab.Boost)
++					if now and until_ > now and type(m) == "number" and m > 1 then
++						txt = "⚡ ×" .. tostring(math.floor(m * 100 + 0.5) / 100)
++						boosted = true
++					end
++				end
++			end
++			if txt ~= s.SpdTxt then
++				s.SpdTxt = txt
++				chip.Visible = txt ~= nil
++				if txt then
++					chip.Text = txt
++				end
++			end
++			if txt and boosted ~= s.SpdBoost then
++				s.SpdBoost = boosted
++				chip.BackgroundColor3 = if boosted then Color3.fromRGB(255, 120, 40) else Color3.fromRGB(255, 190, 40)
++			end
++		end
++	end
++end
++
+ function BroomHotbar:_cache()
+ 	local t = self:_tools()
+ 	local tools = {}
+@@ -540,6 +647,77 @@
  		cst.Color = Color3.new(1, 1, 1)
  		cst.Thickness = 1.5
  		cst.Parent = count
@@ -3656,10 +3860,42 @@
 +		lvlNum.ZIndex = 8
 +		lvlNum:SetAttribute("NoTranslate", true)
 +		lvlNum.Parent = lvl
++		-- ⚡ SPEED chip (top-right corner): a broom's Speed stat / a mower's speed; orange ×N while Overdrive / Nitro runs
++		local spd = Instance.new("TextLabel")
++		spd.Name = "Speed"
++		spd.AnchorPoint = Vector2.new(1, 0)
++		spd.BackgroundColor3 = Color3.fromRGB(255, 190, 40)
++		spd.Position = UDim2.new(1, 5, 0, -5)
++		spd.Size = UDim2.fromOffset(0, 20)
++		spd.AutomaticSize = Enum.AutomaticSize.X
++		spd.Font = FONT
++		spd.TextSize = 12
++		spd.TextXAlignment = Enum.TextXAlignment.Center
++		spd.TextColor3 = Color3.new(1, 1, 1)
++		spd.TextStrokeColor3 = Color3.fromRGB(120, 70, 0)
++		spd.TextStrokeTransparency = 0.2
++		spd.ZIndex = 6
++		spd.Text = ""
++		spd.Visible = false
++		spd:SetAttribute("NoTranslate", true)
++		spd.Parent = slot
++		corner(spd, 10)
++		local spdMin = Instance.new("UISizeConstraint")
++		spdMin.MinSize = Vector2.new(20, 20)
++		spdMin.Parent = spd
++		local spdPad = Instance.new("UIPadding")
++		spdPad.PaddingLeft = UDim.new(0, 4)
++		spdPad.PaddingRight = UDim.new(0, 4)
++		spdPad.Parent = spd
++		local spdSt = Instance.new("UIStroke")
++		spdSt.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
++		spdSt.Color = Color3.new(1, 1, 1)
++		spdSt.Thickness = 1.5
++		spdSt.Parent = spd
  		local state = Instance.new("TextLabel")
  		state.Name = "State"
  		state.BackgroundTransparency = 1
-@@ -556,7 +636,7 @@
+@@ -556,7 +734,7 @@
  		local barBg = Instance.new("Frame")
  		barBg.Name = "Meter"
  		barBg.AnchorPoint = Vector2.new(0.5, 1)
@@ -3668,7 +3904,7 @@
  		barBg.Size = UDim2.new(1, -14, 0, 5)
  		barBg.BackgroundColor3 = Color3.fromRGB(40, 36, 44)
  		barBg.Visible = false
-@@ -573,7 +653,7 @@
+@@ -573,7 +751,7 @@
  		local cdBg = Instance.new("Frame")
  		cdBg.Name = "Cooldown"
  		cdBg.AnchorPoint = Vector2.new(0.5, 1)
@@ -3677,16 +3913,36 @@
  		cdBg.Size = UDim2.new(1, -14, 0, 6)
  		cdBg.BackgroundColor3 = Color3.fromRGB(40, 36, 44)
  		cdBg.Visible = false
-@@ -586,7 +666,7 @@
+@@ -586,7 +764,7 @@
  		cdFill.ZIndex = 6
  		cdFill.Parent = cdBg
  		corner(cdFill, 3)
 -		self.slots[i] = { Button = slot, Stroke = st, VP = vp, Cam = cam, Key = key, Count = count, State = state, Meter = barBg, Fill = fill, CD = cdBg, CDFill = cdFill }
-+		self.slots[i] = { Lvl = lvl, LvlNum = lvlNum, Button = slot, Stroke = st, VP = vp, Cam = cam, Key = key, Count = count, State = state, Meter = barBg, Fill = fill, CD = cdBg, CDFill = cdFill }
++		self.slots[i] = { Lvl = lvl, LvlNum = lvlNum, Button = slot, Stroke = st, VP = vp, Cam = cam, Key = key, Count = count, Spd = spd, State = state, Meter = barBg, Fill = fill, CD = cdBg, CDFill = cdFill }
  		slot.MouseEnter:Connect(function()
  			self.hover = i
  			st.Transparency = 0
-@@ -1354,6 +1434,13 @@
+@@ -1221,6 +1399,9 @@
+ 	if e.Count then
+ 		text ..= " ×" .. tostring(e.Count)
+ 	end
++	if e.Speed then
++		text ..= " · Speed " .. tostring(math.floor(e.Speed + 0.5))
++	end
+ 	self.tip.Text = text
+ 	self.tip.Visible = true
+ end
+@@ -1257,6 +1438,9 @@
+ 	end
+ 	self.entries = entries
+ 	self.cache = cache
++	for _, e in entries do
++		e.Speed = self:_speedOf(e, cache)
++	end
+ 	-- a broom / tool you just got goes on the bar by itself (when you arranged the
+ 	-- bar yourself and there is room)
+ 	if self.player:GetAttribute("BroomData") ~= nil and self.player:GetAttribute("Tools") ~= nil then
+@@ -1354,14 +1538,58 @@
  		s.VP.ImageTransparency = if inHand then 0 else 0.15
  		s.Count.Text = if e.Count then tostring(e.Count) else ""
  		s.Count.Visible = e.Count ~= nil
@@ -3699,12 +3955,15 @@
 +		end
  	end
  	self.bar.Size = UDim2.fromOffset(math.max(x - GAP, SIZE), SIZE)
++	self:_speedChips()
  	if self.scale then
-@@ -1362,6 +1449,41 @@
+ 		self:_fit()
+ 	end
  	self:_tip()
  end
  
 +function BroomHotbar:_abilityBars()
++	self:_speedChips()
 +	local names = self.ToolConfig.AbilityAttr
 +	local okT, now = pcall(function()
 +		return workspace:GetServerTimeNow()
@@ -3742,7 +4001,7 @@
  function BroomHotbar:_bars()
  	local p = self.player
  	local bat, max = p:GetAttribute("Battery"), p:GetAttribute("BatteryMax")
-@@ -1383,7 +1505,19 @@
+@@ -1383,7 +1611,19 @@
  			s.Meter.Visible = true
  			local f = math.clamp(p:GetAttribute("BlowLeft") / p:GetAttribute("BlowMax"), 0, 1)
  			s.Fill.Size = UDim2.fromScale(f, 1)
@@ -3763,7 +4022,7 @@
  		elseif e and e.K == "Tool" and e.Id == "Pickaxe" and type(p:GetAttribute("PickUsed")) == "number" and (tonumber(p:GetAttribute("PickCap")) or 0) > 0 then
  			-- v2.38: the pickaxe's durability
  			s.Meter.Visible = true
-@@ -1445,8 +1579,8 @@
+@@ -1445,8 +1685,8 @@
  		end
  		return model
  	elseif e.K == "Tool" or e.K == "Item" then
@@ -3774,7 +4033,7 @@
  	elseif e.K == "Stored" then
  		local s = e.Data or e.Entry or self:_stored()[e.Id]
  		if not s then
-@@ -1499,6 +1633,11 @@
+@@ -1499,6 +1739,11 @@
  			-- (v2.41: so is a new tier of the rake / trimmer / blower / vacuum)
  			local okT, tier = pcall(self.ToolConfig.TierFromState, e.Id, self:_tools())
  			key ..= ":" .. tostring(if okT then tier else 1)
@@ -9902,7 +10161,55 @@
  			Lines = lines,
 --- a/IslandConfig.lua
 +++ b/IslandConfig.lua
-@@ -121,13 +121,19 @@
+@@ -112,6 +112,47 @@
+ 	},
+ }
+ 
++--[[
++	v2.8 ISLES: the BODY of every island (soil, rock layers, hanging rocks, the earth blocks / pit walls /
++	pit bed inside the garden) has its own palette, from the island's theme. Soil = the earth, Rock = the
++	cool rock, Warm = the rock that is warm-coloured on the baked island, Deep = the hanging rocks under it.
++	Mix (optional) = a list the rock colour is picked from by position (Rainbow Paradise).
++	The Meadow keeps the baked brown / grey (nil).
++]]
++I.Body = {
++	DarkForest = { Soil = c(70, 54, 44), Rock = c(58, 66, 68), Warm = c(78, 62, 52), Deep = c(40, 48, 50) },
++	FrostWoods = { Soil = c(150, 164, 184), Rock = c(168, 206, 234), Warm = c(190, 214, 236), Deep = c(130, 176, 214) },
++	MapleTown = { Soil = c(152, 86, 52), Rock = c(170, 112, 84), Warm = c(188, 100, 62), Deep = c(120, 86, 74) },
++	Volcano = { Soil = c(50, 38, 40), Rock = c(108, 36, 28), Warm = c(78, 30, 28), Deep = c(46, 34, 36) },
++	GoldenGrove = { Soil = c(176, 138, 68), Rock = c(214, 172, 82), Warm = c(232, 188, 96), Deep = c(150, 120, 70) },
++	WillowLake = { Soil = c(84, 98, 62), Rock = c(92, 132, 124), Warm = c(106, 142, 110), Deep = c(66, 100, 100) },
++	RoyalGarden = { Soil = c(118, 76, 98), Rock = c(150, 122, 172), Warm = c(176, 124, 156), Deep = c(106, 88, 130) },
++	MutantSwamp = { Soil = c(76, 72, 46), Rock = c(92, 140, 52), Warm = c(112, 70, 134), Deep = c(60, 96, 56) },
++	AncientWoods = { Soil = c(72, 54, 36), Rock = c(96, 104, 84), Warm = c(106, 90, 64), Deep = c(70, 80, 64) },
++	StarGarden = { Soil = c(58, 52, 104), Rock = c(96, 88, 168), Warm = c(78, 100, 176), Deep = c(56, 54, 112) },
++	RainbowParadise = {
++		Soil = c(238, 176, 196), Rock = c(150, 190, 240), Warm = c(250, 200, 130), Deep = c(190, 160, 240),
++		Mix = { c(255, 140, 160), c(255, 200, 100), c(130, 200, 250), c(180, 140, 255), c(130, 225, 150) },
++	},
++}
++
++-- the palette of the look `tierIndex` (nil = the baked meadow colours)
++function I.BodyOf(tierIndex)
++	local t = I.Tiers[tierIndex]
++	if not t or tierIndex <= 1 then
++		return nil
++	end
++	local p = I.Body[t.Id]
++	if p then
++		return p
++	end
++	-- (a look without an entry: derived from its grass colour)
++	local g = t.Grass[1]
++	local soil = g:Lerp(Color3.fromRGB(110, 80, 56), 0.6)
++	local rock = g:Lerp(Color3.fromRGB(120, 120, 126), 0.65)
++	return { Soil = soil, Rock = rock, Warm = soil:Lerp(rock, 0.4), Deep = rock:Lerp(Color3.new(0, 0, 0), 0.25) }
++end
++
+ I.ChooseLevel = 110 -- from this level on the player picks which island to SHOW
+ 
+ --[[
+@@ -121,13 +162,19 @@
  ]]
  I.FenceSkins = {
  	{ Id = "Classic", Display = "Classic Fence", Icon = "🚧", Color = Color3.fromRGB(235, 215, 185), Post = Color3.fromRGB(240, 225, 200), Material = "Plastic", Blurb = "The cream fence every garden starts with." },
@@ -9929,7 +10236,7 @@
  }
  --[[
  	v2.16 WHAT EVERY ISLAND OPENS. A part of the game is closed until you own the
-@@ -141,23 +147,28 @@
+@@ -141,23 +188,28 @@
  	levels, the Editor, the Bestiary.
  ]]
  I.Features = {
@@ -9969,7 +10276,54 @@
  	f.Id = id
 --- a/IslandService.lua
 +++ b/IslandService.lua
-@@ -128,6 +128,824 @@
+@@ -17,6 +17,46 @@
+ 
+ local ctx
+ local original = {} -- [part] = Color3 (the baked meadow colours)
++local bodyOrig = setmetatable({}, { __mode = "k" }) -- [part of the island's Underside] = its baked colour
++
++-- v2.8 ISLES: the soil / rock / hanging rocks of island `model` take the palette of the look (the baked
++-- brightness of every part is kept, so the layers stay lively); the Meadow gets its baked colours back
++local function paintBody(model, tierIndex)
++	local under = model:FindFirstChild("Underside")
++	if not under then
++		return
++	end
++	local pal = IC().BodyOf(tierIndex)
++	for _, d in under:GetDescendants() do
++		if d:IsA("BasePart") then
++			local o = bodyOrig[d]
++			if not o then
++				o = d.Color
++				bodyOrig[d] = o
++			end
++			if not pal then
++				d.Color = o
++			else
++				local lum = (o.R + o.G + o.B) / 3
++				local base, ref
++				if d.Name == "Dirt" then
++					base, ref = pal.Soil, 0.36
++				elseif d.Name == "Hanging" then
++					base, ref = pal.Deep, 0.47
++				else
++					local warm = math.clamp((o.R - o.B) / 0.17, 0, 1)
++					base, ref = pal.Rock:Lerp(pal.Warm, warm), 0.39
++					if pal.Mix then
++						local pos = d.Position
++						base = pal.Mix[(math.floor(pos.X * 0.37 + pos.Z * 0.53 + pos.Y * 0.9) % #pal.Mix) + 1]
++					end
++				end
++				local f = math.clamp(lum / ref, 0.75, 1.3)
++				d.Color = Color3.new(math.clamp(base.R * f, 0, 1), math.clamp(base.G * f, 0, 1), math.clamp(base.B * f, 0, 1))
++			end
++		end
++	end
++end
+ 
+ function IslandService.Init(context)
+ 	ctx = context
+@@ -128,6 +168,826 @@
  	return themes and themes:FindFirstChild(tier.Id)
  end
  
@@ -10436,9 +10790,11 @@
 +	function E.islet(s, dist, up, grass, top)
 +		local o = s.Out
 +		local pos = Vector3.new(s.P.X + o.X * dist, up, s.P.Z + o.Z * dist)
-+		E.add("IsletRock", Vector3.new(7, 3, 7), CFrame.new(pos + Vector3.new(0, -1.5, 0)), rgb(120, 104, 92))
-+		E.add("IsletRock", Vector3.new(5, 3, 5), CFrame.new(pos + Vector3.new(0, -4, 0)), rgb(104, 90, 82))
-+		E.add("IsletRock", Vector3.new(3, 3, 3), CFrame.new(pos + Vector3.new(0, -6.5, 0)), rgb(90, 78, 72))
++		local pal = IC().BodyOf(tierIndex)
++		local rock = if pal then pal.Rock else rgb(120, 104, 92)
++		E.add("IsletRock", Vector3.new(7, 3, 7), CFrame.new(pos + Vector3.new(0, -1.5, 0)), rock)
++		E.add("IsletRock", Vector3.new(5, 3, 5), CFrame.new(pos + Vector3.new(0, -4, 0)), rock:Lerp(Color3.new(0, 0, 0), 0.13))
++		E.add("IsletRock", Vector3.new(3, 3, 3), CFrame.new(pos + Vector3.new(0, -6.5, 0)), rock:Lerp(Color3.new(0, 0, 0), 0.25))
 +		E.add("IsletGrass", Vector3.new(7.4, 1, 7.4), CFrame.new(pos + Vector3.new(0, 0.3, 0)), grass)
 +		if top then
 +			top(pos + Vector3.new(0, 0.8, 0))
@@ -10794,7 +11150,19 @@
  -- give island `index` the look of tier `tierIndex` (1 = the plain meadow)
  function IslandService.ApplyLook(index, tierIndex)
  	local model = islandModel(index)
-@@ -165,12 +983,15 @@
+@@ -139,7 +999,11 @@
+ 	-- v2.16: the lawn INSIDE the garden takes the island's colour too (the tall grass
+ 	-- is drawn from the floor's colour by every client: GrassFX)
+ 	local plot = ctx.PlotSystem.GetByIndex and ctx.PlotSystem.GetByIndex(index)
++	pcall(paintBody, model, tierIndex) -- v2.8: the island's whole body wears the look too
+ 	if plot and plot.Floor then
++		-- (BlockService reads it: the earth blocks, pit walls and pit bed of the garden are this soil)
++		local pal = IC().BodyOf(tierIndex)
++		plot.Floor:SetAttribute("LRSoil", if pal then pal.Soil else nil)
+ 		plot.Floor.Color = if tierIndex <= 1 then Color3.fromRGB(96, 150, 62) else tier.Grass[1]
+ 		-- v2.38: … and the grass tops of the Earth blocks that stand there already
+ 		if ctx.BlockService and ctx.BlockService.Recolor then
+@@ -165,12 +1029,15 @@
  	for _, d in model:GetDescendants() do
  		if d:IsA("Model") and (d.Name == "Tuft" or (d.Name == "Flower" and d:FindFirstChild("Bloom"))) then
  			for _, p in d:GetChildren() do
@@ -10811,7 +11179,7 @@
  	local old = model:FindFirstChild("Theme")
  	if old then
  		old:Destroy()
-@@ -203,12 +1024,20 @@
+@@ -203,12 +1070,20 @@
  	theme.Parent = model
  end
  
@@ -10833,7 +11201,7 @@
  	end
  end
  
-@@ -219,6 +1048,9 @@
+@@ -219,6 +1094,9 @@
  	end
  	local d = islandData(data)
  	player:SetAttribute("IslandTier", d.Tier)
@@ -10843,7 +11211,7 @@
  	player:SetAttribute("IslandLook", IslandService.LookTier(data))
  	local open = {}
  	for id, on in d.Unlocked do
-@@ -240,12 +1072,28 @@
+@@ -240,12 +1118,28 @@
  end
  
  ---------------------------------------------------------------- fence skins (v2.15)
@@ -10872,7 +11240,7 @@
  	local d = islandData(data)
  	if d.Fences[id] then
  		return IslandService.SetFence(player, id)
-@@ -257,8 +1105,7 @@
+@@ -257,8 +1151,7 @@
  	end
  	d.Fences[id] = true
  	d.Fence = id
@@ -10882,7 +11250,7 @@
  	return true, string.format("%s %s is yours!", skin.Icon, skin.Display)
  end
  
-@@ -273,8 +1120,7 @@
+@@ -273,8 +1166,7 @@
  		return false, "Buy this fence first"
  	end
  	d.Fence = id
@@ -10892,7 +11260,7 @@
  	return true, string.format("%s %s", skin.Icon, skin.Display)
  end
  
-@@ -362,6 +1208,15 @@
+@@ -362,6 +1254,15 @@
  	ctx.Net.IslandRequest.OnServerInvoke = function(player, req)
  		return IslandService.Handle(player, req)
  	end
@@ -13909,7 +14277,7 @@
 +					end
 +				end
 +				hard.Evo = have < P.EvolveCount
-+				bEvo.Text = "EVOLVE\n" .. have .. "/" .. P.EvolveCount .. " identical pets"
++				bEvo.Text = string.format("EVOLVE %d/%d", math.min(have, P.EvolveCount), P.EvolveCount)
 +				K.setButtonColor(bEvo, if have >= P.EvolveCount then K.PURPLE else K.MUTED)
 +			end
 +			table.insert(show, bEvo)
@@ -15724,7 +16092,24 @@
  	self.detailUid = p.Uid
  	-- v1.10: short and simple — what it does now, what the next level gives
  	local lines = {
-@@ -1140,7 +1302,7 @@
+@@ -1124,15 +1286,9 @@
+ 	if cost then
+ 		table.insert(lines, string.format("<font color='#2E8B3E'><b>Lvl %d</b>  %s</font>", p.Level + 1, self:BonusText(p.Id, p.Variant, p.Level + 1, true)))
+ 	end
+-	if nextV then
+-		table.insert(lines, string.format("<b>Evolve</b>  %d/%d same pets at Lvl %d", count, P.EvolveCount, evolveLvl))
+-	end
+ 	table.insert(lines, if p.Eq then "<font color='#2E8B3E'><b>✔ Following you</b></font>" else "<font color='#8C6440'>Not equipped</font>")
+ 	-- v2.39: a pile of identical pets — the buttons act on ONE of them
+-	local pile = math.floor(tonumber(it.Count) or 1)
+-	if pile > 1 then
+-		table.insert(lines, string.format("📚 <b>×%d</b> identical pets here — a button acts on one of them", pile))
+-	end
++	local pile = math.floor(tonumber(it.Count) or 1) -- (the count is on the icon: no text line for it)
+ 	if it.Locked then
+ 		table.insert(lines, "<font color='#8C6440'>🔁 In your trade offer</font>")
+ 	end
+@@ -1140,7 +1296,7 @@
  	local armed = false
  	local equipSpec
  	if p.Eq then
@@ -15733,7 +16118,16 @@
  			self.selUid = p.Uid -- (v2.39: the selection follows this pet out of its pile)
  			self:_send({ Action = "Unequip", Uid = p.Uid })
  		end }
-@@ -1260,6 +1422,9 @@
+@@ -1167,7 +1323,7 @@
+ 			self:_send({ Action = "Upgrade", Uid = p.Uid })
+ 		end })
+ 	elseif nextV ~= nil and p.Level >= evolveLvl then
+-		table.insert(specs, { Text = "EVOLVE", Color = K.PURPLE, Enabled = count >= P.EvolveCount, OnClick = function()
++		table.insert(specs, { Text = string.format("EVOLVE %d/%d", math.min(count, P.EvolveCount), P.EvolveCount), Color = K.PURPLE, Enabled = count >= P.EvolveCount, OnClick = function()
+ 			self.selUid = p.Uid
+ 			self:_send({ Action = "Evolve", Uid = p.Uid }, function(msg)
+ 				self.Hud:Toast(msg, 3)
+@@ -1260,6 +1416,9 @@
  			end
  		end })
  	end
@@ -15745,7 +16139,31 @@
  	local desc = if type(def.Desc) == "string" and def.Desc ~= "" then def.Desc else nil
 --- a/Pickaxe.lua
 +++ b/Pickaxe.lua
-@@ -195,7 +195,10 @@
+@@ -164,6 +164,23 @@
+ 	return plot, hit, inReach, cf, axis
+ end
+ 
++-- v2.70: why this block can't be broken (a tree / the Collection Zone stands on it), cached a moment
++local protKey, protAt, protWhy = nil, -1e9, nil
++local function protectedWhy(plot, hit)
++	local now = os.clock()
++	local k = hit.Cx .. "," .. hit.Cz .. "," .. hit.Level
++	if k ~= protKey or now - protAt > 0.4 then
++		protKey, protAt, protWhy = k, now, nil
++		if deps.BlockFX.Protected then
++			local ok, why = pcall(deps.BlockFX.Protected, plot, hit.Cx, hit.Cz, hit.Level)
++			if ok and type(why) == "string" then
++				protWhy = why
++			end
++		end
++	end
++	return protWhy
++end
++
+ local function swing(hit, cf)
+ 	local char = player.Character
+ 	local root = char and char:FindFirstChild("HumanoidRootPart")
+@@ -195,7 +212,10 @@
  	end)
  end
  
@@ -15756,7 +16174,21 @@
  	if not tool or tool.Parent ~= player.Character then
  		return
  	end
-@@ -344,6 +347,48 @@
+@@ -207,7 +227,12 @@
+ 	local now = os.clock()
+ 	lastTarget = { Plot = plot, Hit = hit, CF = cf, Axis = axis, InReach = inReach, T = now }
+ 	local broken = isBroken()
+-	deps.BlockFX.Outline(plot, hit.Cx, hit.Cz, hit.Level, if broken then BROKEN elseif inReach then YELLOW else FAR)
++	local why = protectedWhy(plot, hit)
++	deps.BlockFX.Outline(plot, hit.Cx, hit.Cz, hit.Level, if broken then BROKEN elseif why then FAR elseif inReach then YELLOW else FAR)
++	if why and pressing and inReach and now >= busyUntil then
++		say("⛏ " .. why, 2.5, 1.5)
++		return
++	end
+ 	if pressing and inReach and now >= busyUntil and now - lastSwing >= (tierOf().HitEvery or BC.HitEvery) then
+ 		if broken then
+ 			say("💥 Your pickaxe is broken — repair it in SHOP · TOOLS", 3, 2.5)
+@@ -344,6 +369,48 @@
  	end
  end
  
@@ -15805,7 +16237,7 @@
  local function stop()
  	tool = nil
  	pressing = false
-@@ -356,6 +401,7 @@
+@@ -356,6 +423,7 @@
  	if deps then
  		deps.BlockFX.Outline(nil)
  	end
@@ -15813,7 +16245,7 @@
  end
  
  local function start(t)
-@@ -380,9 +426,19 @@
+@@ -380,9 +448,19 @@
  					deps.Hud:Toast("💥 The SMASH button: one heavy blow breaks 3×3 blocks", 4)
  				end
  			end)
@@ -15833,7 +16265,7 @@
  end
  
  local function isPickaxe(inst)
-@@ -469,6 +525,7 @@
+@@ -469,6 +547,7 @@
  			pressing = false
  		end
  	end)
@@ -24196,7 +24628,7 @@
  		ball:Destroy()
 --- a/ru.lua
 +++ b/ru.lua
-@@ -5887,4 +5887,567 @@
+@@ -5887,4 +5887,572 @@
  L.Strings["There is a slab here already — only the same slab fits onto it"] = "Здесь уже лежит плита — на неё можно положить только такую же"
  L.Strings["Trees need a full block — not a slab"] = "Деревьям нужен целый блок, а не плита"
  
@@ -24763,4 +25195,9 @@
 +L.Strings["Starfall: +7% chance that a falling item becomes STAR ×90"] = "Звездопад: +7% шанс, что упавший предмет станет ЗВЁЗДНЫМ ×90"
 +L.Strings["Orbit: every 40 s up to 12 items circle you for 20 s; deliver them for +300%. +6% CELESTIAL ×100"] = "Орбита: раз в 40 с до 12 предметов кружат вокруг тебя 20 с; сдай их и получи +300%. +6% шанс НЕБЕСНЫЙ ×100"
 +L.Strings["Cosmic Event: every 12 min a 3 min night; a star turns an item CELESTIAL ×100 every 4 s; trees drop ×2"] = "Космическое событие: раз в 12 мин на 3 мин наступает ночь; каждые 4 с звезда делает предмет НЕБЕСНЫМ ×100; деревья роняют вдвое чаще"
++L.Strings["A tree stands on this block"] = "На этом блоке стоит дерево"
++L.Strings["The Collection Zone stands on this block"] = "На этом блоке стоит Зона сбора"
++L.Strings["⛏ A tree stands on this block"] = "⛏ На этом блоке стоит дерево"
++L.Strings["⛏ The Collection Zone stands on this block"] = "⛏ На этом блоке стоит Зона сбора"
++L.Templates["EVOLVE %s/%s"] = "ЭВОЛЮЦИЯ %1/%2"
  return L

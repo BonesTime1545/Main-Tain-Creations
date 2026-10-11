@@ -350,7 +350,7 @@ do
 	eq((BM.GroundCheck(rec, {}, size, cell)), true, "existing tree floating is not blocked")
 	eq((BM.TreeSupport(rec, {}, size, cell)), false, "…but placing it there is")
 	-- blocks under an existing tree can still be broken
-	eq((BM.CheckChange(blocks, { t = rec }, 3, 3, 1, nil, size, cell)), true, "breaking under a tree is allowed")
+	eq((BM.CheckChange(blocks, { t = rec }, 3, 3, 1, nil, size, cell)), false, "round 8: breaking the support of a tree is refused")
 end
 
 print(fails == 0 and "RULES OK" or ("FAILURES " .. fails))
