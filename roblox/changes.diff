@@ -3374,7 +3374,15 @@
  		-- v1.2 one-use items: Owned[id] = count, Slots = up to 3 ids shown in the hotbar
  		Consumables = { Owned = {}, Slots = {} },
  		-- v1.2 the lawn: Cells["3,5"] = growth 0…100 (grid of the yard at size Size)
-@@ -157,6 +157,28 @@
+@@ -151,12 +151,35 @@
+ 			SFX = true,
+ 			Ambient = true,
+ 			Effects = true,
+-			LowGraphics = false,
++			LowGraphics = false, -- (old; read once as "Low" when Graphics is not chosen)
++			Graphics = "", -- "" = not chosen yet (the device decides on the first launch) · "Low" · "Medium" · "High"
+ 			HideOthersFX = false,
+ 			UIScale = 1,
  			CameraShake = true,
  			Notifications = true,
  			ConfirmBlocks = true, -- v2.33: "Are you sure?" when a block is placed (Editor · BLOCKS)
@@ -3403,7 +3411,7 @@
  			-- v2.36 the player menu (optional: an old save gets them from Reconcile, a wrong
  			-- type becomes the default again). The SERVER obeys them: GiftService, TradeService.
  			ShowStats = true, -- other players may open my statistics
-@@ -182,12 +204,12 @@
+@@ -182,12 +205,12 @@
  			-- v0.8
  			BestPile = 0,
  			Piles = {}, -- ["Mega"] = n
@@ -3417,7 +3425,15 @@
  			SweepTime = 0, -- seconds with the broom in hand
  			TreesPlanted = 0,
  			TreesGrown = 0, -- builds finished (and the Bush growing up)
-@@ -772,6 +794,15 @@
+@@ -573,6 +596,7 @@
+ 			Ambient = true,
+ 			Effects = true,
+ 			LowGraphics = old.GraphicsQuality == "Low",
++			Graphics = "",
+ 			HideOthersFX = false,
+ 			UIScale = tonumber(old.UIScale) or 1,
+ 			CameraShake = true,
+@@ -772,6 +796,15 @@
  -- saves need nothing). Only a Decor record keeps it, as a sane number; the allowed
  -- steps and each kind's maximum are applied when it is used (DecorTypes.ScaleOf).
  local function cleanScale(rec)
@@ -3433,7 +3449,7 @@
  	if rec.Scale == nil then
  		return
  	end
-@@ -860,6 +891,7 @@
+@@ -860,6 +893,7 @@
  			data.Currencies.Gems = (tonumber(data.Currencies.Gems) or 0) + 150
  		else
  			p.Level = math.clamp(math.floor(cleanNumber(p.Level, 1)), 1, 10)
@@ -3441,7 +3457,7 @@
  			-- v1.1 variants (old ids are renamed; anything unknown becomes Normal)
  			local v = if type(p.Variant) == "string" then p.Variant else "Normal"
  			v = ({ Fire = "Golden", RainbowFire = "Diamond", Ancient = "Rainbow" })[v] or v
-@@ -882,7 +914,7 @@
+@@ -882,7 +916,7 @@
  			data.Eggs.Owned[k] = nil
  		end
  	end
@@ -3450,7 +3466,7 @@
  		data.Stats[k] = cleanNumber(data.Stats[k], 0)
  	end
  	for k, v in data.Stats.Collected do
-@@ -1035,12 +1067,13 @@
+@@ -1035,12 +1069,13 @@
  			so.Rated[k] = nil
  		end
  	end
@@ -3466,7 +3482,7 @@
  	local rb = data.Rebirth
  	rb.Count = math.clamp(math.floor(cleanNumber(rb.Count, 0)), 0, 1000)
  	rb.RunEarned = cleanNumber(rb.RunEarned, 0)
-@@ -1058,9 +1091,8 @@
+@@ -1058,9 +1093,8 @@
  			data.Plot.Stored[id] = nil
  		end
  	end
@@ -3478,7 +3494,17 @@
  	for k, v in data.Stats.Piles do
  		if type(k) ~= "string" then
  			data.Stats.Piles[k] = nil
-@@ -1190,18 +1222,45 @@
+@@ -1077,6 +1111,9 @@
+ 	if st.CameraMode ~= "Aim" and st.CameraMode ~= "FirstPerson" then
+ 		st.CameraMode = "Aim"
+ 	end
++	if st.Graphics ~= "Low" and st.Graphics ~= "Medium" and st.Graphics ~= "High" then
++		st.Graphics = ""
++	end
+ 	-- anything the whitelist doesn't know (old keys) is dropped
+ 	local defaults = Schema.Defaults().Settings
+ 	for k in st do
+@@ -1190,18 +1227,45 @@
  
  -- v1.2: tools, one-use items, the lawn
  local TOOL_IDS = {
@@ -3527,7 +3553,7 @@
  	for id, v in T.Owned do
  		if not TOOL_IDS[id] or v ~= true then
  			T.Owned[id] = nil
-@@ -1212,7 +1271,7 @@
+@@ -1212,7 +1276,7 @@
  		T.Grass = "Shears"
  	end
  	T.Up = if type(T.Up) == "table" then T.Up else {}
@@ -3536,7 +3562,7 @@
  		local u = if type(T.Up[tool]) == "table" then T.Up[tool] else {}
  		for k, v in u do
  			if type(k) ~= "string" or #k > 16 then
-@@ -1224,7 +1283,7 @@
+@@ -1224,7 +1288,7 @@
  		T.Up[tool] = u
  	end
  	for k in T.Up do
@@ -3545,7 +3571,7 @@
  			T.Up[k] = nil
  		end
  	end
-@@ -1235,6 +1294,29 @@
+@@ -1235,6 +1299,29 @@
  	T.VacUsed = math.clamp(math.floor(cleanNumber(T.VacUsed, 0)), 0, 100000)
  	-- v2.32: seconds of Leaf Blower energy used since its last recharge (old saves: 0 = full)
  	T.BlowUsed = math.clamp(cleanNumber(T.BlowUsed, 0), 0, 1000)
@@ -3575,7 +3601,7 @@
  	local C = data.Consumables
  	for id, n in C.Owned do
  		if not ITEM_IDS[id] then
-@@ -1264,6 +1346,20 @@
+@@ -1264,6 +1351,20 @@
  			G.Cells[k] = if g > 0 then g else nil
  		end
  	end
@@ -3596,7 +3622,7 @@
  	for _, k in { "GrassCut", "ItemsUsed", "VacuumItems" } do
  		data.Stats[k] = math.floor(cleanNumber(data.Stats[k], 0))
  	end
-@@ -1283,7 +1379,7 @@
+@@ -1283,7 +1384,7 @@
  		else
  			local clean, count = {}, 0
  			for id, rec in g.Objects do
@@ -3605,7 +3631,7 @@
  					clean[id] = rec
  					count += 1
  				end
-@@ -1307,7 +1403,7 @@
+@@ -1307,7 +1408,7 @@
  	local keys = 0
  	for action, key in st.Keys do
  		keys += 1
@@ -3614,7 +3640,7 @@
  			st.Keys[action] = nil
  		end
  	end
-@@ -1350,7 +1446,60 @@
+@@ -1350,7 +1451,60 @@
  			end
  		end
  	end
@@ -9222,6 +9248,15 @@
  local function root()
  	if not folder or not folder.Parent then
  		folder = Instance.new("Folder")
+@@ -52,7 +75,7 @@
+ 
+ -- v0.9 settings: "Show effects" OFF = no bursts / rings / pillars; "Camera shake"
+ local function effectsOn()
+-	return game:GetService("Players").LocalPlayer:GetAttribute("Setting_Effects") ~= false
++	return game:GetService("Players").LocalPlayer:GetAttribute("Setting_Effects") ~= false and Juice.QualityScale > 0
+ end
+ Juice.EffectsOn = effectsOn
+ 
 @@ -89,6 +112,9 @@
  	if not effectsOn() then
  		return
@@ -9432,7 +9467,18 @@
  		if not LeaderboardService.ShuttingDown then
 --- a/LeafRushClient.lua
 +++ b/LeafRushClient.lua
-@@ -292,6 +292,21 @@
+@@ -170,6 +170,10 @@
+ 
+ -- v1.0: key bindings + language first (every window below uses them)
+ local settingRemote = Remotes:WaitForChild(R.UpdateSetting)
++Quality.SaveHook = function(name)
++	settingRemote:FireServer("Graphics", name)
++end
++require(script:WaitForChild("Prefs")).LevelFn = Quality.Level
+ Controls.Init(ControlsConfig, settingRemote)
+ Loc.Init(Locales)
+ local function applyLanguage()
+@@ -292,6 +296,21 @@
  	return eggOpening.playing == true
  end
  local pets = PetsUI.new({ UIKit = UIKit, ItemGrid = ItemGrid, ItemModels = ItemModels, TreeTypes = TreeTypes, RobuxUI = RobuxUI, fmt = Hud.fmt, Config = Config, PetConfig = PetConfig, PetFollow = PetFollow, ZoneConfig = ZoneConfig, IslandConfig = IslandConfig, Remote = Remotes:WaitForChild(R.PetRequest), Hud = hud, Juice = Juice, Sfx = Sfx, EggOpening = eggOpening })
@@ -9454,7 +9500,15 @@
  -- v1.10: a pet levelled up -> a celebration (world + the pet panel)
  require(script:WaitForChild("PetLevelFX")).Start({
  	Juice = Juice,
-@@ -348,13 +363,13 @@
+@@ -337,6 +356,7 @@
+ 	Sfx = Sfx,
+ 	MetaConfig = MetaConfig,
+ 	Remote = settingRemote,
++	Quality = Quality,
+ 	Controls = Controls,
+ 	ControlsConfig = ControlsConfig,
+ 	Locales = Locales,
+@@ -348,13 +368,13 @@
  })
  -- v1.0: the broom slot at the bottom (replaces the Roblox backpack bar)
  -- v1.2: eight slots — broom, grass tool, rake, blower, vacuum, three one-use items
@@ -9471,7 +9525,7 @@
  			end)
  			if not ok then
  				hud:Toast("Connection problem, try again", 2)
-@@ -397,6 +412,17 @@
+@@ -397,6 +417,17 @@
  		if not okP then
  			warn("[LeafRush] toy picker: " .. tostring(err))
  		end
@@ -9489,7 +9543,7 @@
  	else
  		use(nil)
  	end
-@@ -519,6 +545,7 @@
+@@ -519,6 +550,7 @@
  	return egg and pets:_eggModel(egg)
  end
  inventory.Hotbar = hotbar
@@ -9497,7 +9551,7 @@
  inventory.PlotMath = PlotMath
  hotbar.inEditor = function()
  	return build.active and not build.quick
-@@ -555,12 +582,6 @@
+@@ -555,12 +587,6 @@
  trade.Popup = function(...)
  	friends:Popup(...)
  end
@@ -9510,7 +9564,7 @@
  social.OnHome = function()
  	hud:_fire("Home")
  end
-@@ -644,7 +665,7 @@
+@@ -644,7 +670,7 @@
  UIKit.polish(shop.gui)
  UIKit.polish(toolsUI.gui)
  -- v2.16: BROOM SHOP · ITEMS (the one-use items, moved out of TOOLS)
@@ -9519,7 +9573,7 @@
  UIKit.polish(toolsUI.items.gui)
  UIKit.polish(build.UI.gui)
  
-@@ -656,7 +677,7 @@
+@@ -656,7 +682,7 @@
  	shop = shop, bestiary = bestiary, codes = codes, pets = pets,
  	quests = quests, wheel = wheel,
  	inventory = inventory, settings = settings, upgrades = upgrades, social = social, admin = admin, tools = toolsUI, items = toolsUI.items,
@@ -9528,7 +9582,7 @@
  }
  local function isOpen(w)
  	if w.w then
-@@ -867,16 +888,28 @@
+@@ -867,16 +893,28 @@
  	Features.Attach(toolsUI.gui, toolsUI.frame, always("Tools"), 56)
  	Features.Attach(toolsUI.items.gui, toolsUI.items.frame, always("Items"), 56)
  	win(pets.w, always("Eggs"))
@@ -9560,7 +9614,7 @@
  end
  local stallPages = {
  	Eggs = {
-@@ -983,7 +1016,6 @@
+@@ -983,7 +1021,6 @@
  end)
  shopHubRef = shopHub
  playersHub = UIKit.hub("LeafRushPlayersHub", "PLAYERS", "👥", "Players", {
@@ -9568,7 +9622,7 @@
  	winPage("Visit", "Visit", "🏡", social),
  	winPage("Trade", "Trade", "🔁", trade),
  })
-@@ -997,6 +1029,38 @@
+@@ -997,6 +1034,38 @@
  end
  -- v1.1: PLACE IN GARDEN -> click a spot (EggPlacer)
  eggPlacer = EggPlacer.new({ PetConfig = PetConfig, Remote = Remotes:WaitForChild(R.PetRequest), Hud = hud, Juice = Juice, Sfx = Sfx })
@@ -9607,7 +9661,7 @@
  pets.onPlace = function(eggId)
  	shopHub.Close()
  	inventory:Toggle(false) -- (v2.11: eggs you own are placed from Inventory · PETS)
-@@ -1050,6 +1114,46 @@
+@@ -1050,6 +1119,46 @@
  	Sfx.Play("Click")
  end
  
@@ -9654,7 +9708,7 @@
  -- v2.0: the three shops on the hub island (press E at a counter)
  game:GetService("ProximityPromptService").PromptTriggered:Connect(function(prompt, who)
  	if who ~= player then
-@@ -1064,13 +1168,134 @@
+@@ -1064,13 +1173,135 @@
  			shopHub.Open(page)
  		end
  	elseif prompt.Name == "GardenUpgrade" then
@@ -9745,10 +9799,11 @@
 +		if not PrefsM.On("Effects") then
 +			return 0
 +		end
-+		if PrefsM.Get("LowGraphics") == true or Quality.Level() <= 1 then
-+			return 0.35
++		local l = Quality.Level()
++		if l <= 1 then
++			return 0
 +		end
-+		return 1
++		return if l == 2 then 0.5 else 1
 +	end
 +	local function apply(em: ParticleEmitter)
 +		local m = mult()
@@ -9771,7 +9826,7 @@
 +		end
 +	end
 +	PrefsM.Changed("Effects", applyAll)
-+	PrefsM.Changed("LowGraphics", applyAll)
++	PrefsM.Changed("Graphics", applyAll)
 +	Quality.Changed:Connect(applyAll)
 +	task.spawn(function()
 +		local lr = workspace:WaitForChild("LeafRush", 30)
@@ -9789,7 +9844,7 @@
  ---------------------------------------------------------------- raycast ignore list for the broom
  local function rebuildIgnore()
  	local list = { visuals }
-@@ -1290,8 +1515,6 @@
+@@ -1290,8 +1521,6 @@
  	local free = not build.active -- Build Mode has its own keys (Play-only actions wait)
  	if isInput("Shop", input) then
  		shopHub.Toggle()
@@ -9798,7 +9853,7 @@
  	elseif isInput("Bestiary", input) then
  		bestiary:Toggle()
  	elseif isInput("Pets", input) then
-@@ -1349,8 +1572,168 @@
+@@ -1349,8 +1578,168 @@
  	end
  end)
  
@@ -9968,7 +10023,7 @@
  	if kind == "Jet" then
  		-- v2.34: another player's Leaf Blower in JET mode — its air stream behind them
  		if uid ~= player.UserId and typeof(center) == "Vector3" and typeof(dir) == "Vector3" and dir.Magnitude > 0.1 and dir.Magnitude < 2 then
-@@ -1363,6 +1746,27 @@
+@@ -1363,6 +1752,27 @@
  		end
  		return
  	end
@@ -9996,7 +10051,7 @@
  	if kind ~= "Cut" or uid == player.UserId or typeof(center) ~= "Vector3" then
  		return
  	end
-@@ -1447,7 +1851,7 @@
+@@ -1447,7 +1857,7 @@
  		Juice.Pillar(model:GetPivot().Position, Color3.fromRGB(200, 120, 255), 16)
  		Juice.Burst(top, Color3.fromRGB(220, 150, 255), 30, 10)
  		Juice.Chime(Config.FX.UiSoundId, 1.4, 0.35)
@@ -10005,7 +10060,7 @@
  	end
  	if shaking[model] then
  		return
-@@ -1510,12 +1914,6 @@
+@@ -1510,12 +1920,6 @@
  		-- (v2.13: the daily window never opens by itself — see SHOP · DAILY)
  	elseif kind == "TutorialDone" then
  		welcome:OnDone(payload)
@@ -10018,7 +10073,7 @@
  	elseif kind == "EggOpen" and type(payload) == "table" then
  		-- v1.1: your egg in the garden opened — the tap-to-crack show (the pet is yours already)
  		for _, w in windows do
-@@ -1558,6 +1956,7 @@
+@@ -1558,6 +1962,7 @@
  	-- Shop · COSMETICS, put in the garden like eggs, opened with a show of their own
  	local ok, err = pcall(function()
  		local DecorBoxes = require(script:WaitForChild("DecorBoxes"))
@@ -10026,7 +10081,7 @@
  		DecorBoxes.Start({
  			UIKit = UIKit,
  			Hud = hud,
-@@ -1578,6 +1977,9 @@
+@@ -1578,6 +1983,9 @@
  		NestFX.Busy = function()
  			return eggOpening.playing == true or DecorBoxes.playing == true
  		end
@@ -10036,7 +10091,7 @@
  		-- one thing in the hand at a time: an egg OR a box
  		if eggPlacer then
  			local startEgg = eggPlacer.Start
-@@ -2096,9 +2498,12 @@
+@@ -2096,9 +2504,12 @@
  	end
  	local lp = floor.CFrame:PointToObjectSpace(root.Position)
  	local half = floor.Size.X / 2 + 4
@@ -10087,7 +10142,14 @@
  						local to = Vector3.new(zone.X - p.Position.X, 0, zone.Z - p.Position.Z)
 --- a/MetaConfig.lua
 +++ b/MetaConfig.lua
-@@ -113,6 +113,30 @@
+@@ -107,12 +107,36 @@
+ 	{ Key = "SFX", Kind = "bool", Display = "Sound effects", Icon = "🔊" },
+ 	{ Key = "Ambient", Kind = "bool", Display = "Ambient sounds", Icon = "🌿" },
+ 	{ Key = "Effects", Kind = "bool", Display = "Show effects", Icon = "✨" },
+-	{ Key = "LowGraphics", Kind = "bool", Display = "Low graphics mode", Icon = "🐢" },
++	{ Key = "Graphics", Kind = "choice", Display = "Graphics", Icon = "🖥", Choices = { "Low", "Medium", "High" } },
+ 	{ Key = "HideOthersFX", Kind = "bool", Display = "Hide other players' effects", Icon = "🙈" },
+ 	{ Key = "CameraShake", Kind = "bool", Display = "Camera shake", Icon = "📳" },
  	{ Key = "Notifications", Kind = "bool", Display = "Notifications", Icon = "🔔" },
  	-- v2.33: the "Are you sure?  NO / YES" panel when a block is placed (Editor · BLOCKS); ON by default
  	{ Key = "ConfirmBlocks", Kind = "bool", Display = "Confirm block placing", Icon = "🧱" },
@@ -14192,7 +14254,14 @@
  function PlotSystem.SpawnCFrame(plot)
 --- a/Prefs.lua
 +++ b/Prefs.lua
-@@ -18,6 +18,27 @@
+@@ -13,11 +13,33 @@
+ 	SFX = true,
+ 	Ambient = true,
+ 	Effects = true,
+-	LowGraphics = false,
++	LowGraphics = false, -- (old save only; the setting is now "Graphics")
++	Graphics = "",
+ 	HideOthersFX = false,
  	CameraShake = true,
  	Notifications = true,
  	ConfirmBlocks = true, -- v2.33: "Are you sure?" when a block is placed
@@ -14220,6 +14289,16 @@
  	UIScale = 1,
  	MouseSensitivity = 1,
  	CameraMode = "Aim",
+@@ -50,6 +72,9 @@
+ 	if not Prefs.On("Effects") then
+ 		return false
+ 	end
++	if Prefs.LevelFn and Prefs.LevelFn() <= 1 then
++		return false -- Low graphics: no effects
++	end
+ 	if owner and owner ~= Players.LocalPlayer and Prefs.On("HideOthersFX") and Prefs.Get("HideOthersFX") == true then
+ 		return false
+ 	end
 --- a/PresetService.lua
 +++ b/PresetService.lua
 @@ -114,8 +114,8 @@
@@ -14289,12 +14368,16 @@
  			ctx.MetaService.Track(player, "Build")
 --- a/Quality.lua
 +++ b/Quality.lua
-@@ -3,16 +3,26 @@
+@@ -1,18 +1,28 @@
+ --[[
+ 	Leaf Rush · Quality (client) — graphics level + LOD for effects
  
- 	v0.9 setting "Low graphics mode" (ON = Low; OFF = Auto). Auto starts from the device
- 	(phones/tablets -> Medium, PCs -> High) and steps down when the frame rate stays
+-	v0.9 setting "Low graphics mode" (ON = Low; OFF = Auto). Auto starts from the device
+-	(phones/tablets -> Medium, PCs -> High) and steps down when the frame rate stays
 -	low (and back up when it recovers).
-+	low (touch: after ~3 s; PC: ~5 s) and back up only after ~30 s of good frames.
++	v2.52 setting "Graphics": Low / Medium / High (chosen in Settings). Nothing chosen yet =
++	first launch: High (touch devices Medium) and the frame rate decides once, then it is saved.
++	Setting "Show effects" OFF = no particles, no lights, no neon glow, no post-FX at any level.
  
  	  Quality.Level()        1 = Low, 2 = Medium, 3 = High
 -	  Quality.Scale(n)       n × 0.35 / 0.7 / 1   (particle counts, rates)
@@ -14316,13 +14399,13 @@
 +	            Beams/Trails/Fire/Smoke/Sparkles off; world emitters at 35% rate and cut beyond
 +	            Range(); BillboardGuis capped by MaxDistance; thinner Atmosphere (no glare);
 +	            Terrain.Decoration off; SkyFX/StarfallFX/WeatherFX use their smallest versions
-+	  Medium    lights, glow, shadows stay on (v2.52); emitters at 70% (touch 50%)
++	  Medium    (touch: like Low for lights, shadows, Bloom/SunRays/DoF/Blur, billboard caps)
++	            DepthOfField + SunRays off on every device; emitters at 70% (touch 50%)
 +	  High      everything as built (touch devices never go above Medium in Auto)
-+	  (v2.52: the glow is toned down on every level - lights x0.6, bloom / sun rays / glare x0.55)
  ]]
  
  local CollectionService = game:GetService("CollectionService")
-@@ -25,6 +35,7 @@
+@@ -25,11 +35,12 @@
  
  local level = 3
  local auto = true
@@ -14330,8 +14413,17 @@
  local changed = Instance.new("BindableEvent")
  Quality.Changed = changed.Event
  
-@@ -40,6 +51,8 @@
- 	Quality.Scales = { 0.25, 0.5, 0.8 }
+ Quality.Ranges = { 45, 90, 150 }
+-Quality.Scales = { 0.35, 0.7, 1 }
++Quality.Scales = { 0, 0.5, 1 }
+ -- v2.27 PHONES / TABLETS: effects stay on only close to the camera, fewer particles,
+ -- no little lights on leaves and no shadows (the game itself is untouched: the same
+ -- leaves, the same rules — only decoration that costs frames is trimmed)
+@@ -37,9 +48,10 @@
+ Quality.Touch = TOUCH
+ if TOUCH then
+ 	Quality.Ranges = { 28, 48, 80 }
+-	Quality.Scales = { 0.25, 0.5, 0.8 }
  end
  
 +local NAMES = { "Low", "Medium", "High" }
@@ -14339,26 +14431,30 @@
  function Quality.Level()
  	return level
  end
-@@ -52,22 +65,373 @@
+@@ -52,25 +64,414 @@
  	return Quality.Ranges[level]
  end
  
 +---------------------------------------------------------------- policy
++local fxOff = false -- "Show effects" is OFF: absolutely every effect, light and neon glow goes
 +local function lightsOff()
-+	return level <= 1
++	return level <= 1 or fxOff
 +end
 +local function shadowsOff()
 +	return level <= 1
 +end
 +local function cheap()
-+	return level <= 1
++	return level <= 1 or fxOff
++end
++local function neonOff()
++	return level <= 1 or fxOff
 +end
 +local function pfxOff()
-+	return level <= 1
++	return level <= 1 or fxOff
 +end
 +
 +local LIGHT = { PointLight = true, SpotLight = true, SurfaceLight = true }
-+local PFX = { Beam = true, Trail = true, Fire = true, Smoke = true, Sparkles = true }
++local PFX = { Beam = true, Trail = true, Fire = true, Smoke = true, Sparkles = true, ParticleEmitter = true }
 +local POST = { BloomEffect = true, SunRaysEffect = true, DepthOfFieldEffect = true, BlurEffect = true }
 +local SHADOWCLS = { Part = true, MeshPart = true, UnionOperation = true, WedgePart = true, CornerWedgePart = true, TrussPart = true }
 +
@@ -14369,17 +14465,26 @@
 +	return shadowsOff()
 +end
 +function Quality.PostFxOff(class)
-+	if class == "BloomEffect" or class == "BlurEffect" then
-+		return cheap()
-+	elseif class == "SunRaysEffect" or class == "DepthOfFieldEffect" then
-+		return level <= 1
++	if level <= 1 or fxOff then
++		return true
++	end
++	if class == "SunRaysEffect" or class == "DepthOfFieldEffect" then
++		return level <= 2
 +	end
 +	return false
 +end
 +
++function Quality.Name()
++	return NAMES[level]
++end
++
++function Quality.EffectsOff()
++	return fxOff
++end
++
 +-- Atmosphere multipliers (density, haze, glare) for WeatherFX's tweens
 +function Quality.AtmoScale()
-+	if level <= 1 then
++	if level <= 1 or fxOff then
 +		return 0.6, 0.5, 0
 +	end
 +	return 1, 1, 1
@@ -14394,9 +14499,10 @@
 +		"Particles: " .. math.floor(Quality.Scales[level] * 100 + 0.5) .. "% · effects cut beyond " .. Quality.Ranges[level] * 1.6 .. " studs",
 +		"Lights: " .. (if lights then "on" else "off"),
 +		"Shadows: " .. (if shadows then "on" else "off"),
-+		"Glow (bloom / sun rays / blur): " .. (if cheap() then "off" else "on"),
++		"Bloom / blur: " .. (if cheap() then "off" else "on") .. " · sun rays / depth of field: " .. (if Quality.PostFxOff("SunRaysEffect") then "off" else "on"),
 +		"Beams / trails / fire / smoke: " .. (if pfxOff() then "off" else "on"),
-+		"Weather atmosphere: " .. (if level <= 1 then "thin" else "full"),
++		"Weather atmosphere: " .. (if level <= 1 or fxOff then "thin" else "full"),
++		"Neon glow: " .. (if neonOff() then "off" else "on") .. " · effects switch: " .. (if fxOff then "OFF" else "on"),
 +	}
 +	return {
 +		Level = level,
@@ -14479,10 +14585,20 @@
 +	end
 +end
 +
++local halfSet = setmetatable({}, { __mode = "k" })
++local function halfOff(inst)
++	local h = halfSet[inst]
++	if h == nil then
++		h = math.random() < 0.5
++		halfSet[inst] = h
++	end
++	return h
++end
++
 +local function offFor(inst)
 +	local cn = inst.ClassName
 +	if LIGHT[cn] then
-+		return lightsOff()
++		return lightsOff() or (level == 2 and halfOff(inst))
 +	elseif PFX[cn] then
 +		return pfxOff()
 +	elseif POST[cn] then
@@ -14567,7 +14683,7 @@
 +end
 +
 +local function billboard(inst)
-+	local cap = if cheap() then math.max(80, Quality.Ranges[level] * 2.2) else nil
++	local cap = if level <= 1 then math.max(80, Quality.Ranges[level] * 2.2) else nil
 +	if cap then
 +		local orig = billOrig[inst]
 +		if orig == nil then
@@ -14587,26 +14703,24 @@
 +	end
 +end
 +
-+local softened = setmetatable({}, { __mode = "k" })
-+Quality.GlowMul = 0.6
-+local function soften(inst)
-+	if softened[inst] then
-+		return
++-- Low / effects OFF: glowing (Neon) parts become plain plastic, and come back
++local neonOrig = setmetatable({}, { __mode = "k" })
++local function neon(inst)
++	if neonOff() then
++		if inst.Material == Enum.Material.Neon and inWorld(inst) then
++			neonOrig[inst] = true
++			inst.Material = Enum.Material.SmoothPlastic
++		end
++	elseif neonOrig[inst] then
++		neonOrig[inst] = nil
++		inst.Material = Enum.Material.Neon
 +	end
-+	softened[inst] = true
-+	pcall(function()
-+		inst.Brightness = inst.Brightness * Quality.GlowMul
-+		inst.Range = inst.Range * 0.85
-+	end)
 +end
 +
 +local function process(inst)
 +	local cn = inst.ClassName
 +	if LIGHT[cn] then
-+		if inWorld(inst) then
-+			soften(inst)
-+		end
-+		local off = lightsOff()
++		local off = offFor(inst)
 +		if (off or mine[inst] ~= nil) and inWorld(inst) then
 +			enforce(inst, off)
 +		end
@@ -14615,12 +14729,12 @@
 +		if (off or mine[inst] ~= nil) and inWorld(inst) then
 +			enforce(inst, off)
 +		end
-+	elseif cn == "ParticleEmitter" then
-+		if inWorld(inst) then
++		if cn == "ParticleEmitter" and not off and inWorld(inst) then
 +			register(inst)
 +		end
 +	elseif SHADOWCLS[cn] then
 +		shadow(inst)
++		neon(inst)
 +	elseif cn == "BillboardGui" then
 +		if inWorld(inst) then
 +			billboard(inst)
@@ -14678,7 +14792,7 @@
 +
 +local function onAdded(inst)
 +	local cn = inst.ClassName
-+	if RELEVANT[cn] or (SHADOWCLS[cn] and shadowsOff()) then
++	if RELEVANT[cn] or (SHADOWCLS[cn] and (shadowsOff() or neonOff())) then
 +		queue[#queue + 1] = inst
 +	end
 +end
@@ -14717,7 +14831,26 @@
  	changed:Fire(level)
  end
  
-@@ -88,9 +452,6 @@
++local function refresh()
++	if started then
++		applyLighting()
++		fullSweep()
++	end
++	changed:Fire(level)
++end
++
++function Quality.Choose(name)
++	local p = Players.LocalPlayer
++	p:SetAttribute("Setting_Graphics", name)
++	if Quality.SaveHook then
++		pcall(Quality.SaveHook, name)
++	end
++end
++
+ function Quality.SetSetting(value)
+ 	if value == "Low" then
+ 		auto = false
+@@ -88,9 +489,6 @@
  end
  
  ---------------------------------------------------------------- LOD
@@ -14727,7 +14860,7 @@
  local function effectsOf(part)
  	local list = {}
  	for _, d in part:GetChildren() do
-@@ -110,13 +471,6 @@
+@@ -110,13 +508,6 @@
  		local fx = effectsOf(part)
  		if #fx > 0 then
  			tracked[part] = { effects = fx, on = true }
@@ -14741,7 +14874,7 @@
  		end
  	end)
  end
-@@ -128,9 +482,10 @@
+@@ -128,9 +519,10 @@
  	entry.on = on
  	for _, e in entry.effects do
  		if e.Parent then
@@ -14755,7 +14888,7 @@
  		end
  	end
  end
-@@ -149,34 +504,57 @@
+@@ -149,34 +541,57 @@
  			setOn(entry, (part.Position - from).Magnitude <= range)
  		end
  	end
@@ -14794,7 +14927,7 @@
 -				end
 +	local from = cam.CFrame.Position
 +	local farDist = Quality.Range() * 1.6
-+	local k = Quality.Scales[level]
++	local k = if fxOff then 0 else Quality.Scales[level]
 +	for _ = 1, math.min(n, 300) do
 +		emitIdx += 1
 +		if emitIdx > #emitters then
@@ -14835,7 +14968,7 @@
  	end
  end
  
-@@ -184,10 +562,8 @@
+@@ -184,15 +599,26 @@
  function Quality.Start(config)
  	local player = Players.LocalPlayer
  	level = deviceDefault()
@@ -14843,12 +14976,31 @@
 -	pcall(function()
 -		Lighting.GlobalShadows = level >= 2 and not TOUCH
 -	end)
++	fxOff = player:GetAttribute("Setting_Effects") == false
 +	started = true
 +	applyLighting()
  	local function applySetting()
- 		Quality.SetSetting(if player:GetAttribute("Setting_LowGraphics") == true then "Low" else "Auto")
+-		Quality.SetSetting(if player:GetAttribute("Setting_LowGraphics") == true then "Low" else "Auto")
++		local g = player:GetAttribute("Setting_Graphics")
++		if g ~= "Low" and g ~= "Medium" and g ~= "High" then
++			g = if player:GetAttribute("Setting_LowGraphics") == true then "Low" else "Auto" -- (an old save with the Low switch ON)
++		end
++		Quality.SetSetting(g)
  	end
-@@ -201,23 +577,59 @@
+ 	applySetting()
++	player:GetAttributeChangedSignal("Setting_Graphics"):Connect(applySetting)
+ 	player:GetAttributeChangedSignal("Setting_LowGraphics"):Connect(applySetting)
++	player:GetAttributeChangedSignal("Setting_Effects"):Connect(function()
++		local off = player:GetAttribute("Setting_Effects") == false
++		if off ~= fxOff then
++			fxOff = off
++			refresh()
++		end
++	end)
+ 	local tag = config and config.Tags and config.Tags.Resource or "LeafRushResource"
+ 	for _, p in CollectionService:GetTagged(tag) do
+ 		track(p)
+@@ -201,25 +627,43 @@
  	CollectionService:GetInstanceRemovedSignal(tag):Connect(function(p)
  		tracked[p] = nil
  	end)
@@ -14856,6 +15008,7 @@
 -	task.delay(20, scanWorld)
  
 -	-- Auto: follow the frame rate (5 s windows, hysteresis)
+-	local frames, t0 = 0, os.clock()
 +	workspace.DescendantAdded:Connect(onAdded)
 +	Lighting.ChildAdded:Connect(function(d)
 +		if POST[d.ClassName] then
@@ -14867,55 +15020,45 @@
 +	task.delay(6, fullSweep) -- the zones are built by then
 +	task.delay(25, fullSweep)
 +
-+	-- Auto: follow the frame rate. 1 s windows; down after ~3 s (touch) / ~5 s (PC) of low FPS,
-+	-- up only after ~30 s of good FPS (longer if the last step up did not hold)
- 	local frames, t0 = 0, os.clock()
-+	local born = os.clock()
-+	local badRun, goodRun = 0, 0
-+	local upNeed = 30
-+	local lastUp = -1e9
-+	local downNeed = if TOUCH then 3 else 5
-+	local lowFps = if TOUCH then 26 else 32
-+	local highFps = if TOUCH then 52 else 57
++	-- FIRST LAUNCH (nothing chosen yet): High (touch devices Medium) while the frame rate is measured for a
++	-- few seconds, then Low / Medium / High is picked for this device ONCE and saved. After that only the player changes it.
++	local frames, t0, born = 0, os.clock(), os.clock()
++	local samples = {}
++	local decided = false
  	RunService.RenderStepped:Connect(function()
  		frames += 1
  		local t = os.clock()
 -		if t - t0 >= 5 then
-+		if t - t0 >= 1 then
- 			local fps = frames / (t - t0)
- 			frames, t0 = 0, t
+-			local fps = frames / (t - t0)
+-			frames, t0 = 0, t
 -			if auto then
 -				if fps < 32 and level > 1 then
-+			if not auto or t - born < 8 or fps < 4 then
-+				badRun, goodRun = 0, 0 -- (loading hitch / tab out: not a measurement)
-+				return
-+			end
-+			if fps < lowFps then
-+				badRun += 1
-+				goodRun = 0
-+				if badRun >= downNeed and level > 1 then
-+					if t - lastUp < 90 then
-+						upNeed = math.min(upNeed * 2, 240) -- it did not hold: wait longer next time
-+					end
-+					badRun = 0
- 					apply(level - 1)
+-					apply(level - 1)
 -				elseif fps > 57 and level < deviceDefault() then
-+				end
-+			elseif fps > highFps then
-+				goodRun += 1
-+				badRun = 0
-+				if goodRun >= upNeed and level < deviceDefault() then
-+					goodRun = 0
-+					lastUp = t
- 					apply(level + 1)
- 				end
-+			else
-+				badRun = 0
-+				goodRun = math.max(0, goodRun - 1)
- 			end
+-					apply(level + 1)
+-				end
+-			end
++		if t - t0 < 1 then
++			return
++		end
++		local fps = frames / (t - t0)
++		frames, t0 = 0, t
++		if decided or not auto or t - born < 8 or fps < 4 then
++			return -- (loading hitch / tab out: not a measurement)
++		end
++		table.insert(samples, fps)
++		if #samples < 6 then
++			return
  		end
++		decided = true
++		table.sort(samples)
++		local med = (samples[3] + samples[4]) / 2
++		local pick = if med < 30 then "Low" elseif med < (if TOUCH then 56 else 50) then "Medium" else "High"
++		Quality.Choose(pick)
  	end)
-@@ -227,6 +639,12 @@
+ 	task.spawn(function()
+ 		while true do
+@@ -227,6 +671,12 @@
  			pcall(lodStep)
  		end
  	end)
@@ -15921,7 +16064,23 @@
  					r.Wait = r.Def.Pause
 --- a/SettingsUI.lua
 +++ b/SettingsUI.lua
-@@ -23,6 +23,27 @@
+@@ -1,7 +1,7 @@
+ --[[
+ 	Leaf Rush · SettingsUI (client) — ⚙ SETTINGS (global, saved with your profile)
+ 	  GAME      🌐 LANGUAGE (English ⇄ Русский, the whole game), Music, Sound effects,
+-	            Ambient sounds, Show effects, Low graphics mode, Hide other players'
++	            Ambient sounds, Show effects, Graphics (Low / Medium / High), Hide other players'
+ 	            effects, Camera shake, Notifications, UI scale, broom sensitivity, camera
+ 	  CONTROLS  v1.0: RE-BIND every action — click its key, press a new one (Esc =
+ 	            cancel); conflicts are refused; ↺ per action and RESET TO DEFAULT
+@@ -18,11 +18,33 @@
+ 
+ local LABELS = { Aim = "3rd person", FirstPerson = "1st person" }
+ local HINTS = {
+-	LowGraphics = "fewer particles, lights and shadows (weak phones)",
++	Graphics = "Low: no effects, lights or glow · Medium: half · High: all",
++	Effects = "OFF = no effects, no lights, no glowing items at all",
+ 	HideOthersFX = "other players' broom sparkles and trails",
  	Notifications = "small pop-up messages (important ones still show)",
  	ConfirmBlocks = "asks \"Are you sure?\" before a block is placed (Editor · BLOCKS)", -- v2.33
  	Ambient = "wind, rustling trees and other background sounds",
@@ -15949,17 +16108,36 @@
  	-- v2.36 the player menu (click a player); the server obeys these three
  	ShowStats = "other players can open your statistics",
  	AllowGifts = "other players can offer you gifts",
-@@ -75,7 +96,8 @@
+@@ -75,7 +97,8 @@
  		end
  		local r = { Key = d.Key, Name = d.Icon .. " " .. d.Display, Hint = HINTS[d.Key] }
  		if d.Kind == "bool" then
 -			r.Kind, r.Default = "Toggle", (d.Key ~= "LowGraphics" and d.Key ~= "HideOthersFX")
-+			r.Kind, r.Default = "Toggle", (d.Key ~= "LowGraphics" and d.Key ~= "HideOthersFX" and d.Default ~= false)
++			r.Kind, r.Default = "Toggle", (d.Key ~= "HideOthersFX" and d.Default ~= false)
 +			r.Group = d.Group
  		elseif d.Kind == "number" then
  			r.Kind, r.Min, r.Max, r.Step, r.Default = "Number", d.Min, d.Max, d.Step, 1
  		else
-@@ -190,10 +212,17 @@
+@@ -90,6 +113,9 @@
+ 
+ function SettingsUI:Get(row)
+ 	local v = self.player:GetAttribute("Setting_" .. row.Key)
++	if row.Key == "Graphics" and v ~= "Low" and v ~= "Medium" and v ~= "High" then
++		return if self.Quality then self.Quality.Name() else "High" -- (not chosen yet: what the device runs now)
++	end
+ 	if v == nil then
+ 		return row.Default
+ 	end
+@@ -163,7 +189,7 @@
+ 	else
+ 		for i, choice in row.Choices do
+ 			local on = v == choice
+-			local b = K.button(box, (row.Labels and row.Labels[choice]) or choice, if on then K.ACCENT else K.MUTED, { Size = UDim2.fromOffset(if #row.Choices > 2 then 58 else 104, 36), LayoutOrder = i })
++			local b = K.button(box, (row.Labels and row.Labels[choice]) or choice, if on then K.ACCENT else K.MUTED, { Size = UDim2.fromOffset(if #row.Choices > 2 then (if row.Key == "Graphics" then 78 else 58) else 104, 36), LayoutOrder = i })
+ 			b.TextSize = if #row.Choices > 2 then 14 else 16
+ 			b.Activated:Connect(function()
+ 				self:Set(row, choice)
+@@ -190,10 +216,17 @@
  	if self.Locales then
  		self:_language(0)
  	end
@@ -20704,15 +20882,15 @@
 +	local rich = Prefs.On("Effects") and Quality.Level() > 1
 +	local b = if rich and fx.Bloom then fx.Bloom else B.Bloom
 +	local r = if rich and fx.Rays then fx.Rays else B.Rays
-+	-- v2.52: subtler glow
-+	b = { b[1] * 0.55, b[2] * 0.85, b[3] }
-+	r = { r[1] * 0.55, r[2] }
++	-- High: the bloom threshold is lowered a little so neon blocks and lamps really glow; Medium: half the bloom
++	local lv = Quality.Level()
++	b = { b[1] * (if lv == 2 then 0.5 else 1), b[2], if lv >= 3 then math.min(b[3], math.max(0.9, b[3] * 0.6)) else b[3] }
 +	local info = TweenInfo.new(t, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
 +	TweenService:Create(self.bloom, info, { Intensity = b[1], Size = b[2], Threshold = b[3] }):Play()
 +	TweenService:Create(self.rays, info, { Intensity = r[1], Spread = r[2] }):Play()
 +	TweenService:Create(Lighting, info, { OutdoorAmbient = fx.Ambient or B.Ambient, ColorShift_Top = fx.Shift or B.Shift }):Play()
 +	local aD, aH, aG = Quality.AtmoScale()
-+	TweenService:Create(self.atmo, info, { Decay = fx.Decay or B.Decay, Glare = (fx.Glare or B.Glare) * aG * 0.55, Offset = fx.Offset or B.Offset, Density = (vis.Density or self.atmo.Density) * aD, Haze = (vis.Haze or self.atmo.Haze) * aH }):Play()
++	TweenService:Create(self.atmo, info, { Decay = fx.Decay or B.Decay, Glare = (fx.Glare or B.Glare) * aG, Offset = fx.Offset or B.Offset, Density = (vis.Density or self.atmo.Density) * aD, Haze = (vis.Haze or self.atmo.Haze) * aH }):Play()
 +	TweenService:Create(self.cc, info, { Contrast = fx.Contrast or 0 }):Play()
 +end
 +
@@ -20943,7 +21121,7 @@
  	flat = if flat.Magnitude > 0.01 then flat.Unit else Vector3.new(0, 0, -1)
  	local frame = CFrame.lookAt(Vector3.zero, flat)
 +	-- v2.50: "Show effects" off = no particles at all; Low graphics = fewer
-+	local fxMul = if Prefs.On("Effects") then (if Quality.Level() == 1 then 0.6 else 1) else 0
++	local fxMul = if Prefs.On("Effects") then (if Quality.Level() == 1 then 0 elseif Quality.Level() == 2 then 0.5 else 1) else 0
  	for name, L in self.layers do
 -		local amount = lerp(a[name] or 0, b[name] or 0, k)
 +		local amount = lerp(a[name] or 0, b[name] or 0, k) * fxMul
