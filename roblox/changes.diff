@@ -1127,7 +1127,22 @@
  
 --- a/BlockMath.lua
 +++ b/BlockMath.lua
-@@ -62,18 +62,122 @@
+@@ -26,6 +26,14 @@
+ 	  • buildings (robot stations …) and Collection Zones only on cells without blocks
+ 	  • a block can't be placed or broken if a thing that stands fine now would not
+ 	    stand fine afterwards
++	v2.52 FREE HEIGHT (the rules above are GONE): every object (tree, building, Collection
++	Zone, cosmetic) stores the level it stands at: record.Lv = the height of its support in
++	LEVELS (0 = the floor, 2 = on top of two blocks, 1.5 = on a slab, negative = in the pit).
++	It can stand at ANY level, on ANY block, in the pit, UNDER blocks: nothing but "its foot
++	is not inside a solid block" (FootFree / BodyCheck) is asked. A record without Lv (an old
++	save) stands where it always stood (AutoLevel = the highest column under it). Blocks can be
++	put / broken anywhere: objects keep their stored height (they may float); a block only
++	can't appear INSIDE a thing (CheckChange). Eggs / boxes: nest.Lv, the same idea (Spot...).
+ ]]
+ 
+ local PlotMath = require(script.Parent:WaitForChild("PlotMath"))
+@@ -62,18 +70,122 @@
  end
  
  -- the block in a cell: "D" | "S" | "R" | "L" | "W", or nil (air / outside)
@@ -1252,7 +1267,7 @@
  	local col = blocks[k]
  	if type(col) ~= "string" then
  		col = ""
-@@ -83,8 +187,10 @@
+@@ -83,8 +195,10 @@
  	end
  	col = string.sub(col, 1, level - 1) .. (if code and Cfg.Types[code] then code else "-") .. string.sub(col, level + 1)
  	blocks[k] = BlockMath.CleanColumn(col)
@@ -1263,7 +1278,7 @@
  -- height of a column: the level of its highest SOLID block (0 = none) and that block
  function BlockMath.Top(blocks, cx, cz)
  	local col = blocks and blocks[key(cx, cz)]
-@@ -114,7 +220,30 @@
+@@ -114,7 +228,30 @@
  	if level > 0 and Cfg.IsHalf(code) then
  		return level - 0.5, level, code
  	end
@@ -1295,7 +1310,7 @@
  end
  
  function BlockMath.TopY(blocks, cx, cz)
-@@ -133,7 +262,12 @@
+@@ -133,7 +270,12 @@
  -- is there any block (water too) in this column?
  function BlockMath.HasAny(blocks, cx, cz)
  	local col = blocks and blocks[key(cx, cz)]
@@ -1309,7 +1324,7 @@
  end
  
  function BlockMath.Count(blocks)
-@@ -147,6 +281,20 @@
+@@ -147,6 +289,20 @@
  			end
  		end
  	end
@@ -1330,7 +1345,7 @@
  	return c
  end
  
-@@ -173,36 +321,99 @@
+@@ -173,36 +329,99 @@
  			end
  		end
  	end
@@ -1435,7 +1450,19 @@
  	return blocks
  end
  
-@@ -250,16 +461,16 @@
+@@ -240,9 +459,9 @@
+ 	return cx0, cx1, cz0, cz1
+ end
+ 
+--- the level a thing stands on (0 = the floor): the highest column under it
++-- the level a thing stands on when nobody chose one (0 = the floor): the highest column under it
+ -- (v2.41: a column that ends with a slab is half a level lower — 1.5, 2.5 …)
+-function BlockMath.BaseLevel(record, blocks, plotSize, cellSize)
++function BlockMath.AutoLevel(record, blocks, plotSize, cellSize)
+ 	if type(blocks) ~= "table" or next(blocks) == nil then
+ 		return 0
+ 	end
+@@ -250,16 +469,97 @@
  	if not cx0 then
  		return 0
  	end
@@ -1452,10 +1479,91 @@
  	end
 -	return best
 +	return best or 0
++end
++
++-- v2.52: a level chosen by the player: a number on the half-level grid inside the garden's
++-- column (-Below … MaxLevels), else nil
++function BlockMath.CleanLv(v)
++	if type(v) ~= "number" or v ~= v or v == math.huge or v == -math.huge then
++		return nil
++	end
++	return math.clamp(math.floor(v * 2 + 0.5) / 2, -Cfg.Below, Cfg.MaxLevels)
++end
++
++-- the level a thing stands at: the one stored on it (record.Lv), else where it always stood
++function BlockMath.BaseLevel(record, blocks, plotSize, cellSize)
++	local lv = if type(record) == "table" then BlockMath.CleanLv(record.Lv) else nil
++	if lv ~= nil then
++		return lv
++	end
++	return BlockMath.AutoLevel(record, blocks, plotSize, cellSize)
++end
++
++-- v2.52: is the slot a thing stands IN (right above its support level `lv`) free of solid blocks
++-- in these cells? (on a slab — a half level — the slab itself is what it stands on)
++function BlockMath.FootFree(blocks, cx0, cx1, cz0, cz1, lv)
++	local slot = math.floor(lv) + 1
++	if slot > Cfg.MaxLevels or slot < Cfg.MinLevel then
++		return true
++	end
++	local onSlab = lv % 1 ~= 0
++	for cx = cx0, cx1 do
++		for cz = cz0, cz1 do
++			local code = BlockMath.Get(blocks, cx, cz, slot)
++			if Cfg.IsSolid(code) and not (onSlab and Cfg.IsHalf(code)) then
++				return false
++			end
++		end
++	end
++	return true
++end
++
++-- v2.52: may `record` stand at level `lv`? (its body must not be embedded in a block; a cosmetic
++-- is a small free thing: only the cell under its centre counts) -> ok, reason
++function BlockMath.BodyCheck(record, blocks, plotSize, cellSize, lv)
++	cellSize = cellSize or 5
++	local cx0, cx1, cz0, cz1
++	if PlotMath.IsCosmetic(record) then
++		local cx, cz = PlotMath.CellOf(record.X or 0, record.Z or 0, plotSize, cellSize)
++		if cx then
++			cx0, cx1, cz0, cz1 = cx, cx, cz, cz
++		end
++	else
++		cx0, cx1, cz0, cz1 = BlockMath.CellsOf(record, plotSize, cellSize)
++	end
++	if not cx0 then
++		return true
++	end
++	if not BlockMath.FootFree(blocks, cx0, cx1, cz0, cz1, lv) then
++		return false, "Inside a block — pick another height"
++	end
++	return true
++end
++
++-- v2.52: the standing level a ray hit means. y = studs above the garden floor where it hit,
++-- ny = the surface normal's Y: the TOP of a block (or slab) = stand on it; the SIDE of a block =
++-- stand in the air cell in front of it (the foot of that wall's slot); the UNDERSIDE of a roof =
++-- the floor of the cell under it
++function BlockMath.AimLevel(y, ny)
++	local H = Cfg.Height
++	local lv
++	if ny > 0.5 then
++		lv = math.floor(y / (H / 2) + 0.5) / 2
++	elseif ny < -0.5 then
++		lv = math.floor(y / H + 0.5) - 1
++	else
++		lv = math.floor(y / H + 0.001)
++	end
++	return math.clamp(lv, -Cfg.Below, Cfg.MaxLevels)
++end
++
++-- studs above the garden floor of a level
++function BlockMath.LevelY(lv)
++	return (tonumber(lv) or 0) * Cfg.Height
  end
  
  -- studs above the garden floor
-@@ -313,16 +524,16 @@
+@@ -313,181 +613,89 @@
  	if not cx0 then
  		return 0
  	end
@@ -1474,32 +1582,196 @@
 +	return best or 0
  end
  
- function BlockMath.SpotY(blocks, x, z, radius, plotSize, cellSize)
-@@ -434,6 +645,9 @@
- 	if not isTree then
- 		return true -- (a cosmetic stands on any flat top — a top of slabs too)
- 	end
-+	if h0 < 0 then
-+		return false, "Can't stand over a hole — fill it in first" -- v2.50: a dug pit
+-function BlockMath.SpotY(blocks, x, z, radius, plotSize, cellSize)
++function BlockMath.SpotY(blocks, x, z, radius, plotSize, cellSize, lv)
++	local own = BlockMath.CleanLv(lv) -- (v2.52: the level it was put at)
++	if own ~= nil then
++		return own * Cfg.Height
 +	end
- 	local def = TreeTypes.Get(record.TreeType)
- 	local want = def and def.Ground
- 	full = full or WaterFlow.FullSet(blocks, n)
-@@ -441,6 +655,13 @@
- 	for cx = cx0, cx1 do
- 		for cz = cz0, cz1 do
- 			local _, top = BlockMath.Top(blocks, cx, cz)
-+			if top == nil then
-+				-- (v2.50: a block put into the slot under the floor is the ground too)
-+				local c0 = BlockMath.Get(blocks, cx, cz, 0)
-+				if c0 ~= nil and c0 ~= "D" then
-+					top = c0
-+				end
-+			end
- 			-- v2.41: a tree (a water plant too) needs a FULL block under it — half a block
- 			-- of earth is too thin for roots
- 			if Cfg.IsHalf(top) then
-@@ -483,11 +704,19 @@
+ 	return BlockMath.SpotLevel(blocks, x, z, radius, plotSize, cellSize) * Cfg.Height
+ end
+ 
+-function BlockMath.SpotCheck(blocks, x, z, radius, plotSize, cellSize, water)
++-- v2.52: lv = the level chosen for it (nil = on top of the highest column, as before). Only
++-- "not inside a block" is asked: any block, any height, in the pit, under a roof, in water
++function BlockMath.SpotCheck(blocks, x, z, radius, plotSize, cellSize, _water, lv)
+ 	cellSize = cellSize or 5
+-	local cx0, cx1, cz0, cz1 = BlockMath.SpotCells(x, z, radius, plotSize, cellSize)
++	local cx0 = BlockMath.SpotCells(x, z, radius, plotSize, cellSize)
+ 	if not cx0 then
+ 		return false, "Put it inside your garden", 0
+ 	end
+-	if type(blocks) ~= "table" or next(blocks) == nil then
+-		return true, nil, 0
++	local want = BlockMath.CleanLv(lv)
++	if want == nil then
++		return true, nil, BlockMath.SpotLevel(blocks, x, z, radius, plotSize, cellSize)
+ 	end
+-	-- (v2.41: h0 = the height in levels — x.5 on a slab; l0 = the slot of the top block)
+-	local h0, l0 = BlockMath.TopH(blocks, cx0, cz0)
+-	for cx = cx0, cx1 do
+-		for cz = cz0, cz1 do
+-			if BlockMath.TopH(blocks, cx, cz) ~= h0 then
+-				return false, "Needs a flat spot (blocks of the same height)", h0
+-			end
+-		end
+-	end
+-	local n = PlotMath.GridN(plotSize, cellSize)
+-	local above = l0 + 1
+-	if above <= Cfg.MaxLevels then
+-		if type(water) ~= "table" or type(water.Amt) ~= "table" then
+-			local ok, w = pcall(WaterFlow.Compute, blocks, n)
+-			water = if ok and type(w) == "table" and type(w.Amt) == "table" then w else nil
+-		end
+-		for cx = cx0, cx1 do
+-			for cz = cz0, cz1 do
+-				-- (water standing or running over the spot — or a source right there)
+-				if (water and water.Amt[WaterFlow.Index(n, cx, cz, above)]) or BlockMath.Get(blocks, cx, cz, above) == "W" then
+-					return false, "Not in water — put it on dry ground or on a block", h0
+-				end
+-			end
+-		end
++	local cx, cz = PlotMath.CellOf(x, z, plotSize, cellSize)
++	if cx and not BlockMath.FootFree(blocks or {}, cx, cx, cz, cz, want) then
++		return false, "Inside a block — pick another height", want
+ 	end
+-	return true, nil, h0
++	return true, nil, want
+ end
+ 
+-function BlockMath.SpotChangeOk(blocks, x, z, radius, cx, cz, level, code, plotSize, cellSize)
+-	cellSize = cellSize or 5
+-	blocks = blocks or {}
+-	local a, b, c, d = BlockMath.SpotCells(x, z, radius, plotSize, cellSize)
+-	if not a or cx < a or cx > b or cz < c or cz > d then
+-		return true -- (the change is not under it)
+-	end
+-	local okBefore, _, before = BlockMath.SpotCheck(blocks, x, z, radius, plotSize, cellSize)
+-	if not okBefore then
+-		return true -- (it stands wrongly already: nothing to protect — it is put on top again)
+-	end
+-	local after = table.clone(blocks)
+-	BlockMath.Set(after, cx, cz, level, BlockMath.Result(blocks, cx, cz, level, code)) -- (v2.41: slab + slab = a block)
+-	local okAfter, _, now = BlockMath.SpotCheck(after, x, z, radius, plotSize, cellSize)
+-	return okAfter and now == before
++-- would placing (code) / breaking (nil) that block leave the thing standing where it is?
++-- Breaking never matters; a block may not appear in the slot it stands in.
++function BlockMath.SpotChangeOk(blocks, x, z, radius, cx, cz, level, code, plotSize, cellSize, lv)
++	if code == nil then
++		return true
++	end
++	local nx, nz = PlotMath.CellOf(x, z, plotSize, cellSize or 5)
++	if nx ~= cx or nz ~= cz then
++		return true
++	end
++	local at = BlockMath.CleanLv(lv)
++	if at == nil then
++		at = BlockMath.SpotLevel(blocks, x, z, radius, plotSize, cellSize)
++	end
++	return math.floor(at) + 1 ~= level
+ end
+ 
+ --[[
+ 	May `record` stand where it is, on these blocks? -> ok, reason
+ 	full (optional) = WaterFlow.FullSet(blocks, n), when the caller has it already.
+ ]]
+-function BlockMath.GroundCheck(record, blocks, plotSize, cellSize, full)
++function BlockMath.GroundCheck(record, blocks, plotSize, cellSize, _full)
+ 	blocks = blocks or {}
+-	if next(blocks) == nil then
+-		-- no blocks at all: the bare floor
+-		local def0 = if record.Type == "Tree" then TreeTypes.Get(record.TreeType) else nil
+-		if def0 and def0.Ground == "Sand" then
+-			return false, "Grows only on SAND"
+-		elseif def0 and def0.Ground == "Water" then
+-			return false, "Grows only on WATER"
+-		elseif def0 and def0.NearWater then
+-			return false, "Has to stand next to WATER"
+-		end
+-		return true
+-	end
+ 	cellSize = cellSize or 5
+-	local cx0, cx1, cz0, cz1 = BlockMath.CellsOf(record, plotSize, cellSize)
+-	if not cx0 then
+-		return true
+-	end
+-	local n = PlotMath.GridN(plotSize, cellSize)
+-	local isTree = record.Type == "Tree"
+-	local cosmetic = PlotMath.IsCosmetic(record)
+-	-- buildings and Collection Zones: only on cells without blocks
+-	if not isTree and not cosmetic then
+-		for cx = cx0, cx1 do
+-			for cz = cz0, cz1 do
+-				if BlockMath.HasAny(blocks, cx, cz) then
+-					return false, "Can't stand on blocks — only on the bare ground"
+-				end
+-			end
+-		end
+-		return true
+-	end
+-	-- a flat spot: every cell under it has the same height
+-	-- (v2.41: the height in levels — x.5 when a slab is on top; l0 = the slot of the top block)
+-	local h0, l0, top0 = BlockMath.TopH(blocks, cx0, cz0)
+-	for cx = cx0, cx1 do
+-		for cz = cz0, cz1 do
+-			local h = BlockMath.TopH(blocks, cx, cz)
+-			if h ~= h0 then
+-				return false, "Needs a flat spot (blocks of the same height)"
+-			end
+-		end
+-	end
+-	if not isTree then
+-		return true -- (a cosmetic stands on any flat top — a top of slabs too)
+-	end
+-	local def = TreeTypes.Get(record.TreeType)
+-	local want = def and def.Ground
+-	full = full or WaterFlow.FullSet(blocks, n)
+-	local above = l0 + 1
+-	for cx = cx0, cx1 do
+-		for cz = cz0, cz1 do
+-			local _, top = BlockMath.Top(blocks, cx, cz)
+-			-- v2.41: a tree (a water plant too) needs a FULL block under it — half a block
+-			-- of earth is too thin for roots
+-			if Cfg.IsHalf(top) then
+-				return false, "Trees need a full block — not a slab"
+-			end
+-			local wet = above <= Cfg.MaxLevels and full[WaterFlow.Index(n, cx, cz, above)] == true
+-			if want == "Water" then
+-				if not wet then
+-					return false, "Grows only on WATER"
+-				end
+-			else
+-				if want == "Sand" then
+-					if top ~= "S" then
+-						return false, "Grows only on SAND"
+-					end
+-				elseif top ~= nil and top ~= "D" then
+-					return false, if top == "S" then "Can't grow on sand" else "Grows on earth, not on stone or wood"
+-				end
+-				if wet then
+-					return false, "Can't grow in water"
+-				end
+-			end
+-		end
+-	end
+-	_ = top0
+-	if def and def.NearWater then
+-		for cx = math.max(cx0 - 1, 0), math.min(cx1 + 1, n - 1) do
+-			for cz = math.max(cz0 - 1, 0), math.min(cz1 + 1, n - 1) do
+-				for level = 1, Cfg.MaxLevels do
+-					if full[WaterFlow.Index(n, cx, cz, level)] then
+-						return true
+-					end
+-				end
+-			end
+-		end
+-		return false, "Has to stand next to WATER"
+-	end
+-	return true
++	-- v2.52: no flat-spot / bare-ground / earth / sand / water rules any more: a thing may stand
++	-- anywhere, only not embedded in a block
++	return BlockMath.BodyCheck(record, blocks, plotSize, cellSize, BlockMath.BaseLevel(record, blocks, plotSize, cellSize))
+ end
  
  ---------------------------------------------------------------- placing / breaking a block
  -- does a block in this cell touch the floor or a solid block (below or beside)?
@@ -1522,7 +1794,7 @@
  		return true
  	end
  	for _, d in { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } } do
-@@ -499,7 +728,7 @@
+@@ -499,7 +707,7 @@
  	return false
  end
  
@@ -1531,7 +1803,7 @@
  function BlockMath.IsEntrance(cx, cz, plotSize, cellSize)
  	cellSize = cellSize or 5
  	local n = PlotMath.GridN(plotSize, cellSize)
-@@ -530,14 +759,24 @@
+@@ -530,14 +738,24 @@
  	if cx < 0 or cz < 0 or cx >= n or cz >= n then
  		return false, "Outside your yard"
  	end
@@ -1558,7 +1830,7 @@
  	if code ~= nil then
  		if not Cfg.Types[code] then
  			return false, "Unknown block"
-@@ -552,16 +791,13 @@
+@@ -552,43 +770,27 @@
  				return false, "There is a block here already"
  			end
  		end
@@ -1577,15 +1849,154 @@
  		end
  	elseif not cur then
  		return false, "No block here"
-@@ -571,7 +807,7 @@
  	end
- 	-- the garden after the change (only this column differs)
- 	local after = table.clone(blocks)
+-	if objects == nil or next(objects) == nil then
+-		return true, nil, put
+-	end
+-	-- the garden after the change (only this column differs)
+-	local after = table.clone(blocks)
 -	BlockMath.Set(after, cx, cz, level, put)
-+	BlockMath.Set(after, cx, cz, level, put, 1) -- (the variant doesn't matter here)
- 	local fullBefore, fullAfter
- 	for _, rec in objects do
- 		if type(rec) == "table" then
+-	local fullBefore, fullAfter
+-	for _, rec in objects do
+-		if type(rec) == "table" then
+-			local a, b, c, d = BlockMath.CellsOf(rec, plotSize, cellSize)
+-			local here = a ~= nil and cx >= a and cx <= b and cz >= c and cz <= d
+-			if here or rec.Type == "Tree" then
+-				fullBefore = fullBefore or WaterFlow.FullSet(blocks, n)
+-				local okBefore = BlockMath.GroundCheck(rec, blocks, plotSize, cellSize, fullBefore)
+-				if okBefore then
+-					fullAfter = fullAfter or WaterFlow.FullSet(after, n)
+-					local okAfter, why = BlockMath.GroundCheck(rec, after, plotSize, cellSize, fullAfter)
+-					local moved = here and BlockMath.BaseLevel(rec, blocks, plotSize, cellSize) ~= BlockMath.BaseLevel(rec, after, plotSize, cellSize)
+-					if not okAfter or moved then
+-						if here then
+-							return false, if code ~= nil then "Something stands here — move it first" else "Something stands on this block — move it first"
+-						end
+-						return false, "A tree needs it: " .. tostring(why or "it would stop growing")
++	-- v2.52: things keep the height they stand at (they may float when what held them is broken,
++	-- blocks may go above / below / around them). Only a block that would appear INSIDE a thing
++	-- (the slot its foot is in) is refused — cosmetics are small and free: they never block.
++	if code ~= nil and objects ~= nil then
++		for _, rec in objects do
++			if type(rec) == "table" and not PlotMath.IsCosmetic(rec) then
++				local a, b, c, d = BlockMath.CellsOf(rec, plotSize, cellSize)
++				if a ~= nil and cx >= a and cx <= b and cz >= c and cz <= d then
++					if math.floor((BlockMath.BaseLevel(rec, blocks, plotSize, cellSize) :: any)) + 1 == level then
++						return false, "Something stands here — move it first"
+ 					end
+ 				end
+ 			end
+@@ -612,4 +814,110 @@
+ 	return blocks
+ end
+ 
++--[[ v2.60 (island): a box (local half sizes hx, hz) MINUS a convex polygon (the garden's footprint, local x/z points),
++	as rows of rectangles that may reach INTO the polygon by up to one strip (never a gap). A part of the
++	island is axis-aligned, the garden is turned (diagonal islands): the part is cut in strips of `step` studs.
++	Returns touched, rects = { { x0, x1, z0, z1 } }.  touched = false: the polygon does not reach the box. ]]
++function BlockMath.RingRects(hx, hz, poly, step)
++	local n = #poly
++	local pzmin, pzmax = math.huge, -math.huge
++	for _, q in poly do
++		pzmin, pzmax = math.min(pzmin, q[2]), math.max(pzmax, q[2])
++	end
++	local function at(z)
++		z = math.clamp(z, pzmin + 1e-6, pzmax - 1e-6)
++		local lo, hi = math.huge, -math.huge
++		for i = 1, n do
++			local a, b = poly[i], poly[i % n + 1]
++			local z1, z2 = a[2], b[2]
++			if z1 ~= z2 and ((z1 <= z and z <= z2) or (z2 <= z and z <= z1)) then
++				local x = a[1] + (z - z1) * (b[1] - a[1]) / (z2 - z1)
++				lo, hi = math.min(lo, x), math.max(hi, x)
++			end
++		end
++		return lo, hi
++	end
++	local zs = { -hz }
++	local function add(z)
++		if z > zs[#zs] + 1e-4 and z < hz - 1e-4 then
++			table.insert(zs, z)
++		end
++	end
++	if pzmax < -hz or pzmin > hz then
++		return false, { { -hx, hx, -hz, hz } }
++	end
++	add(pzmin)
++	local z = pzmin + step
++	while z < math.min(pzmax, hz) do
++		add(z)
++		z += step
++	end
++	add(pzmax)
++	table.insert(zs, hz)
++	local touched = false
++	local rows = {} -- { z0, z1, segs = { {x0, x1} } }
++	for i = 1, #zs - 1 do
++		local a, b = zs[i], zs[i + 1]
++		local mid = (a + b) / 2
++		local segs
++		if mid < pzmin or mid > pzmax then
++			segs = { { -hx, hx } }
++		else
++			local lmin, lmax, rmin, rmax = math.huge, -math.huge, math.huge, -math.huge
++			local function sample(zz)
++				local lo, hi = at(zz)
++				lmin, lmax = math.min(lmin, lo), math.max(lmax, lo)
++				rmin, rmax = math.min(rmin, hi), math.max(rmax, hi)
++			end
++			sample(a)
++			sample(b)
++			for _, q in poly do
++				if q[2] > a and q[2] < b then
++					sample(q[2])
++				end
++			end
++			if rmax > -hx and lmin < hx then
++				touched = true
++			end
++			local left = if lmax > -hx + 0.05 then { -hx, math.min(lmax, hx) } else nil
++			local right = if rmin < hx - 0.05 then { math.max(rmin, -hx), hx } else nil
++			if left and right and left[2] >= right[1] then
++				segs = { { -hx, hx } }
++			else
++				segs = {}
++				if left then
++					table.insert(segs, left)
++				end
++				if right then
++					table.insert(segs, right)
++				end
++			end
++		end
++		local last = rows[#rows]
++		local same = last and #last.segs == #segs
++		if same then
++			for k, sg in segs do
++				if math.abs(sg[1] - last.segs[k][1]) > 0.02 or math.abs(sg[2] - last.segs[k][2]) > 0.02 then
++					same = false
++					break
++				end
++			end
++		end
++		if same then
++			last.z1 = b
++		else
++			table.insert(rows, { z0 = a, z1 = b, segs = segs })
++		end
++	end
++	local out = {}
++	for _, r in rows do
++		for _, sg in r.segs do
++			if sg[2] - sg[1] > 0.05 and r.z1 - r.z0 > 0.05 then
++				table.insert(out, { sg[1], sg[2], r.z0, r.z1 })
++			end
++		end
++	end
++	return touched, out
++end
++
+ return BlockMath
 --- a/BlockService.lua
 +++ b/BlockService.lua
 @@ -149,8 +149,20 @@
@@ -1706,7 +2117,7 @@
  				end
  			end
  		end
-@@ -202,23 +254,208 @@
+@@ -202,23 +254,222 @@
  	local y0 = (level - 1) * H
  	-- (v2.41: Recolor finds every green top — a block's and a slab's — by this one name)
  	local topName = BC.Types.D.Id .. "Top"
@@ -1782,9 +2193,32 @@
 +			p:Destroy()
 +		end
 +	end
++	local old = s.Layers[level] or {}
 +	local ok, err = pcall(rebuildLayerRaw, plot, s, blocks, n, level)
 +	local left = pool
 +	pool = nil
++	if not ok then
++		-- (v2.53 dig) a rebuild that throws must NEVER leave the layer without its bricks (before:
++		-- the old ones were destroyed with the pool and the half-made new ones stayed — blocks that
++		-- are gone for everybody, nothing to stand on): the layer stays as it was, the new bricks go
++		local was = {}
++		for _, p in old do
++			was[p] = true
++		end
++		for _, p in s.Layers[level] or {} do
++			if not was[p] then
++				p:Destroy()
++			end
++		end
++		local keep = {}
++		for _, p in old do
++			if p.Parent then
++				table.insert(keep, p)
++			end
++		end
++		s.Layers[level] = keep
++		error(err, 0)
++	end
 +	for _, list in left do
 +		for _, p in list do
 +			p:Destroy()
@@ -1820,6 +2254,14 @@
 +			p.Transparency, p.CanCollide, p.CanQuery = o.T, o.C, o.Q
 +			p.Size = o.Size
 +			p.CFrame = o.CF
++			if p:GetAttribute("LRCarved") then
++				local want = p:GetAttribute("LRWantT")
++				if type(want) == "number" then
++					p.Transparency = want
++				end
++				p:SetAttribute("LRCarved", nil)
++				p:SetAttribute("LRWantT", nil)
++			end
 +		end
 +	end
 +	s.Carved = nil
@@ -1829,25 +2271,30 @@
 +	s.Fill = nil
 +	s.FillSrc = nil
 +	s.CarveSize = nil
++	s.CarveKey = nil
 +end
 +
-+local CARVE_OFF = 30 -- cells beyond the garden the ring may reach
-+
-+local function carve(plot, s, size)
++local function carve(plot, s, size, deep)
 +	uncarve(s)
 +	local model = islandModel(plot)
 +	if not model then
 +		return
 +	end
-+	local cell, H = cellSize(), BC.Height
-+	local n = ctx.PlotMath.GridN(size, cell)
++	-- v2.60: the island is axis-aligned, the garden is TURNED on diagonal islands: every part that the yard's footprint
++	-- touches is cut EXACTLY (in strips, BlockMath.RingRects) — the rest of it stays as clones of the part with its
++	-- own colour / size / height, so the rim of the island keeps its voxel outline. The island grass under the yard
++	-- is always taken away (it lay 0.04 under the yard's floor = z-fighting), the deep layers only for a pit.
++	local H = BC.Height
 +	local half = size / 2
-+	local W = n + 2 * CARVE_OFF
-+	local bottom = -(BC.Below * H + 1) -- plot-local y of the underside of the pit's bed
-+	local plotCF = plot.CFrame
++	local bottom = if deep then -(BC.Below * H + 1) else -3 -- plot-local y of the underside of the cut
++	local plotCF = ctx.PlotSystem.PlotCFrame and ctx.PlotSystem.PlotCFrame(plot.Index, size) or plot.CFrame
++	local cutY = plotCF.Position.Y + bottom
 +	local folder = folderOf(plot)
 +	s.Carved, s.Fill, s.FillSrc = {}, {}, {}
-+	local fills = {} -- [key] = { Set, Part, Top, Bot }
++	local corners = {}
++	for _, c in { { -1, -1 }, { 1, -1 }, { 1, 1 }, { -1, 1 } } do
++		table.insert(corners, plotCF:PointToWorldSpace(Vector3.new(c[1] * half, 0, c[2] * half)))
++	end
 +	for _, p in model:GetDescendants() do
 +		if p:IsA("BasePart") then
 +			local top = p
@@ -1855,76 +2302,65 @@
 +				top = top.Parent
 +			end
 +			local group = top.Name
-+			if group == "Grass" or group == "Underside" or group == "Details" then
++			if group == "Grass" or (deep and group == "Underside") or group == "Details" then
 +				local cf, sz = p.CFrame, p.Size
-+				local minX, maxX, minY, maxY, minZ, maxZ = math.huge, -math.huge, math.huge, -math.huge, math.huge, -math.huge
-+				for ix = -1, 1, 2 do
-+					for iy = -1, 1, 2 do
-+						for iz = -1, 1, 2 do
-+							local lp = plotCF:PointToObjectSpace(cf * Vector3.new(ix * sz.X / 2, iy * sz.Y / 2, iz * sz.Z / 2))
-+							minX, maxX = math.min(minX, lp.X), math.max(maxX, lp.X)
-+							minY, maxY = math.min(minY, lp.Y), math.max(maxY, lp.Y)
-+							minZ, maxZ = math.min(minZ, lp.Z), math.max(maxZ, lp.Z)
-+						end
-+					end
-+				end
-+				if maxX > -half and minX < half and maxZ > -half and minZ < half and maxY > bottom and minY < 0.5 then
-+					table.insert(s.Carved, { Part = p, T = p.Transparency, C = p.CanCollide, Q = p.CanQuery, Size = sz, CF = cf })
-+					local keepBelow = minY < bottom and group ~= "Details" and math.abs(cf.UpVector.Y) > 0.99
-+					if keepBelow then
-+						-- (a layer that reaches deeper than the pit: only the part under the bed stays)
-+						local worldMin = cf.Position.Y - sz.Y / 2
-+						local cutY = plotCF.Position.Y + bottom
-+						local newH = cutY - worldMin
-+						p.Size = Vector3.new(sz.X, newH, sz.Z)
-+						p.CFrame = CFrame.new(cf.Position.X, worldMin + newH / 2, cf.Position.Z) * cf.Rotation
-+					else
++				if group == "Details" then
++					-- (a flower / tuft: gone when it stands inside the yard)
++					local lp = plotCF:PointToObjectSpace(cf.Position)
++					if math.abs(lp.X) < half + 0.5 and math.abs(lp.Z) < half + 0.5 and lp.Y > bottom then
++						table.insert(s.Carved, { Part = p, T = p.Transparency, C = p.CanCollide, Q = p.CanQuery, Size = sz, CF = cf })
++						p:SetAttribute("LRCarved", true)
 +						p.Transparency, p.CanCollide, p.CanQuery = 1, false, false
 +					end
-+					if group ~= "Details" then
-+						-- the ring: plot-aligned cells outside the garden that this part covered
-+						local yTop, yBot = math.min(maxY, 0), math.max(minY, bottom)
-+						local k = string.format("%.2f|%.2f|%s|%d", yTop, yBot, p.Color:ToHex(), p.Material.Value)
-+						local f = fills[k]
-+						if not f then
-+							f = { Set = {}, Part = p, Top = yTop, Bot = yBot }
-+							fills[k] = f
++				else
++					local wy0, wy1 = cf.Position.Y - sz.Y / 2, cf.Position.Y + sz.Y / 2
++					local upright = cf.UpVector.Y > 0.99
++					local poly = {}
++					for _, w in corners do
++						local q = cf:PointToObjectSpace(w)
++						table.insert(poly, { q.X, q.Z })
++					end
++					local touched, rects = true, {}
++					if upright then
++						touched, rects = BM.RingRects(sz.X / 2, sz.Z / 2, poly, 1)
++					end
++					if touched and wy1 > cutY + 0.01 and wy0 < plotCF.Position.Y + 0.5 then
++						table.insert(s.Carved, { Part = p, T = p.Transparency, C = p.CanCollide, Q = p.CanQuery, Size = sz, CF = cf })
++						local ya, yb = math.max(wy0, cutY), wy1
++						for _, r in rects do
++							local b = p:Clone()
++							b.Name = "IslandFill"
++							b.Size = Vector3.new(r[2] - r[1], yb - ya, r[4] - r[3])
++							b.CFrame = cf * CFrame.new((r[1] + r[2]) / 2, (ya + yb) / 2 - cf.Position.Y, (r[3] + r[4]) / 2)
++							b.Parent = folder
++							s.Fill[b] = true
++							s.FillSrc[b] = p
 +						end
-+						local i0 = math.max(math.floor((minX + half) / cell), -CARVE_OFF)
-+						local i1 = math.min(math.floor((maxX + half) / cell), n - 1 + CARVE_OFF)
-+						local j0 = math.max(math.floor((minZ + half) / cell), -CARVE_OFF)
-+						local j1 = math.min(math.floor((maxZ + half) / cell), n - 1 + CARVE_OFF)
-+						local yMid = (yTop + yBot) / 2
-+						for j = j0, j1 do
-+							for i = i0, i1 do
-+								if i < 0 or i >= n or j < 0 or j >= n then
-+									local lx, lz = -half + (i + 0.5) * cell, -half + (j + 0.5) * cell
-+									local q = cf:PointToObjectSpace(plotCF * Vector3.new(lx, yMid, lz))
-+									if math.abs(q.X) <= sz.X / 2 + 3 and math.abs(q.Z) <= sz.Z / 2 + 3 then
-+										f.Set[(j + CARVE_OFF) * W + (i + CARVE_OFF)] = true
-+									end
-+								end
-+							end
++						if wy0 < cutY and upright then
++							-- (a layer that reaches deeper than the cut: only the part under it stays, whole)
++							local newH = cutY - wy0
++							p.Size = Vector3.new(sz.X, newH, sz.Z)
++							p.CFrame = CFrame.new(cf.Position.X, wy0 + newH / 2, cf.Position.Z) * cf.Rotation
++						else
++							p.Transparency, p.CanCollide, p.CanQuery = 1, false, false
 +						end
 +					end
 +				end
-+			end
-+		end
-+	end
-+	for _, f in fills do
-+		local h = f.Top - f.Bot
-+		if h > 0.05 then
-+			for _, r in rectangles(f.Set, W) do
-+				local w, d = r[3] * cell, r[4] * cell
-+				local x = -half + (r[1] - CARVE_OFF) * cell + w / 2
-+				local z = -half + (r[2] - CARVE_OFF) * cell + d / 2
-+				local b = brick(folder, "IslandFill", Vector3.new(w, h, d), plotCF * CFrame.new(x, f.Bot + h / 2, z), f.Part.Color, f.Part.Material)
-+				s.Fill[b] = true
-+				s.FillSrc[b] = f.Part
  			end
  		end
  	end
-@@ -238,6 +475,39 @@
+@@ -231,13 +482,48 @@
+ 		local model = plot.Objects[id]
+ 		if model then
+ 			local y = BM.BaseY(rec, data.Plot.Blocks, size, cellSize())
+-			if (model:GetAttribute("BaseY") or 0) ~= y then
++			-- (v2.52: things keep the height they were put at; only a water plant is looked at again:
++			-- it floats on water, or sits on the ground when the water is gone)
++			local lily = rec.Type == "Tree" and (ctx.TreeTypes.Get(rec.TreeType) or {}).Ground == "Water"
++			if (model:GetAttribute("BaseY") or 0) ~= y or lily then
+ 				ctx.PlotSystem.RepositionObject(plot, id, rec)
+ 			end
+ 		end
  	end
  end
  
@@ -1941,16 +2377,15 @@
 +	local blocks = data.Plot.Blocks
 +	local size = ctx.PlotMath.PlotSize(ctx.Config.Plot, data.Plot.Expansion)
 +	local pit = type(blocks.Pit) == "table" and next(blocks.Pit) ~= nil
-+	if pit then
-+		if s.CarveSize ~= size then
-+			local okC, errC = pcall(carve, plot, s, size)
-+			s.CarveSize = size
-+			if not okC then
-+				warn("[LeafRush] pit island: " .. tostring(errC))
-+			end
++	-- v2.60: the island under the yard is cut away ALWAYS (the grass layer lay 0.04 under the floor: z-fighting);
++	-- deep (all layers down to the bed) only while a pit exists
++	local key = tostring(size) .. (if pit then "|deep" else "|flat")
++	if s.CarveKey ~= key then
++		local okC, errC = pcall(carve, plot, s, size, pit)
++		s.CarveKey = key
++		if not okC then
++			warn("[LeafRush] pit island: " .. tostring(errC))
 +		end
-+	elseif s.Carved or s.Fill then
-+		pcall(uncarve, s)
 +	end
 +	local floor = plot.Floor
 +	if floor and floor.Parent and (pit or s.FloorHidden) and s.FloorHidden ~= pit then
@@ -1964,7 +2399,7 @@
  local function flush(plot)
  	local s = st(plot)
  	s.Scheduled = false
-@@ -249,7 +519,22 @@
+@@ -249,7 +535,22 @@
  	local blocks = if type(data.Plot.Blocks) == "table" then data.Plot.Blocks else {}
  	local size = ctx.PlotMath.PlotSize(ctx.Config.Plot, data.Plot.Expansion)
  	local n = ctx.PlotMath.GridN(size, cellSize())
@@ -1988,7 +2423,7 @@
  		if s.Dirty[level] then
  			s.Dirty[level] = nil
  			local ok, err = pcall(rebuildLayer, plot, s, blocks, n, level)
-@@ -258,8 +543,26 @@
+@@ -258,8 +559,26 @@
  			end
  		end
  	end
@@ -2003,7 +2438,7 @@
 +				pcall(applyPit, plot, s)
 +			end)
 +		end
-+	elseif pit or s.Carved or s.Fill or s.FloorHidden then
++	else
 +		pcall(applyPit, plot, s)
 +	end
 +	s.Built = true
@@ -2016,7 +2451,7 @@
  	pcall(resettle, plot, data, size)
  	-- v2.34: incubating eggs stand ON the blocks — put them on top again as well
  	if ctx.IncubatorService and ctx.IncubatorService.Resettle then
-@@ -281,8 +584,8 @@
+@@ -281,8 +600,8 @@
  	local s = st(plot)
  	s.Water = nil
  	s.Dirty[level] = true
@@ -2027,16 +2462,45 @@
  	end
  	if not s.Scheduled then
  		s.Scheduled = true
-@@ -374,7 +677,7 @@
+@@ -361,6 +680,26 @@
+ 	end
+ end
+ 
++-- v2.52: things made before heights were chosen (no Lv) stand where they always stood: their level
++-- is written down once, so they keep it whatever happens to the blocks around them
++local function freeze(data, size)
++	local blocks, cell = data.Plot.Blocks, cellSize()
++	for _, rec in data.Plot.Objects do
++		if type(rec) == "table" and BM.CleanLv(rec.Lv) == nil then
++			rec.Lv = BM.AutoLevel(rec, blocks, size, cell)
++		end
++	end
++	for _, set in { type(data.Eggs) == "table" and data.Eggs.Nests or false, type(data.Boxes) == "table" and data.Boxes.Nests or false } do
++		if type(set) == "table" then
++			for _, nest in set do
++				if type(nest) == "table" and type(nest.X) == "number" and type(nest.Z) == "number" and BM.CleanLv(nest.Lv) == nil then
++					nest.Lv = BM.SpotLevel(blocks, nest.X, nest.Z, 0, size, cell)
++				end
++			end
++		end
++	end
++end
++
+ -- the garden was loaded, grew or was reset: everything again, right now
+ function BlockService.Refresh(player)
+ 	local data, plot, size, n = garden(player)
+@@ -373,8 +712,9 @@
+ 		data._tilesToBlocks = nil
  		pcall(repair, data, size)
  	end
++	pcall(freeze, data, size)
  	local s = st(plot)
 -	for level = 1, BC.MaxLevels do
 +	for level = BC.MinLevel - 1, BC.MaxLevels do
  		s.Dirty[level] = true
  	end
  	local ok, err = pcall(flush, plot)
-@@ -393,6 +696,15 @@
+@@ -393,11 +733,21 @@
  		return
  	end
  	local green = plot.Floor.Color
@@ -2052,7 +2516,13 @@
  	local topName = BC.Types.D.Id .. "Top"
  	for _, parts in s.Layers do
  		for _, p in parts do
-@@ -408,6 +720,14 @@
+ 			if p.Name == topName and p.Parent then
+ 				p.Color = green
++				sigOf[p] = nil -- (v2.53: its signature still names the old colour: it must not be reused for that one)
+ 			end
+ 		end
+ 	end
+@@ -408,6 +758,14 @@
  	local s = state[plot.Index]
  	state[plot.Index] = nil
  	if s then
@@ -2067,7 +2537,135 @@
  		for _, parts in s.Layers do
  			for _, p in parts do
  				p:Destroy()
-@@ -648,11 +968,17 @@
+@@ -456,6 +814,77 @@
+ 	return BM.TopY(blocks, cx, cz) -- (v2.41: a slab on top = half a block lower)
+ end
+ 
++-- v2.52: the top (studs above the floor) of the highest solid block in the column of a plot-local
++-- point that is at or below `y` studs (a thing under a roof stands on the floor under it, not on the roof)
++function BlockService.TopYBelow(plot, x, z, y)
++	local blocks = blocksOfPlot(plot)
++	if not blocks or next(blocks) == nil then
++		return 0
++	end
++	local cx, cz = ctx.PlotMath.CellOf(x, z, plot.Size or 20, cellSize())
++	if not cx then
++		return 0
++	end
++	local H = BC.Height
++	for k = math.clamp(math.floor(y / H) + 1, BC.MinLevel, BC.MaxLevels), BC.MinLevel, -1 do
++		local code = BM.Get(blocks, cx, cz, k)
++		if BC.IsSolid(code) then
++			local top = (k - (if BC.IsHalf(code) then 0.5 else 0)) * H
++			if top <= y + 0.5 then
++				return top
++			end
++		end
++	end
++	return -BC.Below * H
++end
++
++-- v2.52: the underside (studs above the floor) of the lowest solid block ABOVE `y` studs in that
++-- column (a roof), or nil when the sky is free
++function BlockService.CeilY(plot, x, z, y)
++	local blocks = blocksOfPlot(plot)
++	if not blocks or next(blocks) == nil then
++		return nil
++	end
++	local cx, cz = ctx.PlotMath.CellOf(x, z, plot.Size or 20, cellSize())
++	if not cx then
++		return nil
++	end
++	local H = BC.Height
++	for k = math.max(math.floor(y / H + 1e-6) + 1, BC.MinLevel), BC.MaxLevels do
++		if BC.IsSolid(BM.Get(blocks, cx, cz, k)) and (k - 1) * H >= y - 0.01 then
++			return (k - 1) * H
++		end
++	end
++	return nil
++end
++
++-- v2.52: does water stand right on top of the spot of this (water plant) record?
++function BlockService.WetAt(plot, record)
++	local water = BlockService.Water(plot)
++	if not water or not water.Full then
++		return false
++	end
++	local size, cell = plot.Size or 20, cellSize()
++	local a, b, c, d = BM.CellsOf(record, size, cell)
++	if not a then
++		return false
++	end
++	local blocks = blocksOfPlot(plot)
++	local slot = math.floor(BM.BaseLevel(record, blocks, size, cell)) + 1
++	if slot < 1 or slot > BC.MaxLevels then
++		return false
++	end
++	local n = water.N
++	for cx = a, b do
++		for cz = c, d do
++			if water.Full[WF.Index(n, cx, cz, slot)] then
++				return true
++			end
++		end
++	end
++	return false
++end
++
+ -- the water of a garden right now (WaterFlow.Compute; nil = none)
+ function BlockService.Water(plot)
+ 	local blocks = blocksOfPlot(plot)
+@@ -533,7 +962,11 @@
+ 	  SpotCheck(player, x, z, radius)  may it be put there? -> ok, reason, y
+ 	                                   (a flat top or the bare floor, not in water)
+ ]]
+-function BlockService.SpotY(plot, x, z, radius)
++function BlockService.SpotY(plot, x, z, radius, lv)
++	local own = BM.CleanLv(lv) -- (v2.52: the level it was put at)
++	if own ~= nil then
++		return own * BC.Height
++	end
+ 	local blocks = blocksOfPlot(plot)
+ 	if not blocks or next(blocks) == nil then
+ 		return 0
+@@ -541,14 +974,15 @@
+ 	return BM.SpotY(blocks, x, z, radius or BM.NestRadius, plot.Size or 20, cellSize())
+ end
+ 
+-function BlockService.SpotCheck(player, x, z, radius)
++function BlockService.SpotCheck(player, x, z, radius, lv)
+ 	local data, plot, size = garden(player)
+ 	if not data then
+ 		return false, "Your yard isn't ready", 0
+ 	end
+ 	-- (v2.41: `level` is the height in levels — 1.5 on a block with a slab on it)
+-	local ok, why, level = BM.SpotCheck(data.Plot.Blocks, x, z, radius or BM.NestRadius, size, cellSize(), BlockService.Water(plot))
+-	return ok, why, (level or 0) * BC.Height
++	local ok, why, level = BM.SpotCheck(data.Plot.Blocks, x, z, radius or BM.NestRadius, size, cellSize(), nil, lv)
++	_ = plot
++	return ok, why, (level or 0) * BC.Height, level or 0 -- (v2.52: + the level itself)
+ end
+ 
+ -- are there blocks in the cell of this plot-local point?
+@@ -588,7 +1022,7 @@
+ 	end
+ 	for _, nest in nests do
+ 		if type(nest) == "table" and type(nest.X) == "number" and type(nest.Z) == "number" then
+-			local ok, keep = pcall(BM.SpotChangeOk, data.Plot.Blocks, nest.X, nest.Z, BM.NestRadius, cx, cz, level, code, size, cellSize())
++			local ok, keep = pcall(BM.SpotChangeOk, data.Plot.Blocks, nest.X, nest.Z, BM.NestRadius, cx, cz, level, code, size, cellSize(), nest.Lv)
+ 			if ok and keep == false then
+ 				return false
+ 			end
+@@ -620,7 +1054,7 @@
+ 	end
+ 	for _, nest in boxNests(data) or {} do
+ 		if type(nest) == "table" and type(nest.X) == "number" and type(nest.Z) == "number" then
+-			local ok, keep = pcall(BM.SpotChangeOk, data.Plot.Blocks, nest.X, nest.Z, BM.NestRadius, cx, cz, level, code, size, cellSize())
++			local ok, keep = pcall(BM.SpotChangeOk, data.Plot.Blocks, nest.X, nest.Z, BM.NestRadius, cx, cz, level, code, size, cellSize(), nest.Lv)
+ 			if ok and keep == false then
+ 				return false
+ 			end
+@@ -648,11 +1082,17 @@
  	return false
  end
  
@@ -2086,7 +2684,7 @@
  	if type(cx) ~= "number" or type(cz) ~= "number" or type(level) ~= "number" or type(code) ~= "string" then
  		return false, "Invalid cell"
  	end
-@@ -660,6 +986,11 @@
+@@ -660,6 +1100,11 @@
  	if not def then
  		return false, "Unknown block"
  	end
@@ -2098,7 +2696,20 @@
  	if ctx.BuildService and ctx.BuildService.InYard and ctx.BuildService.InYard(player, plot) == false then
  		return false, "Go to your garden to build"
  	end
-@@ -699,7 +1030,12 @@
+@@ -680,10 +1125,10 @@
+ 	local merged = put ~= code
+ 	-- v2.34: eggs stand ON blocks now — a block may not appear in / over an egg, or
+ 	-- change the height of the spot it stands on
+-	if nestIn(data, cx, cz, size) or not nestsKeep(data, cx, cz, level, code, size) then
++	if not nestsKeep(data, cx, cz, level, code, size) then
+ 		return false, "An egg is incubating here"
+ 	end
+-	if boxIn(data, cx, cz, size) or not boxesKeep(data, cx, cz, level, code, size) then
++	if not boxesKeep(data, cx, cz, level, code, size) then
+ 		return false, "A cosmetic box is unpacking here" -- v2.34
+ 	end
+ 	if def.Solid then
+@@ -699,7 +1144,12 @@
  			return false, "Somebody is standing there"
  		end
  	end
@@ -2112,7 +2723,19 @@
  	if put == "S" and not data.Plot.HadSand then
  		data.Plot.HadSand = true -- (the Cactus is sold from now on)
  		if ctx.BuildService and ctx.BuildService.PublishSlots then
-@@ -714,15 +1050,22 @@
+@@ -710,19 +1160,34 @@
+ 		data.Grass.Cells[BM.Key(cx, cz)] = nil -- (no grass under blocks)
+ 	end
+ 	touch(plot, level)
++	do
++		local hs = hits[player]
++		if not hs then
++			hs = { N = 0, T = 0, Last = -1e9, Warned = -1e9 }
++			hits[player] = hs
++		end
++		hs.Act = os.clock() -- (v2.53: the pit guard knows you are busy)
++	end
+ 	return true, def.Icon .. " " .. def.Display
  end
  
  ---------------------------------------------------------------- break (the pickaxe)
@@ -2137,7 +2760,7 @@
  -- v2.38: the pickaxe of this save — its tier (ToolConfig.PickaxeTiers: Reach, HitEvery,
  -- Smash …) and how many blocks it can still break before it is broken
  local FALLBACK_PICK = { Index = 1, HitEvery = 0.34, Reach = 14, Durability = math.huge, Smash = 90 }
-@@ -766,7 +1109,7 @@
+@@ -766,7 +1231,7 @@
  	if type(cx) ~= "number" or type(cz) ~= "number" or type(level) ~= "number" then
  		return
  	end
@@ -2146,7 +2769,7 @@
  		return
  	end
  	if not (data.Tools and data.Tools.Owned and data.Tools.Owned.Pickaxe) then
-@@ -786,6 +1129,7 @@
+@@ -786,6 +1251,7 @@
  	if not def then
  		return
  	end
@@ -2154,7 +2777,7 @@
  	-- reach: from you to the nearest point of the block
  	local cell, H = cellSize(), BC.Height
  	local x, z = ctx.PlotMath.CellCenter(cx, cz, size, cell)
-@@ -825,13 +1169,13 @@
+@@ -825,13 +1291,13 @@
  	s.N += 1
  	local need = pickHits(pick, code, def)
  	if s.N < need then
@@ -2170,7 +2793,7 @@
  		if now - s.Warned > 1.5 then
  			s.Warned = now
  			notify(player, "⛏ " .. tostring(why or "This block can't be broken"))
-@@ -840,7 +1184,7 @@
+@@ -840,7 +1306,7 @@
  	end
  	-- v2.34: a block an incubating egg stands on can't be broken (like under a tree)
  	if not nestsKeep(data, cx, cz, level, nil, size) then
@@ -2179,7 +2802,7 @@
  		if now - s.Warned > 1.5 then
  			s.Warned = now
  			notify(player, "⛏ An egg stands on this block — open it first")
-@@ -849,7 +1193,7 @@
+@@ -849,7 +1315,7 @@
  	end
  	-- v2.34: …and a block a cosmetic box stands on
  	if not boxesKeep(data, cx, cz, level, nil, size) then
@@ -2188,7 +2811,7 @@
  		if now - s.Warned > 1.5 then
  			s.Warned = now
  			notify(player, "⛏ A cosmetic box stands on this block — open it first")
-@@ -857,8 +1201,9 @@
+@@ -857,8 +1323,9 @@
  		return
  	end
  	BM.Set(blocks, cx, cz, level, nil)
@@ -2199,7 +2822,7 @@
  	-- v2.38: every block broken wears the pickaxe (water is only scooped up: free)
  	-- (v2.41: a slab wears it like a block — 1 — it only takes fewer swings)
  	if code ~= "W" and ctx.ToolService and ctx.ToolService.PickWear then
-@@ -888,7 +1233,7 @@
+@@ -888,7 +1355,7 @@
  	if type(cx) ~= "number" or type(cz) ~= "number" or type(level) ~= "number" then
  		return
  	end
@@ -2208,7 +2831,7 @@
  		return
  	end
  	if not (data.Tools and data.Tools.Owned and data.Tools.Owned.Pickaxe) then
-@@ -965,9 +1310,11 @@
+@@ -965,9 +1432,11 @@
  		if code and BC.Types[code] then
  			local ok = BM.CheckChange(blocks, data.Plot.Objects, bx, bz, bl, nil, size, cell)
  			if ok and nestsKeep(data, bx, bz, bl, nil, size) and boxesKeep(data, bx, bz, bl, nil, size) then
@@ -2221,7 +2844,7 @@
  				if code ~= "W" then
  					wear += 1
  				end
-@@ -1005,13 +1352,42 @@
+@@ -1005,13 +1474,42 @@
  	end
  end
  
@@ -2265,6 +2888,189 @@
  	end
  	return false, "Unknown action"
  end
+@@ -1020,6 +1518,165 @@
+ 	hits[player] = nil
+ end
+ 
++---------------------------------------------------------------- v2.53 the world must hold
++--[[
++	Twice a second (BlockService.Start) the server compares the characters with the DATA of the blocks
++	(the truth the bricks are built from):
++	  • HEAL     a brick of a layer that was destroyed from outside (a script that cleared the plot, a
++	             part streamed out and lost …) makes its layer rebuild (before: it stayed gone until
++	             somebody changed that layer)
++	  • NOCLIP   the middle of a character is INSIDE a solid block of the data (the client does not
++	             have / does not collide with the bricks, tunnelled, a hole was filled around it) for
++	             two checks in a row: it is put on the first free spot above, in the middle of its cell
++	  • PIT      somebody stands idle (no swing, no block, no step) deeper than two blocks in a pit for
++	             20 s (there is no jumping out of a 20-stud shaft): lifted back to the garden's spawn
++]]
++local guard = {} -- [player] = { N = noclip checks in a row, Pos, Idle = os.clock() it last did something }
++local IDLE_PIT = 20
++
++-- is the point at plot-local height y inside a solid block of this column? (the pit under the floor
++-- only counts while there is a pit; under its lowest slot: bedrock; a slab fills the lower half)
++local function solidAtY(blocks, pit, cx, cz, y)
++	local H = BC.Height
++	local level = math.floor(y / H) + 1
++	if level <= 0 and not pit then
++		return false
++	end
++	if level < BC.MinLevel then
++		return true
++	end
++	if level > BC.MaxLevels then
++		return false
++	end
++	local code = BM.Get(blocks, cx, cz, level)
++	if not code or not BC.IsSolid(code) then
++		return false
++	end
++	if BC.IsHalf(code) then
++		return y < (level - 1) * H + (BC.SlabHeight or H / 2)
++	end
++	return true
++end
++
++-- the lowest feet height at or above fromY where a character fits (2 studs steps = slab steps)
++local function freeFeetY(blocks, pit, cx, cz, fromY)
++	local y = math.floor(fromY / 2) * 2
++	local top = BC.Height * BC.MaxLevels + 2
++	while y < top do
++		if not solidAtY(blocks, pit, cx, cz, y + 0.1) and not solidAtY(blocks, pit, cx, cz, y + 2.5) and not solidAtY(blocks, pit, cx, cz, y + 4.9) then
++			return y
++		end
++		y += 2
++	end
++	return top
++end
++
++local function guardPlayer(player, now)
++	local char = player.Character
++	local root = char and char:FindFirstChild("HumanoidRootPart")
++	local hum = char and char:FindFirstChildOfClass("Humanoid")
++	if not root or not hum or hum.Health <= 0 or char:GetAttribute("LRRiding") == true then
++		guard[player] = nil
++		return
++	end
++	local pos = root.Position
++	local g = guard[player]
++	if not g then
++		g = { N = 0, Pos = pos, Idle = now }
++		guard[player] = g
++	end
++	local hs = hits[player]
++	local moved = (Vector3.new(pos.X, 0, pos.Z) - Vector3.new(g.Pos.X, 0, g.Pos.Z)).Magnitude > 1
++	g.Pos = pos
++	if moved or (hs and (now - hs.Last < 2 or now - (hs.Act or -1e9) < 2)) then
++		g.Idle = now
++	end
++	local plot, lp
++	for _, pl in ctx.PlotSystem.All() do
++		if pl.Owner and pl.CFrame and pl.Size then
++			local q = pl.CFrame:PointToObjectSpace(pos)
++			local half = pl.Size / 2
++			if math.abs(q.X) <= half and math.abs(q.Z) <= half and q.Y > -(BC.Below * BC.Height + 8) and q.Y < BC.Height * BC.MaxLevels + 8 then
++				plot, lp = pl, q
++				break
++			end
++		end
++	end
++	local blocks = plot and blocksOfPlot(plot)
++	if not blocks or next(blocks) == nil then
++		g.N = 0
++		return
++	end
++	local size = plot.Size
++	local cx, cz = ctx.PlotMath.CellOf(lp.X, lp.Z, size, cellSize())
++	if not cx then
++		g.N = 0
++		return
++	end
++	local pit = type(blocks.Pit) == "table" and next(blocks.Pit) ~= nil
++	-- NOCLIP: the middle of the body inside a solid block, twice in a row
++	if solidAtY(blocks, pit, cx, cz, lp.Y - 0.5) and solidAtY(blocks, pit, cx, cz, lp.Y + 1) then
++		g.N += 1
++		if g.N >= 2 then
++			g.N = 0
++			local x, z = ctx.PlotMath.CellCenter(cx, cz, size, cellSize())
++			local feet = freeFeetY(blocks, pit, cx, cz, lp.Y - 3)
++			local cf = plot.CFrame * CFrame.new(x, feet + 3.4, z)
++			cf = CFrame.new(cf.Position) * root.CFrame.Rotation
++			if ctx.SecurityService and ctx.SecurityService.Teleport then
++				ctx.SecurityService.Teleport(player, cf)
++			else
++				char:PivotTo(cf)
++			end
++			root.AssemblyLinearVelocity = Vector3.zero
++		end
++		return
++	end
++	g.N = 0
++	-- PIT: idle, deeper than two blocks under the floor
++	if pit and lp.Y < -BC.Height * 2 then
++		if now - g.Idle > IDLE_PIT then
++			g.Idle = now
++			local spawn = ctx.PlotSystem.SpawnCFrame and ctx.PlotSystem.SpawnCFrame(plot)
++			if spawn then
++				if ctx.SecurityService and ctx.SecurityService.Teleport then
++					ctx.SecurityService.Teleport(player, spawn)
++				else
++					char:PivotTo(spawn)
++				end
++				notify(player, "⬆ Stuck in the pit? You were lifted out of it")
++			end
++		end
++	else
++		g.Idle = now
++	end
++end
++
++local function guardStep(now, heal)
++	if heal then
++		for _, plot in ctx.PlotSystem.All() do
++			local s = plot.Owner and state[plot.Index]
++			if s and s.Built and not s.Scheduled then
++				for level, parts in s.Layers do
++					for _, p in parts do
++						if not p.Parent then
++							touch(plot, level) -- (a brick is gone: this layer is built again)
++							break
++						end
++					end
++				end
++			end
++		end
++	end
++	for _, player in ctx.Players:GetPlayers() do
++		local ok, err = pcall(guardPlayer, player, now)
++		if not ok and not BlockService._warnedGuard then
++			BlockService._warnedGuard = true
++			warn("[LeafRush] blocks guard: " .. tostring(err))
++		end
++	end
++end
++
+ function BlockService.Start()
+ 	ctx.Net.BlockRequest.OnServerInvoke = function(player, req)
+ 		return BlockService.Handle(player, req)
+@@ -1033,6 +1690,16 @@
+ 	end)
+ 	ctx.Players.PlayerRemoving:Connect(function(player)
+ 		hits[player] = nil
++		guard[player] = nil
++	end)
++	-- v2.53: the guard (heal / noclip / idle in the pit)
++	task.spawn(function()
++		local tick = 0
++		while true do
++			task.wait(0.5)
++			tick += 1
++			guardStep(os.clock(), tick % 4 == 0)
++		end
+ 	end)
+ end
+ 
 --- a/BoxService.lua
 +++ b/BoxService.lua
 @@ -133,6 +133,12 @@
@@ -2293,6 +3099,50 @@
  	local b = boxes(data)
  	local cost = BC.Spots.Costs[b.Level + 1]
  	if not cost then
+@@ -196,7 +208,7 @@
+ 	if not BS or not BS.SpotY or not plot or type(nest) ~= "table" then
+ 		return 0
+ 	end
+-	local ok, y = pcall(BS.SpotY, plot, nest.X, nest.Z, 0)
++	local ok, y = pcall(BS.SpotY, plot, nest.X, nest.Z, 0, nest.Lv) -- (v2.52: the level it was put at)
+ 	return if ok and type(y) == "number" and y == y then y else 0
+ end
+ 
+@@ -341,7 +353,7 @@
+ end
+ 
+ ---------------------------------------------------------------- place
+-function BoxService.Place(player, boxId, x, z)
++function BoxService.Place(player, boxId, x, z, lv)
+ 	local data = ctx.PlayerDataService.Get(player)
+ 	local plot = ctx.PlotSystem.Get(player)
+ 	local box = BC.Get(boxId)
+@@ -370,13 +382,13 @@
+ 	-- like an egg: ON blocks (a flat top) or on the bare ground — never inside a block,
+ 	-- never in water (BlockService.SpotCheck, the eggs' own rule)
+ 	local BS = ctx.BlockService
++	local nestLv
+ 	if BS and BS.SpotCheck then
+-		local okSpot, whySpot = BS.SpotCheck(player, x, z)
++		local okSpot, whySpot, _, lvSpot = BS.SpotCheck(player, x, z, nil, lv)
+ 		if not okSpot then
+ 			return false, "🎁 " .. tostring(whySpot or "The box can't stand here")
+ 		end
+-	elseif BS and BS.CellBlocked and BS.CellBlocked(player, x, z) then
+-		return false, "Blocks are in the way — put the box on the bare ground"
++		nestLv = lvSpot
+ 	end
+ 	local gap = BC.Spots.MinGap
+ 	for _, other in b.Nests do
+@@ -400,7 +412,7 @@
+ 	local total = BC.UnpackTime(boxId)
+ 	local id = "b" .. b.Next
+ 	b.Next += 1
+-	local nest = { Box = boxId, X = math.floor(x * 10 + 0.5) / 10, Z = math.floor(z * 10 + 0.5) / 10, Ready = BoxService.Now() + total, Total = total, S = size }
++	local nest = { Box = boxId, X = math.floor(x * 10 + 0.5) / 10, Z = math.floor(z * 10 + 0.5) / 10, Ready = BoxService.Now() + total, Total = total, S = size, Lv = nestLv }
+ 	b.Nests[id] = nest
+ 	-- (review) the box is taken and the nest is saved already: a model that can't be
+ 	-- built must not turn the answer into an error (it is spawned again on the next join)
 @@ -409,9 +421,35 @@
  		warn("[LeafRush] box " .. tostring(id) .. ": " .. tostring(errSpawn))
  	end
@@ -2329,16 +3179,43 @@
  ---------------------------------------------------------------- open
  function BoxService.Open(player, nestId)
  	local data = ctx.PlayerDataService.Get(player)
-@@ -544,9 +582,13 @@
+@@ -491,7 +529,7 @@
+ 	the floor, not in water, MinGap to every OTHER box and to the eggs). Not while an
+ 	opening show is running.
+ ]]
+-function BoxService.Move(player, nestId, x, z)
++function BoxService.Move(player, nestId, x, z, lv)
+ 	local data = ctx.PlayerDataService.Get(player)
+ 	local plot = ctx.PlotSystem.Get(player)
+ 	if not data or not plot or type(nestId) ~= "string" then
+@@ -522,13 +560,13 @@
+ 		return false, "Put it inside your garden"
+ 	end
+ 	local BS = ctx.BlockService
++	local moveLv
+ 	if BS and BS.SpotCheck then
+-		local okSpot, whySpot = BS.SpotCheck(player, x, z)
++		local okSpot, whySpot, _, lvSpot = BS.SpotCheck(player, x, z, nil, lv)
+ 		if not okSpot then
+ 			return false, "🎁 " .. tostring(whySpot or "The box can't stand here")
+ 		end
+-	elseif BS and BS.CellBlocked and BS.CellBlocked(player, x, z) then
+-		return false, "Blocks are in the way — put the box on the bare ground"
++		moveLv = lvSpot
+ 	end
+ 	local gap = BC.Spots.MinGap
+ 	for id, other in b.Nests do
+@@ -544,9 +582,14 @@
  			end
  		end
  	end
-+	local prevX, prevZ = nest.X, nest.Z
++	local prevX, prevZ, prevLv = nest.X, nest.Z, nest.Lv
  	nest.X = math.floor(x * 10 + 0.5) / 10
  	nest.Z = math.floor(z * 10 + 0.5) / 10
  	nest.S = size
-+	if ctx.BuildService and ctx.BuildService.PushUndo and (prevX ~= nest.X or prevZ ~= nest.Z) then
-+		ctx.BuildService.PushUndo(player, { Kind = "BoxMove", Nest = nestId, X = prevX, Z = prevZ })
++	nest.Lv = moveLv
++	if ctx.BuildService and ctx.BuildService.PushUndo and (prevX ~= nest.X or prevZ ~= nest.Z or prevLv ~= nest.Lv) then
++		ctx.BuildService.PushUndo(player, { Kind = "BoxMove", Nest = nestId, X = prevX, Z = prevZ, Lv = prevLv })
 +	end
  	local okSpawn, errSpawn = pcall(BoxService.Spawn, player, nestId, nest)
  	if not okSpawn then
@@ -2639,7 +3516,17 @@
  	ui.onConfirm = function()
  		self:Confirm()
  	end
-@@ -147,6 +150,10 @@
+@@ -100,6 +103,9 @@
+ 	ui.onRotate = function()
+ 		self:Rotate(1)
+ 	end
++	ui.onLevel = function(dir) -- v2.52: the HEIGHT bar
++		self:AdjustLevel(dir)
++	end
+ 	-- v2.32: the ＋ / － size buttons (a cosmetic being placed or moved)
+ 	ui.onScale = function(dir)
+ 		self:Resize(dir)
+@@ -147,6 +153,10 @@
  		if not d or self.active then
  			return
  		end
@@ -2650,7 +3537,15 @@
  		local ut = input.UserInputType
  		if ut == Enum.UserInputType.MouseButton1 or ut == Enum.UserInputType.Touch then
  			self.inspectDown = nil
-@@ -418,6 +425,12 @@
+@@ -354,6 +364,7 @@
+ 	if not self.active then
+ 		return
+ 	end
++	self.lvLock = nil -- v2.52
+ 	self:_endPreview()
+ 	self:_deselect()
+ 	self.active = false
+@@ -418,6 +429,12 @@
  		t = string.format("EDITOR · pick something below, then click in the garden · click an object for its buttons · double-click to move it · Ctrl+%s undo · %s done", k("BuildUndo", "Z"), k("Build", "B"))
  	end
  	self.Hud:SetStatus(t)
@@ -2663,7 +3558,15 @@
  end
  
  ---------------------------------------------------------------- data from the world
-@@ -436,6 +449,11 @@
+@@ -427,6 +444,7 @@
+ 		TreeType = model:GetAttribute("TreeType"),
+ 		DecorType = model:GetAttribute("DecorType"),
+ 		Level = model:GetAttribute("Level"),
++		Lv = model:GetAttribute("Lv"), -- v2.52: the level it stands at
+ 		X = model:GetAttribute("X") or 0,
+ 		Z = model:GetAttribute("Z") or 0,
+ 		Rot = model:GetAttribute("Rot") or 0,
+@@ -436,6 +454,11 @@
  		GrowEnd = model:GetAttribute("GrowEnd"),
  		UpEnd = model:GetAttribute("UpEnd"),
  		Ghost = model:GetAttribute("Ghost") == true,
@@ -2675,7 +3578,123 @@
  		Scale = model:GetAttribute("Scale"), -- v2.32: a cosmetic's size (nil / 1 = normal)
  	}
  end
-@@ -1011,7 +1029,7 @@
+@@ -750,9 +773,24 @@
+ end
+ 
+ -- plot-local point where the mouse ray meets the yard surface
++-- v2.52: and self.aimLv = the LEVEL it means: the top of the block it points at (or the air in
++-- front of a wall, or the floor of a pit); with a chosen height (self.lvLock, the [ ] keys) the
++-- spot is where the ray crosses the plane of that level — also under a roof
+ function BuildMode:_groundPoint()
+ 	local ray = self:_mouseRay()
+ 	local cf = self:_plotCF()
++	local BM, BCfg = self:_blockMods()
++	self.aimLv = nil
++	if self.lvLock ~= nil and BM and BCfg then
++		local o, d = cf:PointToObjectSpace(ray.Origin), cf:VectorToObjectSpace(ray.Direction)
++		if math.abs(d.Y) > 1e-4 then
++			local t = (self.lvLock * BCfg.Height - o.Y) / d.Y
++			if t > 0 then
++				self.aimLv = self.lvLock
++				return o + d * t
++			end
++		end
++	end
+ 	if math.abs(ray.Direction.Y) < 1e-4 then
+ 		return nil
+ 	end
+@@ -760,15 +798,29 @@
+ 	-- flat columns), not the ground far behind it
+ 	local FX = self.BlockFX
+ 	if FX and self.plot then
+-		local okT, hit = pcall(FX.Trace, self.plot, ray.Origin, ray.Direction, false)
++		local okT, hit, place = pcall(FX.Trace, self.plot, ray.Origin, ray.Direction, false)
+ 		if okT and hit and hit.Dist then
+-			return cf:PointToObjectSpace(ray.Origin + ray.Direction.Unit * (hit.Dist + 0.05))
++			local dist = hit.Dist + 0.05
++			local lv
++			if hit.Half and hit.Face == "Y" then
++				lv = hit.Level - 0.5 -- (the top of a slab)
++			elseif place then
++				lv = place.Level - 1 -- (the air cell in front of the block: stand at its foot)
++				if place.Level == hit.Level then
++					dist = hit.Dist - 0.05 -- (the SIDE of a block: the cell in front of it, not the block's own)
++				end
++			end
++			if lv and BM then
++				self.aimLv = BM.CleanLv(lv)
++			end
++			return cf:PointToObjectSpace(ray.Origin + ray.Direction.Unit * dist)
+ 		end
+ 	end
+ 	local t = (cf.Y - ray.Origin.Y) / ray.Direction.Y
+ 	if t < 0 then
+ 		return nil
+ 	end
++	self.aimLv = 0
+ 	return cf:PointToObjectSpace(ray.Origin + ray.Direction * t)
+ end
+ 
+@@ -875,7 +927,58 @@
+ end
+ 
+ -- the ＋ / － bar over the ✔ bar: on while such a cosmetic is held, off otherwise
++-- v2.52 the HEIGHT bar: shown while something is held (placed / moved) or an egg / box is carried
++function BuildMode:_heightBar()
++	local UI = self.UI
++	if not UI or not UI.ShowHeight then
++		return
++	end
++	local mode: string = self.mode
++	local carrying = self.nestEdit ~= nil and self.nestEdit.mode == "move"
++	if not self.active or not ((self.preview ~= nil and (mode == "place" or mode == "move" or mode == "confirm")) or carrying) then
++		UI:ShowHeight(nil)
++		return
++	end
++	local lock = self.lvLock
++	UI:ShowHeight({ Text = if lock ~= nil then string.format("HEIGHT: level %s", tostring(lock)) else "HEIGHT: auto", Auto = lock == nil })
++end
++
++-- dir +1 / -1: one level higher / lower (the spot is then found on the plane of that level);
++-- 0: automatic again (the level under the mouse)
++function BuildMode:AdjustLevel(dir)
++	local BM = self:_blockMods()
++	if not BM or not self.active then
++		return
++	end
++	local mode: string = self.mode
++	local carrying = self.nestEdit ~= nil and self.nestEdit.mode == "move"
++	if not (carrying or (self.preview ~= nil and (mode == "place" or mode == "move" or mode == "confirm"))) then
++		return
++	end
++	if dir == 0 then
++		self.lvLock = nil
++	else
++		local cur = self.lvLock or self.aimLv or 0
++		local nv = if dir > 0 then math.floor(cur + 0.001) + 1 else math.ceil(cur - 0.001) - 1
++		self.lvLock = BM.CleanLv(nv)
++	end
++	if self.lvLock ~= nil then
++		self.aimLv = self.lvLock
++	end
++	if mode == "confirm" and self.pending then
++		-- (a spot is already picked: it moves up / down with the key)
++		self:_evaluate(self.pending.X, self.pending.Z)
++		if not self.valid then
++			self.UI:ShowConfirm(true, "✖ " .. (self.reason or "blocked"), false)
++		else
++			self:_lock()
++		end
++	end
++	self:_heightBar()
++end
++
+ function BuildMode:_scaleBar()
++	self:_heightBar()
+ 	local UI = self.UI
+ 	if not UI or not UI.ShowScale then
+ 		return
+@@ -1011,7 +1114,7 @@
  	local at = self.BlockFX and self.plot and self.BlockFX.CellCFrame(self.plot, cx, cz, level)
  	task.spawn(function()
  		local ok, a, b = pcall(function()
@@ -2684,7 +3703,7 @@
  		end)
  		self.blockBusy = math.max((self.blockBusy or 1) - 1, 0)
  		local J = self.Juice
-@@ -1174,12 +1192,33 @@
+@@ -1174,12 +1277,33 @@
  	end
  end
  
@@ -2718,7 +3737,7 @@
  	if self.mode ~= "idle" then
  		self:Cancel()
  	elseif self.wantStack then
-@@ -1259,6 +1298,10 @@
+@@ -1259,6 +1383,10 @@
  	if not self.active then
  		return
  	end
@@ -2729,7 +3748,7 @@
  	self:_endPreview()
  	self:_deselect()
  	local record
-@@ -1287,6 +1330,10 @@
+@@ -1287,6 +1415,10 @@
  	if not self.active or type(entry) ~= "table" then
  		return
  	end
@@ -2740,7 +3759,7 @@
  	self:_endPreview()
  	self:_deselect()
  	local record = { Type = entry.Type, TreeType = entry.TreeType, DecorType = entry.DecorType, Level = entry.Level or 1, SizeX = entry.SizeX, SizeZ = entry.SizeZ, X = 0, Z = 0, Rot = 0 }
-@@ -1351,6 +1398,7 @@
+@@ -1351,6 +1483,7 @@
  	self:_endPreview()
  	self.mode = "move"
  	self.storedId = nil
@@ -2748,7 +3767,48 @@
  	self.template = rec
  	self.ignoreId = self.selectedId
  	self.rot = rec.Rot
-@@ -1584,8 +1632,8 @@
+@@ -1409,12 +1542,12 @@
+ 	local scale = if rec.Type == "Decor" and self.DecorTypes.ScaleOf then self.DecorTypes.ScaleOf(rec) else nil
+ 	if self.ignoreId then
+ 		-- v0.9: after a move the selection is cleared (nothing stays held)
+-		self:_send({ Action = "Move", Id = self.ignoreId, X = rec.X, Z = rec.Z, Rot = rec.Rot, Scale = scale }, at)
++		self:_send({ Action = "Move", Id = self.ignoreId, X = rec.X, Z = rec.Z, Rot = rec.Rot, Scale = scale, Lv = rec.Lv }, at)
+ 		self.ignoreId = nil
+ 		self:_deselect()
+ 	elseif self.storedId then
+ 		local id, entry, stack, rot = self.storedId, self.storedEntry, self.storedStack, rec.Rot
+-		self:_send({ Action = "PlaceStored", Id = id, X = rec.X, Z = rec.Z, Rot = rec.Rot, Scale = scale }, at, function()
++		self:_send({ Action = "PlaceStored", Id = id, X = rec.X, Z = rec.Z, Rot = rec.Rot, Scale = scale, Lv = rec.Lv }, at, function()
+ 			task.defer(function()
+ 				self:_continueStored(stack, id, rot)
+ 			end)
+@@ -1429,7 +1562,7 @@
+ 		end)
+ 		self.storedId = nil
+ 	else
+-		self:_send({ Action = "Place", Kind = self.newKind, TypeId = self.newType, X = rec.X, Z = rec.Z, Rot = rec.Rot, Scale = scale }, at)
++		self:_send({ Action = "Place", Kind = self.newKind, TypeId = self.newType, X = rec.X, Z = rec.Z, Rot = rec.Rot, Scale = scale, Lv = rec.Lv }, at)
+ 	end
+ 	self:_endPreview()
+ 	self.mode = "idle"
+@@ -1442,7 +1575,7 @@
+ 		return
+ 	end
+ 	local rec = self.pending
+-	self.RobuxUI.Buy("Build", { Action = "Place", Kind = self.newKind, TypeId = self.newType, X = rec.X, Z = rec.Z, Rot = rec.Rot })
++	self.RobuxUI.Buy("Build", { Action = "Place", Kind = self.newKind, TypeId = self.newType, X = rec.X, Z = rec.Z, Rot = rec.Rot, Lv = rec.Lv })
+ 	self:_endPreview()
+ 	self.mode = "idle"
+ 	self.UI:ShowConfirm(false)
+@@ -1451,6 +1584,7 @@
+ 
+ -- cancel placing / moving completely (T, or ✖ on the confirm bar)
+ function BuildMode:Cancel()
++	self.lvLock = nil -- v2.52: automatic height again
+ 	if self.mode ~= "idle" then
+ 		local wasStored = self.storedId
+ 		if wasStored and self.onCancelStored then
+@@ -1584,8 +1718,8 @@
  	-- v2.19: with a broom (or any tool) in your hand a click is SWEEPING — the info
  	-- card never opens then
  	local char = Players.LocalPlayer.Character
@@ -2759,7 +3819,7 @@
  		return
  	end
  	local plot = self:_plot()
-@@ -1614,7 +1662,19 @@
+@@ -1614,7 +1748,19 @@
  	if m and m:GetAttribute("Type") then
  		self:_inspect(m)
  	else
@@ -2780,7 +3840,7 @@
  	end
  end
  
-@@ -1733,6 +1793,8 @@
+@@ -1733,6 +1879,8 @@
  				{ Id = "Store", Text = "📦 STORE", Color = Color3.fromRGB(120, 110, 160) },
  			},
  		}
@@ -2789,7 +3849,7 @@
  		-- v1.1: Robux — finish the wait now, or pay the upgrade in Robux
  		local R = self.RobuxUI
  		if R then
-@@ -1800,9 +1862,14 @@
+@@ -1800,9 +1948,14 @@
  				{ Id = "Store", Text = "📦 STORE", Color = Color3.fromRGB(120, 110, 160) },
  			},
  		}
@@ -2807,7 +3867,7 @@
  		end
  		-- v2.32: its SIZE — smaller / bigger in steps, free
  		local DT = self.DecorTypes
-@@ -1917,8 +1984,12 @@
+@@ -1917,8 +2070,12 @@
  				end
  			end)
  		end)
@@ -2822,6 +3882,47 @@
  			-- the server rebuilds the model: select the new one
  			task.delay(0.2, function()
  				for _, c in self.plot.Objects:GetChildren() do
+@@ -1938,7 +2095,7 @@
+ 			if nxt == cur then
+ 				self.Hud:Toast(if id == "Bigger" then "It can't get any bigger" else "It can't get any smaller", 1.2)
+ 			else
+-				self:_send({ Action = "Move", Id = objId, X = rec.X, Z = rec.Z, Rot = rec.Rot, Scale = nxt }, at, function()
++				self:_send({ Action = "Move", Id = objId, X = rec.X, Z = rec.Z, Rot = rec.Rot, Scale = nxt, Lv = rec.Lv }, at, function()
+ 					task.delay(0.2, function()
+ 						if not self.active or self.mode ~= "idle" or not self.plot or not self.plot.Parent then
+ 							return
+@@ -1956,7 +2113,7 @@
+ 		self:BeginMove()
+ 	elseif id == "Rotate" then
+ 		local step = if rec.Type == "Decor" then P.DecorRotationStep * 3 else P.RotationStep
+-		self:_send({ Action = "Move", Id = objId, X = rec.X, Z = rec.Z, Rot = (rec.Rot + step) % 360 }, at, function()
++		self:_send({ Action = "Move", Id = objId, X = rec.X, Z = rec.Z, Rot = (rec.Rot + step) % 360, Lv = rec.Lv }, at, function()
+ 			self:_showSelection()
+ 		end)
+ 	elseif id == "Upgrade" then
+@@ -2044,6 +2201,9 @@
+ 	local rec = table.clone(self.template)
+ 	rec.X, rec.Z, rec.Rot = x, z, self.rot
+ 	self.TreePlacement.Snap(rec, size, P)
++	if self.aimLv ~= nil then
++		rec.Lv = self.aimLv -- v2.52: the level under the mouse (or the chosen one)
++	end
+ 	local ok, why = self.TreePlacement.Check(rec, self:_records(), self.ignoreId, size, P, self:_tiles())
+ 	if ok and not self.ignoreId then
+ 		local price = self:_price(self.newKind, self.newType)
+@@ -2319,6 +2479,12 @@
+ 				self:_hint()
+ 			end
+ 		end
++	elseif kc == Enum.KeyCode.RightBracket or kc == Enum.KeyCode.PageUp then
++		self:AdjustLevel(1) -- v2.52: a level higher
++	elseif kc == Enum.KeyCode.LeftBracket or kc == Enum.KeyCode.PageDown then
++		self:AdjustLevel(-1)
++	elseif kc == Enum.KeyCode.BackSlash then
++		self:AdjustLevel(0) -- automatic height
+ 	elseif is("BuildCancel", Enum.KeyCode.T) then
+ 		self:Cancel() -- v0.9: T cancels placing / moving (Esc no longer does)
+ 	elseif is("BuildConfirm", I.BuildConfirm) or kc == Enum.KeyCode.KeypadEnter then
 --- a/BuildService.lua
 +++ b/BuildService.lua
 @@ -20,7 +20,7 @@
@@ -2929,6 +4030,15 @@
  	local info, money, gems, key, amount, run = BuildService.GardenQuote(data, id)
  	if not info then
  		return false, "Unknown upgrade"
+@@ -711,7 +753,7 @@
+ end
+ 
+ ---------------------------------------------------------------- actions
+-function BuildService.Place(player, kind, typeId, x, z, rot, actor, scale)
++function BuildService.Place(player, kind, typeId, x, z, rot, actor, scale, lv)
+ 	actor = actor or player
+ 	local data, plot, size = context(player)
+ 	if not data then
 @@ -746,15 +788,12 @@
  	if not (finite(x) and finite(z) and finite(rot)) then
  		return false, "Invalid position"
@@ -2946,7 +4056,45 @@
  		return false, "Decoration limit reached (" .. BuildService.DecorLimit(data) .. ") — get more in Build · DECOR"
  	end
  	-- v0.9 special buildings
-@@ -1028,7 +1067,7 @@
+@@ -802,6 +841,7 @@
+ 		end
+ 	end
+ 	ctx.TreePlacement.Snap(record, size, P)
++	record.Lv = ctx.TreePlacement.CleanLv(lv) -- v2.52: the level the player chose (nil = on top of the blocks under it)
+ 	local ok, why = ctx.TreePlacement.Check(record, data.Plot.Objects, nil, size, P, data.Plot.Blocks)
+ 	if not ok then
+ 		return false, why
+@@ -869,7 +909,7 @@
+ BuildService.ApplyScale = applyScale
+ 
+ -- validated move/rotate (v2.32: and resize, for a cosmetic); returns ok, msg, undoOp
+-function BuildService.Move(player, id, x, z, rot, scale)
++function BuildService.Move(player, id, x, z, rot, scale, lv)
+ 	local data, plot, size = context(player)
+ 	if not data then
+ 		return false, "Your yard isn't ready"
+@@ -888,13 +928,19 @@
+ 		return false, "Invalid size"
+ 	end
+ 	ctx.TreePlacement.Snap(candidate, size, P)
++	-- v2.52: the level it is carried to; none asked and it stays where it was = it keeps its level
++	candidate.Lv = ctx.TreePlacement.CleanLv(lv)
++	if candidate.Lv == nil and candidate.X == record.X and candidate.Z == record.Z then
++		candidate.Lv = record.Lv
++	end
+ 	local ok, why = ctx.TreePlacement.Check(candidate, data.Plot.Objects, id, size, P, data.Plot.Blocks)
+ 	if not ok then
+ 		return false, why
+ 	end
+-	local prev = { X = record.X, Z = record.Z, Rot = record.Rot or 0, Scale = ctx.DecorTypes.ScaleOf(record) }
++	local prev = { X = record.X, Z = record.Z, Rot = record.Rot or 0, Scale = ctx.DecorTypes.ScaleOf(record), Lv = record.Lv }
+ 	local resized = candidate.Scale ~= record.Scale
+ 	record.X, record.Z, record.Rot = candidate.X, candidate.Z, candidate.Rot
++	record.Lv = candidate.Lv
+ 	if resized then
+ 		-- v2.32: another size = another model (the server builds it scaled)
+ 		record.Scale = candidate.Scale
+@@ -1028,7 +1074,7 @@
  		refund(player, data, cost)
  		return false, "Can't expand right now"
  	end
@@ -2955,7 +4103,7 @@
  	ctx.InventoryService.Publish(player)
  	return true, string.format("Yard expanded to %dx%d!", size, size)
  end
-@@ -1051,7 +1090,7 @@
+@@ -1051,7 +1097,7 @@
  	return true
  end
  
@@ -2964,7 +4112,16 @@
  	local s = undo[player]
  	local op = s and s[#s]
  	if not op then
-@@ -1085,6 +1124,45 @@
+@@ -1063,7 +1109,7 @@
+ 	end
+ 	local ok, msg = false, "Nothing to undo"
+ 	if op.Kind == "Move" then
+-		ok, msg = BuildService.Move(player, op.Id, op.Prev.X, op.Prev.Z, op.Prev.Rot, op.Prev.Scale) -- (v2.32: and its old size)
++		ok, msg = BuildService.Move(player, op.Id, op.Prev.X, op.Prev.Z, op.Prev.Rot, op.Prev.Scale, op.Prev.Lv) -- (v2.32: and its old size; v2.52: and its level)
+ 	elseif op.Kind == "Resize" then
+ 		local rec = data.Plot.Objects[op.Id]
+ 		if rec then
+@@ -1085,6 +1131,45 @@
  		if ok then
  			spend(player, { LeafValue = op.Refunded })
  		end
@@ -2990,7 +4147,7 @@
 +		if not data.Plot.Stored[op.Id] then
 +			msg = "It is not in your storage any more"
 +		else
-+			ok, msg = ctx.PresetService.PlaceStored(player, op.Id, op.Prev.X, op.Prev.Z, op.Prev.Rot or 0, op.Prev.Scale)
++			ok, msg = ctx.PresetService.PlaceStored(player, op.Id, op.Prev.X, op.Prev.Z, op.Prev.Rot or 0, op.Prev.Scale, op.Prev.Lv)
 +		end
 +	elseif op.Kind == "PlaceStored" then
 +		-- placing something from the inventory is undone by putting it back (no Money involved)
@@ -3002,15 +4159,15 @@
 +	elseif op.Kind == "EggPlace" then
 +		ok, msg = ctx.IncubatorService.Unplace(player, op.Nest, op.Egg, op.First)
 +	elseif op.Kind == "EggMove" then
-+		ok, msg = ctx.IncubatorService.Move(player, op.Nest, op.X, op.Z)
++		ok, msg = ctx.IncubatorService.Move(player, op.Nest, op.X, op.Z, op.Lv)
 +	elseif op.Kind == "BoxPlace" then
 +		ok, msg = ctx.BoxService.Unplace(player, op.Nest, op.Box)
 +	elseif op.Kind == "BoxMove" then
-+		ok, msg = ctx.BoxService.Move(player, op.Nest, op.X, op.Z)
++		ok, msg = ctx.BoxService.Move(player, op.Nest, op.X, op.Z, op.Lv)
  	elseif op.Kind == "Place" then
  		local rec = data.Plot.Objects[op.Id]
  		if rec then
-@@ -1093,6 +1171,9 @@
+@@ -1093,6 +1178,9 @@
  			refund(player, data, op.Paid)
  			ok = true
  		end
@@ -3020,7 +4177,7 @@
  	elseif op.Kind == "Upgrade" then
  		-- only a RUNNING upgrade can be undone (it is cancelled and fully refunded)
  		local rec = data.Plot.Objects[op.Id]
-@@ -1113,6 +1194,24 @@
+@@ -1113,6 +1201,24 @@
  	return false, msg or "Can't undo"
  end
  
@@ -3045,7 +4202,7 @@
  ---------------------------------------------------------------- dispatch
  local function findOwner(userId)
  	for _, p in ctx.Players:GetPlayers() do
-@@ -1131,7 +1230,7 @@
+@@ -1131,7 +1237,7 @@
  	end
  	local lp = plot.CFrame:PointToObjectSpace(root.Position)
  	local half = plot.Size / 2 + (margin or 6)
@@ -3054,7 +4211,7 @@
  end
  
  function BuildService.Handle(player, req)
-@@ -1156,11 +1255,14 @@
+@@ -1156,22 +1262,25 @@
  	-- v2.12: the Build Shop and the UPGRADE sign work wherever you stand
  	if a == "Buy" and owner == player then
  		return BuildService.Buy(player, req.Kind, req.TypeId) -- (ok, message, new object id)
@@ -3070,7 +4227,32 @@
  		if a == "MoveBox" then
  			-- v2.38: the Editor carries an unpacking / ready box to another spot (your own garden only)
  			if not ctx.BoxService.Move then
-@@ -1231,12 +1333,51 @@
+ 				return false, "Not available"
+ 			end
+-			return ctx.BoxService.Move(player, req.Nest, req.X, req.Z)
++			return ctx.BoxService.Move(player, req.Nest, req.X, req.Z, req.Lv)
+ 		end
+ 		if a == "BuyBox" then
+ 			return ctx.BoxService.Buy(player, req.Box)
+ 		end
+-		return ctx.BoxService.Place(player, req.Box, req.X, req.Z)
++		return ctx.BoxService.Place(player, req.Box, req.X, req.Z, req.Lv)
+ 	elseif a == "GardenUpgrade" and owner == player then
+ 		return BuildService.GardenUpgrade(player, req.Id, req.Pay)
+ 	elseif a == "RobotUpgrade" and owner == player and ctx.RobotService then
+@@ -1221,9 +1330,9 @@
+ 
+ 	local ok, msg, op
+ 	if a == "Place" then
+-		ok, msg, op = BuildService.Place(owner, req.Kind, req.TypeId, req.X, req.Z, req.Rot, player, req.Scale)
++		ok, msg, op = BuildService.Place(owner, req.Kind, req.TypeId, req.X, req.Z, req.Rot, player, req.Scale, req.Lv)
+ 	elseif a == "Move" then
+-		ok, msg, op = BuildService.Move(owner, req.Id, req.X, req.Z, req.Rot, req.Scale) -- (v2.32: Scale = a cosmetic's new size, optional)
++		ok, msg, op = BuildService.Move(owner, req.Id, req.X, req.Z, req.Rot, req.Scale, req.Lv) -- (v2.52: Lv = the level; v2.32: Scale = a cosmetic's new size, optional)
+ 	elseif a == "Resize" then
+ 		ok, msg, op = BuildService.Resize(owner, req.Id, req.SizeX, req.SizeZ)
+ 	elseif a == "Ghost" then
+@@ -1231,12 +1340,51 @@
  		local data = ctx.PlayerDataService.Get(owner)
  		local plot = ctx.PlotSystem.Get(owner)
  		local rec = data and type(req.Id) == "string" and data.Plot.Objects[req.Id]
@@ -3123,7 +4305,7 @@
  	elseif a == "Upgrade" then
  		ok, msg, op = BuildService.Upgrade(owner, req.Id)
  	elseif a == "Delete" then
-@@ -1278,12 +1419,15 @@
+@@ -1278,12 +1426,15 @@
  
  function BuildService.Clear(player)
  	undo[player] = nil
@@ -3195,7 +4377,60 @@
  	undoB.Activated:Connect(function()
  		if self.onUndo then
  			self.onUndo()
-@@ -626,6 +659,32 @@
+@@ -340,10 +373,41 @@
+ 	end)
+ 	self.scaleBar = sizeBar
+ 	self.scaleCol = SIZE_COL
++	-- v2.52 HEIGHT bar (over the size bar): ▼  HEIGHT: auto  ▲  AUTO — things stand at ANY level;
++	-- the keys [ ] / PageUp PageDown / \ do the same. onLevel(-1 / +1 / 0 = automatic).
++	local hBar = Instance.new("Frame")
++	hBar.Name = "Height"
++	hBar.AnchorPoint = Vector2.new(0.5, 1)
++	hBar.Position = UDim2.new(0.5, 0, 1, -182)
++	hBar.Size = UDim2.fromOffset(380, 46)
++	hBar.BackgroundTransparency = 1
++	hBar.Visible = false
++	hBar.Parent = gui
++	local hl = Instance.new("UIListLayout")
++	hl.FillDirection = Enum.FillDirection.Horizontal
++	hl.HorizontalAlignment = Enum.HorizontalAlignment.Center
++	hl.VerticalAlignment = Enum.VerticalAlignment.Center
++	hl.SortOrder = Enum.SortOrder.LayoutOrder
++	hl.Padding = UDim.new(0, 8)
++	hl.Parent = hBar
++	self.heightDown = button(hBar, "▼", SIZE_COL, { Size = UDim2.fromOffset(60, 46), LayoutOrder = 1 })
++	self.heightLabel = label(hBar, { Size = UDim2.fromOffset(170, 40), LayoutOrder = 2, BackgroundTransparency = 0.25, BackgroundColor3 = PANEL_BOTTOM, Text = "HEIGHT: auto" })
++	corner(self.heightLabel, 10)
++	stroke(self.heightLabel, RIM, 1.5)
++	self.heightUp = button(hBar, "▲", SIZE_COL, { Size = UDim2.fromOffset(60, 46), LayoutOrder = 3 })
++	self.heightAuto = button(hBar, "AUTO", SIZE_COL, { Size = UDim2.fromOffset(80, 46), LayoutOrder = 4 })
++	for btn, dir in { [self.heightDown] = -1, [self.heightUp] = 1, [self.heightAuto] = 0 } do
++		btn.Activated:Connect(function()
++			if self.onLevel then
++				self.onLevel(dir)
++			end
++		end)
++	end
++	self.heightBar = hBar
+ 	-- v2.22: phones / tablets — the panel, the card and the ✔ bar shrink with the
+ 	-- screen; on a small screen the card sits top-right (the thumbstick is bottom-left)
+ 	self.scales = {}
+-	for _, f in { cat, sel, conf, sizeBar } do
++	for _, f in { cat, sel, conf, sizeBar, hBar } do
+ 		local s = Instance.new("UIScale")
+ 		s.Parent = f
+ 		table.insert(self.scales, s)
+@@ -397,6 +461,9 @@
+ 	if self.scaleBar then
+ 		self.scaleBar.Position = UDim2.new(0.5, 0, 1, if on then -(PANEL_H + 108) else -182) -- (v2.32: just over the ✔ bar)
+ 	end
++	if self.heightBar then
++		self.heightBar.Position = UDim2.new(0.5, 0, 1, if on then -(PANEL_H + 162) else -236) -- (v2.52: over the size bar)
++	end
+ end
+ 
+ function BuildUI:SetCoop(_on)
+@@ -626,6 +693,32 @@
  			end)
  		end
  	end
@@ -3228,7 +4463,7 @@
  	-- (v2.41: after the tiles of the slabs; the note tells what a slab is)
  	local note = label(self.list, { Size = UDim2.fromOffset(330, TILE_H), LayoutOrder = #BCfg.Order + 4, TextScaled = false, TextSize = 12, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = Color3.fromRGB(255, 240, 220), Text = "Pick a block, then click in your garden — hold and drag for a row. Up to 5 high. Blocks are free; break them with the Pickaxe (SHOP · TOOLS). Water flows! A SLAB is half a block: two slabs of one kind make a block — build stairs with them." })
  	note.ZIndex = 3
-@@ -662,7 +721,7 @@
+@@ -662,7 +755,7 @@
  			local have = math.floor(tonumber(boxesOwned[bid]) or 0)
  			if box and have > 0 then
  				n += 1
@@ -3237,7 +4472,7 @@
  					return DB.BoxModel(bid)
  				end, function()
  					if self.onPick then
-@@ -721,6 +780,10 @@
+@@ -721,6 +814,10 @@
  			local def = DT.Get(e.DecorType)
  			name = def and def.Display or "Decoration"
  			color = def and def.Color or (if tab == "Buildings" then Color3.fromRGB(120, 180, 255) else Color3.fromRGB(120, 200, 110))
@@ -3248,6 +4483,28 @@
  		else
  			name = "Collection Zone"
  			color = Color3.fromRGB(90, 240, 150)
+@@ -887,6 +984,21 @@
+ 	self.scalePlus.BackgroundColor3 = if info.CanPlus == false then MUTED else self.scaleCol
+ end
+ 
++-- v2.52 the height bar: info = { Text = "HEIGHT: level 2", Auto = true } or nil
++function BuildUI:ShowHeight(info)
++	local bar = self.heightBar
++	if not bar then
++		return
++	end
++	if type(info) ~= "table" then
++		bar.Visible = false
++		return
++	end
++	bar.Visible = true
++	self.heightLabel.Text = tostring(info.Text or "HEIGHT: auto")
++	self.heightAuto.BackgroundColor3 = if info.Auto then MUTED else self.scaleCol
++end
++
+ function BuildUI:ShowConfirm(on, text, valid)
+ 	self.confirmBar.Visible = on
+ 	if on then
 --- a/CodeService.lua
 +++ b/CodeService.lua
 @@ -166,7 +166,7 @@
@@ -3449,7 +4706,16 @@
  	if rec.Scale == nil then
  		return
  	end
-@@ -860,6 +893,7 @@
+@@ -843,6 +876,8 @@
+ 			rec.Rot = cleanNumber(rec.Rot, 0) % 360
+ 			rec.Spent = math.floor(cleanNumber(rec.Spent, 0))
+ 			cleanScale(rec) -- v2.32
++			-- v2.52: the level it stands at (half levels; -5 = the bottom of the pit … 5); none = where it always stood
++			rec.Lv = if type(rec.Lv) == "number" and rec.Lv == rec.Lv and math.abs(rec.Lv) < 1e3 then math.clamp(math.floor(rec.Lv * 2 + 0.5) / 2, -5, 5) else nil
+ 			if rec.Type == "Tree" then
+ 				-- (a missing / broken level is 1; a real 0 is a tree being built — keep it)
+ 				cleanTreeFields(rec)
+@@ -860,6 +895,7 @@
  			data.Currencies.Gems = (tonumber(data.Currencies.Gems) or 0) + 150
  		else
  			p.Level = math.clamp(math.floor(cleanNumber(p.Level, 1)), 1, 10)
@@ -3457,7 +4723,7 @@
  			-- v1.1 variants (old ids are renamed; anything unknown becomes Normal)
  			local v = if type(p.Variant) == "string" then p.Variant else "Normal"
  			v = ({ Fire = "Golden", RainbowFire = "Diamond", Ancient = "Rainbow" })[v] or v
-@@ -882,7 +916,7 @@
+@@ -882,7 +918,7 @@
  			data.Eggs.Owned[k] = nil
  		end
  	end
@@ -3466,7 +4732,7 @@
  		data.Stats[k] = cleanNumber(data.Stats[k], 0)
  	end
  	for k, v in data.Stats.Collected do
-@@ -1035,12 +1069,13 @@
+@@ -1035,12 +1071,13 @@
  			so.Rated[k] = nil
  		end
  	end
@@ -3482,7 +4748,7 @@
  	local rb = data.Rebirth
  	rb.Count = math.clamp(math.floor(cleanNumber(rb.Count, 0)), 0, 1000)
  	rb.RunEarned = cleanNumber(rb.RunEarned, 0)
-@@ -1058,9 +1093,8 @@
+@@ -1058,9 +1095,8 @@
  			data.Plot.Stored[id] = nil
  		end
  	end
@@ -3494,7 +4760,7 @@
  	for k, v in data.Stats.Piles do
  		if type(k) ~= "string" then
  			data.Stats.Piles[k] = nil
-@@ -1077,6 +1111,9 @@
+@@ -1077,6 +1113,9 @@
  	if st.CameraMode ~= "Aim" and st.CameraMode ~= "FirstPerson" then
  		st.CameraMode = "Aim"
  	end
@@ -3504,7 +4770,15 @@
  	-- anything the whitelist doesn't know (old keys) is dropped
  	local defaults = Schema.Defaults().Settings
  	for k in st do
-@@ -1190,18 +1227,45 @@
+@@ -1122,6 +1161,7 @@
+ 			nest.Z = math.clamp(cleanNumber(nest.Z, 0), -60, 60)
+ 			nest.Ready = cleanNumber(nest.Ready, 0)
+ 			nest.Total = math.max(cleanNumber(nest.Total, 0), 0)
++			nest.Lv = if type(nest.Lv) == "number" and nest.Lv == nest.Lv and math.abs(nest.Lv) < 1e3 then math.clamp(math.floor(nest.Lv * 2 + 0.5) / 2, -5, 5) else nil -- v2.52
+ 		end
+ 	end
+ 	E.NextNest = math.max(math.floor(cleanNumber(E.NextNest, 1)), 1)
+@@ -1190,18 +1230,45 @@
  
  -- v1.2: tools, one-use items, the lawn
  local TOOL_IDS = {
@@ -3553,7 +4827,7 @@
  	for id, v in T.Owned do
  		if not TOOL_IDS[id] or v ~= true then
  			T.Owned[id] = nil
-@@ -1212,7 +1276,7 @@
+@@ -1212,7 +1279,7 @@
  		T.Grass = "Shears"
  	end
  	T.Up = if type(T.Up) == "table" then T.Up else {}
@@ -3562,7 +4836,7 @@
  		local u = if type(T.Up[tool]) == "table" then T.Up[tool] else {}
  		for k, v in u do
  			if type(k) ~= "string" or #k > 16 then
-@@ -1224,7 +1288,7 @@
+@@ -1224,7 +1291,7 @@
  		T.Up[tool] = u
  	end
  	for k in T.Up do
@@ -3571,7 +4845,7 @@
  			T.Up[k] = nil
  		end
  	end
-@@ -1235,6 +1299,29 @@
+@@ -1235,6 +1302,29 @@
  	T.VacUsed = math.clamp(math.floor(cleanNumber(T.VacUsed, 0)), 0, 100000)
  	-- v2.32: seconds of Leaf Blower energy used since its last recharge (old saves: 0 = full)
  	T.BlowUsed = math.clamp(cleanNumber(T.BlowUsed, 0), 0, 1000)
@@ -3601,7 +4875,7 @@
  	local C = data.Consumables
  	for id, n in C.Owned do
  		if not ITEM_IDS[id] then
-@@ -1264,6 +1351,20 @@
+@@ -1264,6 +1354,20 @@
  			G.Cells[k] = if g > 0 then g else nil
  		end
  	end
@@ -3622,7 +4896,7 @@
  	for _, k in { "GrassCut", "ItemsUsed", "VacuumItems" } do
  		data.Stats[k] = math.floor(cleanNumber(data.Stats[k], 0))
  	end
-@@ -1283,7 +1384,7 @@
+@@ -1283,7 +1387,7 @@
  		else
  			local clean, count = {}, 0
  			for id, rec in g.Objects do
@@ -3631,7 +4905,7 @@
  					clean[id] = rec
  					count += 1
  				end
-@@ -1307,7 +1408,7 @@
+@@ -1307,7 +1411,7 @@
  	local keys = 0
  	for action, key in st.Keys do
  		keys += 1
@@ -3640,7 +4914,7 @@
  			st.Keys[action] = nil
  		end
  	end
-@@ -1350,7 +1451,60 @@
+@@ -1350,7 +1454,60 @@
  			end
  		end
  	end
@@ -3701,6 +4975,15 @@
  	data.Plot.Tiles = nil -- (the old ground tiles are blocks now)
  	data.Plot.HadSand = data.Plot.HadSand == true
  	data.Plot.LastTree = if type(data.Plot.LastTree) == "string" and #data.Plot.LastTree <= 30 then data.Plot.LastTree else ""
+@@ -1460,6 +1617,8 @@
+ 						Total = math.clamp(cleanNumber(nest.Total, 0), 0, 1e7),
+ 						-- (the garden size X / Z belong to: BoxService shifts Z when the garden grew; 0 = unknown)
+ 						S = math.clamp(cleanNumber(nest.S, 0), 0, 1000),
++						-- v2.52: the level it stands at (nil = where it always stood)
++						Lv = if type(nest.Lv) == "number" and nest.Lv == nest.Lv and math.abs(nest.Lv) < 1e3 then math.clamp(math.floor(nest.Lv * 2 + 0.5) / 2, -5, 5) else nil,
+ 					}
+ 					nNests += 1
+ 				end
 --- a/DecorBoxes.lua
 +++ b/DecorBoxes.lua
 @@ -337,6 +337,9 @@
@@ -3713,7 +4996,117 @@
  	local box = BC.Get(boxId)
  	local floor = myFloor()
  	if not box or not floor or not floor:IsA("BasePart") then
-@@ -622,6 +625,106 @@
+@@ -456,6 +459,21 @@
+ 		return blocks
+ 	end
+ 	local spot, whyNot, world
++	local spotLv
++	-- v2.52: boxes stand at ANY height too: the level under the mouse; [ ] / PageUp PageDown choose
++	-- one, \ = automatic (see EggPlacer)
++	local lock
++	local function setLock(dir)
++		if dir == 0 then
++			lock = nil
++		else
++			local cur = lock or spotLv or 0
++			local nv = if dir > 0 then math.floor(cur + 0.001) + 1 else math.ceil(cur - 0.001) - 1
++			lock = if BM and BM.CleanLv then BM.CleanLv(nv) else nil
++		end
++		toast(if lock ~= nil then string.format("Height: level %s", tostring(lock)) else "Height: automatic", 1.2)
++	end
++	toast("Tip: [ and ] change the height · \\ = automatic", 3)
+ 	local function aim(pos, screen)
+ 		local cam = workspace.CurrentCamera
+ 		if not cam then
+@@ -471,27 +489,47 @@
+ 			end
+ 		end
+ 		local hit = workspace:Raycast(ray.Origin, ray.Direction * 500, params)
+-		if not hit then
++		local lockPoint
++		if lock ~= nil and BM and BM.LevelY then
++			local o = floor.CFrame:PointToObjectSpace(ray.Origin)
++			local d = floor.CFrame:VectorToObjectSpace(ray.Direction)
++			if math.abs(d.Y) > 1e-4 then
++				local t = (BM.LevelY(lock) + floor.Size.Y / 2 - o.Y) / d.Y
++				if t > 0 then
++					lockPoint = floor.CFrame:PointToWorldSpace(o + d * t)
++				end
++			end
++		end
++		if not hit and not lockPoint then
+ 			spot, whyNot = nil, nil
+ 			return
+ 		end
+-		local point = hit.Position
++		local point
+ 		local radius = (BM and BM.NestRadius) or 1.5
+-		if math.abs(hit.Normal.Y) < 0.5 then
+-			-- the SIDE of a block: the box goes onto that block, just behind its edge
+-			point -= Vector3.new(hit.Normal.X, 0, hit.Normal.Z) * (radius + 0.1)
++		spotLv = nil
++		if lockPoint then
++			point, spotLv = lockPoint, lock
++		else
++			point = hit.Position
++			if math.abs(hit.Normal.Y) < 0.5 then
++				-- the SIDE of a block: the box stands in front of it (v2.52; before, on top of it)
++				point += Vector3.new(hit.Normal.X, 0, hit.Normal.Z) * (radius + 0.1)
++			end
++			if BM and BM.AimLevel then
++				spotLv = BM.AimLevel(floor.CFrame:PointToObjectSpace(hit.Position).Y - floor.Size.Y / 2, hit.Normal.Y)
++			end
+ 		end
+ 		local lp = floor.CFrame:PointToObjectSpace(point)
+ 		local half = floor.Size.X / 2 - 1.5
+ 		local ok = math.abs(lp.X) <= half and math.abs(lp.Z) <= half
+ 		whyNot = if ok then nil else "Put it inside your garden"
+ 		local y = 0
+-		local b = gardenBlocks()
+-		if ok and BM and b then
++		local b = gardenBlocks() or {}
++		if ok and BM then
+ 			local size = (plotModel and tonumber(plotModel:GetAttribute("Size"))) or floor.Size.X
+-			local okS, good, why = pcall(BM.SpotCheck, b, lp.X, lp.Z, radius, size, cellSize)
++			local okS, good, why = pcall(BM.SpotCheck, b, lp.X, lp.Z, radius, size, cellSize, nil, spotLv)
+ 			if okS then
+-				local okY, sy = pcall(BM.SpotY, b, lp.X, lp.Z, radius, size, cellSize)
++				local okY, sy = pcall(BM.SpotY, b, lp.X, lp.Z, radius, size, cellSize, spotLv)
+ 				y = if okY and type(sy) == "number" then sy else 0
+ 				if not good then
+ 					ok = false
+@@ -526,6 +564,16 @@
+ 		if gp then
+ 			return
+ 		end
++		if input.KeyCode == Enum.KeyCode.RightBracket or input.KeyCode == Enum.KeyCode.PageUp then
++			setLock(1)
++			return
++		elseif input.KeyCode == Enum.KeyCode.LeftBracket or input.KeyCode == Enum.KeyCode.PageDown then
++			setLock(-1)
++			return
++		elseif input.KeyCode == Enum.KeyCode.BackSlash then
++			setLock(0)
++			return
++		end
+ 		if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
+ 			return
+ 		end
+@@ -549,11 +597,12 @@
+ 			return -- (one box at a time: wait for the server's answer)
+ 		end
+ 		local at = spot
++		local atLv = spotLv
+ 		local where = world
+ 		sending = true
+ 		task.spawn(function()
+ 			local ok, a, b = pcall(function()
+-				return deps.Remote:InvokeServer({ Action = "PlaceBox", Box = boxId, X = at.X, Z = at.Y })
++				return deps.Remote:InvokeServer({ Action = "PlaceBox", Box = boxId, X = at.X, Z = at.Y, Lv = atLv })
+ 			end)
+ 			sending = false
+ 			if place ~= state then
+@@ -622,6 +671,106 @@
  	return p
  end
  
@@ -3820,7 +5213,7 @@
  local function makeGui()
  	if show.ready then
  		return
-@@ -845,6 +948,7 @@
+@@ -845,6 +994,7 @@
  	if show.gui then
  		show.gui.Enabled = false
  	end
@@ -3828,7 +5221,7 @@
  	if show.ready then
  		show.nameLabel.Text = ""
  		show.rarityLabel.Text = ""
-@@ -880,6 +984,7 @@
+@@ -880,6 +1030,7 @@
  		if show.gui then
  			show.gui.Enabled = false
  		end
@@ -3836,7 +5229,7 @@
  		local stray = workspace:FindFirstChild("LeafRushBoxShow")
  		if stray and stray:IsA("Model") then
  			stray:Destroy()
-@@ -893,15 +998,122 @@
+@@ -893,15 +1044,122 @@
  	return started == true
  end
  
@@ -3962,7 +5355,7 @@
  		return false
  	end
  	DecorBoxes.CancelPlace()
-@@ -927,32 +1139,14 @@
+@@ -927,32 +1185,14 @@
  			show.descLabel.Size = UDim2.new(0.9, 0, 0, math.floor(48 * k))
  		end
  	end
@@ -3998,7 +5391,7 @@
  	local pad = showPart(model, { Name = "Pad", Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.2, 4.6, 4.6), CFrame = base * CFrame.new(0, 0.1, 0) * CFrame.Angles(0, 0, math.pi / 2), Color = glowColor:Lerp(Color3.new(1, 1, 1), 0.5), Material = Enum.Material.SmoothPlastic, Transparency = 0.2 })
  	local core = showPart(model, { Name = "Core", Size = Vector3.one * 0.2, CFrame = base * CFrame.new(0, boxH * 0.6, 0), Transparency = 1 })
  	local light = Instance.new("PointLight")
-@@ -977,10 +1171,12 @@
+@@ -977,10 +1217,12 @@
  	run = r
  	DecorBoxes.playing = true
  	show.gui.Enabled = true
@@ -4011,7 +5404,7 @@
  	show.tapLabel.Text = "TAP TO OPEN!"
  	show.tapLabel.Visible = true
  	show.dotsFrame.Visible = true
-@@ -1052,18 +1248,13 @@
+@@ -1052,18 +1294,13 @@
  	]]
  	local spun = {} -- [decorId] = { M = model } (built once, parked under the stage) / false
  	local function spinThrough()
@@ -4032,7 +5425,7 @@
  		local parked = base * CFrame.new(0, -60, 0)
  		local hover = 1.2
  		focus = (base * CFrame.new(0, hover + 2.2, 0)).Position
-@@ -1077,33 +1268,17 @@
+@@ -1077,33 +1314,17 @@
  				return
  			end
  			if shown then
@@ -4069,7 +5462,7 @@
  					e = { M = m }
  				end
  				spun[id] = e
-@@ -1112,8 +1287,7 @@
+@@ -1112,8 +1333,7 @@
  				shown = e
  			end
  			-- (the pad and the light take the colour of what is shown: the rarities flick past too)
@@ -4079,7 +5472,7 @@
  			pad.Color = scol
  			light.Color = scol
  			sparks:Emit(5)
-@@ -1128,7 +1302,7 @@
+@@ -1128,7 +1348,7 @@
  				spin += dt * (13 - k * 0.7)
  				if shown and shown.M.Parent then
  					local pop = math.min(1, (os.clock() - t0) * 7)
@@ -4088,7 +5481,7 @@
  				end
  			end
  		end
-@@ -1146,6 +1320,9 @@
+@@ -1146,6 +1366,9 @@
  			pcall(deps.Juice.Shake, 0.35, 0.3)
  		end
  		boxAlive = false
@@ -4098,7 +5491,7 @@
  		-- the lid flies off, the rest sinks away
  		for i, p in parts do
  			if not p.Parent then
-@@ -1166,6 +1343,7 @@
+@@ -1166,6 +1389,7 @@
  				end
  			end
  		end)
@@ -4106,7 +5499,7 @@
  		sparks:Emit(40)
  		light.Brightness = 1.2
  		light.Range = 12
-@@ -1208,6 +1386,9 @@
+@@ -1208,6 +1432,9 @@
  			end
  			spun[id] = nil
  		end
@@ -4116,7 +5509,7 @@
  		-- the beam of light
  		local beamH = level.Beam
  		local beam = showPart(model, { Name = "Beam", Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.2, 2.6, 2.6), CFrame = base * CFrame.new(0, 0.2, 0) * CFrame.Angles(0, 0, math.pi / 2), Color = rarColor, Material = Enum.Material.Neon, Transparency = 0.55 })
-@@ -1224,45 +1405,15 @@
+@@ -1224,45 +1451,15 @@
  		sparks.Color = ColorSequence.new(rarColor, Color3.new(1, 1, 1))
  		sparks:Emit(level.Particles)
  		sparks.Rate = if rank >= 4 then 12 else 4
@@ -4171,7 +5564,7 @@
  		if deps.Juice then
  			for k = 1, level.Confetti do
  				task.delay(k * 0.2, function()
-@@ -1278,14 +1429,19 @@
+@@ -1278,14 +1475,19 @@
  			end
  		end
  		flashScreen(level.Flashes, rarColor:Lerp(Color3.new(1, 1, 1), 0.6))
@@ -4622,6 +6015,116 @@
  	local egg = self.PetConfig.Eggs[eggId]
  	local floor = self:_floor()
  	if not egg or not floor then
+@@ -146,6 +149,24 @@
+ 	end
+ 	local spot
+ 	local whyNot
++	local spotLv
++	-- v2.52: eggs stand at ANY height (on a block, in the pit, under a roof): the level under the
++	-- mouse; [ ] / PageUp PageDown choose one (the spot is then found on the plane of that level),
++	-- \ = automatic again
++	local lock
++	local function setLock(dir)
++		if dir == 0 then
++			lock = nil
++		else
++			local cur = lock or spotLv or 0
++			local nv = if dir > 0 then math.floor(cur + 0.001) + 1 else math.ceil(cur - 0.001) - 1
++			lock = if BM and BM.CleanLv then BM.CleanLv(nv) else nil
++		end
++		self.Hud:Toast(if lock ~= nil then string.format("Height: level %s", tostring(lock)) else "Height: automatic", 1.2)
++	end
++	pcall(function()
++		self.Hud:Toast("Tip: [ and ] change the height · \\ = automatic", 3)
++	end)
+ 	local function aim(pos, screen)
+ 		local cam = workspace.CurrentCamera
+ 		-- (mouse: viewport coords incl. the top bar; touch: screen coords)
+@@ -159,24 +180,44 @@
+ 			end
+ 		end
+ 		local hit = workspace:Raycast(ray.Origin, ray.Direction * 500, params)
+-		if hit then
+-			local point = hit.Position
++		local lockPoint
++		if lock ~= nil and BM and BM.LevelY then
++			local o = floor.CFrame:PointToObjectSpace(ray.Origin)
++			local d = floor.CFrame:VectorToObjectSpace(ray.Direction)
++			if math.abs(d.Y) > 1e-4 then
++				local t = (BM.LevelY(lock) + floor.Size.Y / 2 - o.Y) / d.Y
++				if t > 0 then
++					lockPoint = floor.CFrame:PointToWorldSpace(o + d * t)
++				end
++			end
++		end
++		if hit or lockPoint then
++			local point
+ 			local radius = (BM and BM.NestRadius) or 1.5
+-			if math.abs(hit.Normal.Y) < 0.5 then
+-				-- the SIDE of a block: the egg goes onto that block, just behind its edge
+-				point -= Vector3.new(hit.Normal.X, 0, hit.Normal.Z) * (radius + 0.1)
++			spotLv = nil
++			if lockPoint then
++				point, spotLv = lockPoint, lock
++			else
++				point = hit.Position
++				if math.abs(hit.Normal.Y) < 0.5 then
++					-- the SIDE of a block: the egg stands in front of it (v2.52; before, on top of it)
++					point += Vector3.new(hit.Normal.X, 0, hit.Normal.Z) * (radius + 0.1)
++				end
++				if BM and BM.AimLevel then
++					spotLv = BM.AimLevel(floor.CFrame:PointToObjectSpace(hit.Position).Y - floor.Size.Y / 2, hit.Normal.Y)
++				end
+ 			end
+ 			local lp = floor.CFrame:PointToObjectSpace(point)
+ 			local half = floor.Size.X / 2 - 1.5
+ 			local ok = math.abs(lp.X) <= half and math.abs(lp.Z) <= half
+ 			whyNot = if ok then nil else "Put it inside your garden"
+ 			local y = 0
+-			local b = gardenBlocks()
+-			if ok and BM and b then
++			local b = gardenBlocks() or {}
++			if ok and BM then
+ 				local size = (plotModel and tonumber(plotModel:GetAttribute("Size"))) or floor.Size.X
+-				local okS, good, why = pcall(BM.SpotCheck, b, lp.X, lp.Z, radius, size, cellSize)
++				local okS, good, why = pcall(BM.SpotCheck, b, lp.X, lp.Z, radius, size, cellSize, nil, spotLv)
+ 				if okS then
+-					local okY, sy = pcall(BM.SpotY, b, lp.X, lp.Z, radius, size, cellSize)
++					local okY, sy = pcall(BM.SpotY, b, lp.X, lp.Z, radius, size, cellSize, spotLv)
+ 					y = if okY and type(sy) == "number" then sy else 0
+ 					if not good then
+ 						ok = false
+@@ -210,6 +251,16 @@
+ 		if gp then
+ 			return
+ 		end
++		if input.KeyCode == Enum.KeyCode.RightBracket or input.KeyCode == Enum.KeyCode.PageUp then
++			setLock(1)
++			return
++		elseif input.KeyCode == Enum.KeyCode.LeftBracket or input.KeyCode == Enum.KeyCode.PageDown then
++			setLock(-1)
++			return
++		elseif input.KeyCode == Enum.KeyCode.BackSlash then
++			setLock(0)
++			return
++		end
+ 		-- v2.36: a click ON A PLAYER opens their menu (🎁 GIVE GIFT gives the egg) — it places nothing
+ 		if self.clickGuard and self.clickGuard(input) then
+ 			return
+@@ -228,11 +279,12 @@
+ 				return -- (one egg at a time: wait for the server's answer)
+ 			end
+ 			local at = spot
++			local atLv = spotLv
+ 			local world = ghost.Position
+ 			self.sending = true
+ 			task.spawn(function()
+ 				local ok, a, b = pcall(function()
+-					return self.Remote:InvokeServer({ Action = "Place", Egg = eggId, X = at.X, Z = at.Y })
++					return self.Remote:InvokeServer({ Action = "Place", Egg = eggId, X = at.X, Z = at.Y, Lv = atLv })
+ 				end)
+ 				self.sending = false
+ 				if not self.active or self.conns ~= conns then
 --- a/EndgameConfig.lua
 +++ b/EndgameConfig.lua
 @@ -11,7 +11,8 @@
@@ -7823,7 +9326,46 @@
  	end
 --- a/IncubatorService.lua
 +++ b/IncubatorService.lua
-@@ -375,9 +375,39 @@
+@@ -113,7 +113,7 @@
+ 	-- (radius 0 = the column under the egg's centre: a new egg needs a flat spot anyway
+ 	-- (Place), and an old egg that stands at the edge of a block stays where it is
+ 	-- instead of jumping onto the block beside it)
+-	local ok, y = pcall(BS.SpotY, plot, nest.X, nest.Z, 0)
++	local ok, y = pcall(BS.SpotY, plot, nest.X, nest.Z, 0, nest.Lv) -- (v2.52: the level it was put at)
+ 	return if ok and type(y) == "number" and y == y then y else 0
+ end
+ 
+@@ -310,7 +310,7 @@
+ end
+ 
+ ---------------------------------------------------------------- place
+-function IncubatorService.Place(player, eggId, x, z)
++function IncubatorService.Place(player, eggId, x, z, lv)
+ 	local data = ctx.PlayerDataService.Get(player)
+ 	local plot = ctx.PlotSystem.Get(player)
+ 	local egg = type(eggId) == "string" and P().Eggs[eggId]
+@@ -339,11 +339,13 @@
+ 	end
+ 	-- v2.34: an egg stands ON blocks (a flat top) or on the bare ground — never inside
+ 	-- a block and never in water (BlockMath.SpotCheck; v2.32 refused every cell with blocks)
++	local nestLv
+ 	if ctx.BlockService and ctx.BlockService.SpotCheck then
+-		local okSpot, whySpot = ctx.BlockService.SpotCheck(player, x, z)
++		local okSpot, whySpot, _, lvSpot = ctx.BlockService.SpotCheck(player, x, z, nil, lv)
+ 		if not okSpot then
+ 			return false, "🥚 " .. tostring(whySpot or "The egg can't stand here")
+ 		end
++		nestLv = lvSpot
+ 	end
+ 	for _, other in list do
+ 		if (Vector2.new(other.X, other.Z) - Vector2.new(x, z)).Magnitude < P().Incubate.MinGap then
+@@ -370,14 +372,44 @@
+ 	data.Eggs.NextNest = (data.Eggs.NextNest or 1)
+ 	local id = "n" .. data.Eggs.NextNest
+ 	data.Eggs.NextNest += 1
+-	local nest = { Egg = eggId, X = math.floor(x * 10 + 0.5) / 10, Z = math.floor(z * 10 + 0.5) / 10, Ready = IncubatorService.Now() + total, Total = total }
++	local nest = { Egg = eggId, X = math.floor(x * 10 + 0.5) / 10, Z = math.floor(z * 10 + 0.5) / 10, Ready = IncubatorService.Now() + total, Total = total, Lv = nestLv }
+ 	list[id] = nest
  	IncubatorService.Spawn(player, id, nest)
  	ctx.PetService.Publish(player)
  	IncubatorService.Publish(player)
@@ -7863,15 +9405,40 @@
  ---------------------------------------------------------------- open
  --[[
  	v2.33: ONE egg at a time. Opening an egg starts the opening show on the client; until
-@@ -542,8 +572,12 @@
+@@ -500,7 +532,7 @@
+ 	of Place (inside the garden, a flat top or the floor, not in water, MinGap to every
+ 	OTHER egg and to the boxes). Not while an opening show is running.
+ ]]
+-function IncubatorService.Move(player, nestId, x, z)
++function IncubatorService.Move(player, nestId, x, z, lv)
+ 	local data = ctx.PlayerDataService.Get(player)
+ 	local plot = ctx.PlotSystem.Get(player)
+ 	if not data or not plot or type(nestId) ~= "string" then
+@@ -522,11 +554,13 @@
+ 	if math.abs(x) > half or math.abs(z) > half then
+ 		return false, "Put it inside your garden"
+ 	end
++	local moveLv
+ 	if ctx.BlockService and ctx.BlockService.SpotCheck then
+-		local okSpot, whySpot = ctx.BlockService.SpotCheck(player, x, z)
++		local okSpot, whySpot, _, lvSpot = ctx.BlockService.SpotCheck(player, x, z, nil, lv)
+ 		if not okSpot then
+ 			return false, "🥚 " .. tostring(whySpot or "The egg can't stand here")
+ 		end
++		moveLv = lvSpot
+ 	end
+ 	local gap = P().Incubate.MinGap
+ 	for id, other in list do
+@@ -542,8 +576,13 @@
  			end
  		end
  	end
-+	local prevX, prevZ = nest.X, nest.Z
++	local prevX, prevZ, prevLv = nest.X, nest.Z, nest.Lv
  	nest.X = math.floor(x * 10 + 0.5) / 10
  	nest.Z = math.floor(z * 10 + 0.5) / 10
-+	if ctx.BuildService and ctx.BuildService.PushUndo and (prevX ~= nest.X or prevZ ~= nest.Z) then
-+		ctx.BuildService.PushUndo(player, { Kind = "EggMove", Nest = nestId, X = prevX, Z = prevZ })
++	nest.Lv = moveLv
++	if ctx.BuildService and ctx.BuildService.PushUndo and (prevX ~= nest.X or prevZ ~= nest.Z or prevLv ~= nest.Lv) then
++		ctx.BuildService.PushUndo(player, { Kind = "EggMove", Nest = nestId, X = prevX, Z = prevZ, Lv = prevLv })
 +	end
  	-- (the model is made again on its new spot, on top of the blocks there; Spawn reads
  	-- Ready / Total from the nest, so the timer and the "ready" state stay what they were)
@@ -8909,7 +10476,16 @@
  -- give island `index` the look of tier `tierIndex` (1 = the plain meadow)
  function IslandService.ApplyLook(index, tierIndex)
  	local model = islandModel(index)
-@@ -171,6 +989,7 @@
+@@ -165,12 +983,15 @@
+ 	for _, d in model:GetDescendants() do
+ 		if d:IsA("Model") and (d.Name == "Tuft" or (d.Name == "Flower" and d:FindFirstChild("Bloom"))) then
+ 			for _, p in d:GetChildren() do
+-				if p:IsA("BasePart") then
++				if p:IsA("BasePart") and p:GetAttribute("LRCarved") then
++					p:SetAttribute("LRWantT", if tierIndex <= 1 then 0 else 1)
++				elseif p:IsA("BasePart") then
+ 					p.Transparency = if tierIndex <= 1 then 0 else 1
+ 				end
  			end
  		end
  	end
@@ -8917,7 +10493,7 @@
  	local old = model:FindFirstChild("Theme")
  	if old then
  		old:Destroy()
-@@ -203,12 +1022,20 @@
+@@ -203,12 +1024,20 @@
  	theme.Parent = model
  end
  
@@ -8939,7 +10515,7 @@
  	end
  end
  
-@@ -219,6 +1046,9 @@
+@@ -219,6 +1048,9 @@
  	end
  	local d = islandData(data)
  	player:SetAttribute("IslandTier", d.Tier)
@@ -8949,7 +10525,7 @@
  	player:SetAttribute("IslandLook", IslandService.LookTier(data))
  	local open = {}
  	for id, on in d.Unlocked do
-@@ -240,12 +1070,28 @@
+@@ -240,12 +1072,28 @@
  end
  
  ---------------------------------------------------------------- fence skins (v2.15)
@@ -8978,7 +10554,7 @@
  	local d = islandData(data)
  	if d.Fences[id] then
  		return IslandService.SetFence(player, id)
-@@ -257,8 +1103,7 @@
+@@ -257,8 +1105,7 @@
  	end
  	d.Fences[id] = true
  	d.Fence = id
@@ -8988,7 +10564,7 @@
  	return true, string.format("%s %s is yours!", skin.Icon, skin.Display)
  end
  
-@@ -273,8 +1118,7 @@
+@@ -273,8 +1120,7 @@
  		return false, "Buy this fence first"
  	end
  	d.Fence = id
@@ -8998,7 +10574,7 @@
  	return true, string.format("%s %s", skin.Icon, skin.Display)
  end
  
-@@ -362,6 +1206,15 @@
+@@ -362,6 +1208,15 @@
  	ctx.Net.IslandRequest.OnServerInvoke = function(player, req)
  		return IslandService.Handle(player, req)
  	end
@@ -10633,7 +12209,13 @@
  -- the ghost of a move goes away (the selection stays)
  function NestEdit:_endMove()
  	if self.ghost then
-@@ -291,6 +343,11 @@
+@@ -286,11 +338,17 @@
+ 	self.ghostParts, self.ghostRels, self.disc = nil, nil, nil
+ 	self.spot, self.why, self.world = nil, nil, nil
+ 	self.mode = "idle"
++	pcall(self.build._heightBar, self.build) -- v2.52: the height bar goes away
+ end
+ 
  -- (called by BuildMode:_deselect — it hides the card and the highlight itself)
  function NestEdit:Clear()
  	self:_endMove()
@@ -10645,7 +12227,7 @@
  	self.model, self.id, self.kind = nil, nil, nil
  	self.cardSig, self.cardText = nil, nil
  	self.lostAt = nil
-@@ -325,6 +382,7 @@
+@@ -325,6 +383,7 @@
  	if not m or not m.Parent or not b.active or b.mode ~= "idle" then
  		return
  	end
@@ -10653,7 +12235,54 @@
  	self:_endMove()
  	local x, z = localXZ(b, m)
  	if not x then
-@@ -471,13 +529,47 @@
+@@ -373,6 +432,7 @@
+ 	ghost.Parent = b.fx or workspace.CurrentCamera
+ 	self.ghost, self.ghostParts, self.ghostRels, self.disc = ghost, parts, rels, disc
+ 	self.mode = "move"
++	pcall(b._heightBar, b) -- v2.52
+ 	b.UI:ShowSelection(nil)
+ 	self.cardSig, self.cardText = nil, nil
+ 	self:_aim()
+@@ -400,12 +460,12 @@
+ 		local cell = b.cfg.Plot.CellSize
+ 		local radius = BM.NestRadius or 1.5
+ 		if ok then
+-			local okS, good, whyS = pcall(BM.SpotCheck, tiles, x, z, radius, size, cell)
++			local okS, good, whyS = pcall(BM.SpotCheck, tiles, x, z, radius, size, cell, nil, b.aimLv)
+ 			if okS and not good then
+ 				ok, why = false, whyS
+ 			end
+ 		end
+-		local okY, sy = pcall(BM.SpotY, tiles, x, z, radius, size, cell)
++		local okY, sy = pcall(BM.SpotY, tiles, x, z, radius, size, cell, b.aimLv)
+ 		y = if okY and type(sy) == "number" and sy == sy then sy else 0
+ 	end
+ 	if ok then
+@@ -428,6 +488,7 @@
+ 		self.disc.Color = if ok then GREEN else RED
+ 	end
+ 	self.spot = if ok then Vector2.new(x, z) else nil
++	self.lv = b.aimLv -- v2.52: the level it will stand at
+ 	self.why = why
+ 	self.world = base.Position
+ end
+@@ -455,13 +516,13 @@
+ 	local id, kind, at, where = self.id, self.kind, self.spot, self.world
+ 	local req, remote
+ 	if kind == "Egg" then
+-		req, remote = { Action = "MoveNest", Nest = id, X = at.X, Z = at.Y }, self:_petRemote()
++		req, remote = { Action = "MoveNest", Nest = id, X = at.X, Z = at.Y, Lv = self.lv }, self:_petRemote()
+ 		if not remote then
+ 			b.Hud:Toast("Connection problem, try again", 2, true)
+ 			return
+ 		end
+ 	else
+-		req, remote = { Action = "MoveBox", Nest = id, X = at.X, Z = at.Y }, b.Remote
++		req, remote = { Action = "MoveBox", Nest = id, X = at.X, Z = at.Y, Lv = self.lv }, b.Remote
+ 	end
+ 	self:_endMove()
+ 	self:_show(true) -- (its card is back; the server makes the model again on the new spot)
+@@ -471,13 +532,47 @@
  
  ---------------------------------------------------------------- BuildMode's hooks
  function NestEdit:Action(id)
@@ -10702,6 +12331,19 @@
  	if id == "NestMove" then
  		self:BeginMove()
  	elseif b.RobuxUI then
+@@ -510,6 +605,12 @@
+ 	if self.mode == "move" then
+ 		if click then
+ 			self:_putDown()
++		elseif kc == Enum.KeyCode.RightBracket or kc == Enum.KeyCode.PageUp then
++			b:AdjustLevel(1) -- v2.52: a level higher
++		elseif kc == Enum.KeyCode.LeftBracket or kc == Enum.KeyCode.PageDown then
++			b:AdjustLevel(-1)
++		elseif kc == Enum.KeyCode.BackSlash then
++			b:AdjustLevel(0)
+ 		elseif ut == Enum.UserInputType.MouseButton2 or kc == Enum.KeyCode.Backspace or (is and is("BuildCancel", Enum.KeyCode.T)) then
+ 			self:_endMove()
+ 			self:_show(true)
 --- a/ObjectFactory.lua
 +++ b/ObjectFactory.lua
 @@ -32,6 +32,44 @@
@@ -10778,6 +12420,28 @@
  	if record.Type == "Tree" then
  		model:SetAttribute("Level", record.Level or 1)
  	end
+@@ -77,7 +125,20 @@
+ 		end
+ 	end
+ 	model:SetAttribute("BaseY", baseY)
+-	model:PivotTo(ctx.PlotMath.ToWorld(plot.CFrame, record.X, record.Z, record.Rot or 0, baseY))
++	model:SetAttribute("Lv", record.Lv) -- v2.52: the level it stands at (the Editor, the overlap rules)
++	-- v2.52: a water plant is built for a lake (everything lifted by the water's depth): on dry ground
++	-- it sits on the ground
++	local lift = 0
++	if record.Type == "Tree" and ctx.BlockService and ctx.BlockService.WetAt then
++		local def = ctx.TreeTypes.Get(record.TreeType)
++		if def and def.Ground == "Water" then
++			local okW, wet = pcall(ctx.BlockService.WetAt, plot, record)
++			if okW and not wet then
++				lift = -(ctx.Config.Plot.WaterHeight or 3)
++			end
++		end
++	end
++	model:PivotTo(ctx.PlotMath.ToWorld(plot.CFrame, record.X, record.Z, record.Rot or 0, baseY + lift))
+ end
+ 
+ return ObjectFactory
 --- a/PetAbilityService.lua
 +++ b/PetAbilityService.lua
 @@ -484,6 +484,7 @@
@@ -12716,6 +14380,17 @@
  	return true
  end
  
+@@ -1609,8 +1716,8 @@
+ 	end
+ 	local lp = plot.CFrame:PointToObjectSpace(at)
+ 	local top = 0 -- (studs above the garden floor: the blocks under that spot)
+-	if ctx.BlockService and ctx.BlockService.TopY then
+-		local okT, y = pcall(ctx.BlockService.TopY, plot, lp.X, lp.Z)
++	if ctx.BlockService and ctx.BlockService.TopYBelow then
++		local okT, y = pcall(ctx.BlockService.TopYBelow, plot, lp.X, lp.Z, lp.Y) -- v2.52: under a roof = the floor under it
+ 		if okT and type(y) == "number" then
+ 			top = y
+ 		end
 @@ -2023,6 +2130,7 @@
  	if #parts == 0 then
  		return false
@@ -12910,7 +14585,20 @@
  	local price = ctx.PetConfig.SellPrice(p.Id, p.Variant, p.Level)
  	data.Pets.Owned[uid] = nil
  	local i = table.find(data.Pets.Equipped, uid)
-@@ -542,6 +565,13 @@
+@@ -531,17 +554,24 @@
+ 		return PetService.BuyEgg(player, req.Egg)
+ 	elseif a == "Place" then
+ 		-- v1.1: eggs hatch in your garden (IncubatorService)
+-		return ctx.IncubatorService.Place(player, req.Egg, req.X, req.Z)
++		return ctx.IncubatorService.Place(player, req.Egg, req.X, req.Z, req.Lv)
+ 	elseif a == "MoveNest" then
+ 		-- v2.38: the Editor carries an incubating / ready egg to another spot (your own garden only)
+ 		if not ctx.IncubatorService.Move then
+ 			return false, "Not available"
+ 		end
+-		return ctx.IncubatorService.Move(player, req.Nest, req.X, req.Z)
++		return ctx.IncubatorService.Move(player, req.Nest, req.X, req.Z, req.Lv)
+ 	elseif a == "Equip" then
  		return PetService.Equip(player, req.Uid)
  	elseif a == "Unequip" then
  		return PetService.Unequip(player, req.Uid)
@@ -13828,7 +15516,43 @@
  	end
 --- a/PlotMath.lua
 +++ b/PlotMath.lua
-@@ -367,6 +367,12 @@
+@@ -234,6 +234,26 @@
+ 	return def ~= nil and def ~= false and not def.Station and not def.Building and not def.FriendOnly
+ end
+ 
++-- v2.52: things stand at any level (record.Lv: the height of their support, in levels), so two
++-- things on the same cells only get in each other's way when their bodies share a level:
++-- a tree is 2 levels tall, everything else 1. A record without Lv always counts (old saves).
++function PlotMath.LvSpan(rec)
++	local lv = tonumber(rec.Lv)
++	if not lv or lv ~= lv then
++		return nil
++	end
++	return lv, lv + (if rec.Type == "Tree" then 2 else 1)
++end
++
++function PlotMath.SameLevel(a, b)
++	local a0, a1 = PlotMath.LvSpan(a)
++	local b0, b1 = PlotMath.LvSpan(b)
++	if not a0 or not b0 then
++		return true
++	end
++	return a0 < b1 and b0 < a1
++end
++
+ function PlotMath.CanPlace(record, objects, ignoreId, plotSize, margin, cellSize, keepOut)
+ 	local rect = PlotMath.Rect(record, cellSize)
+ 	if rect.x ~= rect.x or rect.z ~= rect.z or rect.x == math.huge or rect.z == math.huge or rect.x == -math.huge or rect.z == -math.huge then
+@@ -246,7 +266,7 @@
+ 		return true -- (a cosmetic fits anywhere inside the garden)
+ 	end
+ 	for id, other in objects do
+-		if id ~= ignoreId and not PlotMath.IsCosmetic(other) then
++		if id ~= ignoreId and not PlotMath.IsCosmetic(other) and PlotMath.SameLevel(record, other) then
+ 			local orect = PlotMath.Rect(other, cellSize)
+ 			if PlotMath.Overlap(rect, orect) then
+ 				if other.Type == "CollectionZone" and record.Type ~= "Decor" then
+@@ -367,6 +387,12 @@
  	local out = {}
  	local oldN, newN = PlotMath.GridN(oldSize, cellSize), PlotMath.GridN(newSize, cellSize)
  	for k, v in tiles or {} do
@@ -14216,7 +15940,21 @@
  	return plot
  end
  
-@@ -734,7 +1063,11 @@
+@@ -680,10 +1009,13 @@
+ 			end
+ 		end
+ 		TP.Snap(rec, size, P)
++		TP.Fill(rec, data.Plot.Blocks, size, P) -- v2.52: every object stands at a level (old saves: where they stood)
+ 		if not TP.Check(rec, placed, id, size, P) then
+ 			local spot = TP.FindFreeSpot(rec, placed, id, size, P)
+ 			if spot then
+ 				rec.X, rec.Z, rec.Rot = spot.X, spot.Z, spot.Rot
++				rec.Lv = nil -- (another spot: the level of that spot)
++				TP.Fill(rec, data.Plot.Blocks, size, P)
+ 			elseif rec.Type == "Decor" then
+ 				local def = ctx.DecorTypes.Get(rec.DecorType)
+ 				objects[id] = nil
+@@ -734,7 +1066,11 @@
  	plot.Model:SetAttribute("Lane", plot.Lane)
  	player:SetAttribute("PlotIndex", plot.Index)
  	refreshSign(plot)
@@ -14228,7 +15966,7 @@
  	layoutGround(plot, size)
  	PlotSystem.PublishYard(player, data)
  
-@@ -807,6 +1140,7 @@
+@@ -807,6 +1143,7 @@
  		rec.Z += shift
  	end
  	data.Plot.Blocks = ctx.PlotMath.RemapTiles(data.Plot.Blocks, oldSize, size, P.CellSize) -- v2.32: the blocks keep their place in the world
@@ -14236,7 +15974,7 @@
  	layoutGround(plot, size)
  	local moved = PlotSystem.Settle(player, data, size)
  	for id, rec in data.Plot.Objects do
-@@ -865,6 +1199,7 @@
+@@ -865,6 +1202,7 @@
  	data.Plot.Stored = {}
  	data.Plot.Expansion = 0
  	data.Plot.Blocks = {} -- v2.32
@@ -14244,7 +15982,7 @@
  	for _, rec in ctx.Config.Plot.StartingObjects do
  		data.Plot.Objects[PlotSystem.NewObjectId(data)] = table.clone(rec)
  	end
-@@ -948,6 +1283,7 @@
+@@ -948,6 +1286,7 @@
  	end
  	layoutGround(plot, ctx.Config.Plot.Sizes[0])
  	refreshSign(plot)
@@ -14326,11 +16064,40 @@
  end
  
  ---------------------------------------------------------------- save / rename / unlock
-@@ -403,11 +400,15 @@
+@@ -261,9 +258,10 @@
+ 		return a < b
+ 	end)
+ 	local placed, used, missing = {}, {}, {}
+-	local function place(entry, x, z, rot, sx, sz, scale)
++	local function place(entry, x, z, rot, sx, sz, scale, lv)
+ 		local cand = deep(entry.Rec)
+ 		cand.X, cand.Z, cand.Rot = x, z, rot
++		cand.Lv = ctx.TreePlacement.CleanLv(lv) -- v2.52: a save remembers the level too (none: filled in on load)
+ 		-- v2.32: a save remembers the SIZE of a cosmetic too (not in the save = ×1)
+ 		if cand.Type == "Decor" and ctx.DecorTypes and ctx.DecorTypes.ScaleOf then
+ 			local s = ctx.DecorTypes.ScaleOf({ Type = "Decor", DecorType = cand.DecorType, Scale = scale })
+@@ -294,7 +292,7 @@
+ 		-- (by id alone: a Bush that grew into a Leaf Tree is still the same object)
+ 		local pick = byId[pid]
+ 		if pick and not used[pid] then
+-			place(pick, tonumber(prec.X) or 0, tonumber(prec.Z) or 0, tonumber(prec.Rot) or 0, prec.SizeX, prec.SizeZ, prec.Scale)
++			place(pick, tonumber(prec.X) or 0, tonumber(prec.Z) or 0, tonumber(prec.Rot) or 0, prec.SizeX, prec.SizeZ, prec.Scale, prec.Lv)
+ 		end
+ 	end
+ 	-- a yard always keeps a Collection Zone
+@@ -364,6 +362,7 @@
+ 	data.Plot.Objects = placed
+ 	data.Plot.Stored = stored
+ 	for id, rec in placed do
++		ctx.TreePlacement.Fill(rec, data.Plot.Blocks, size, ctx.Config.Plot) -- v2.52
+ 		ctx.PlotSystem.SpawnObject(plot, id, rec)
+ 	end
+ 	data.Gardens.Active = key
+@@ -403,11 +402,15 @@
  		return false, "Your yard needs its Collection Zone"
  	end
  	-- (v2.37: the inventory has no limit)
-+	local undoPrev = { X = rec.X, Z = rec.Z, Rot = rec.Rot or 0, Scale = rec.Scale }
++	local undoPrev = { X = rec.X, Z = rec.Z, Rot = rec.Rot or 0, Scale = rec.Scale, Lv = rec.Lv }
  	data.Plot.Objects[id] = nil
  	rec.Scale = nil -- (v2.32: in the inventory a cosmetic has its normal size again — identical things stack)
  	data.Plot.Stored[id] = rec
@@ -14343,7 +16110,16 @@
  	return true, "📦 " .. nameOf(rec) .. " put in storage"
  end
  
-@@ -467,9 +468,7 @@
+@@ -451,7 +454,7 @@
+ 	return type(n) == "number" and n == n and n ~= math.huge and n ~= -math.huge
+ end
+ 
+-function PresetService.PlaceStored(player, id, x, z, rot, scale)
++function PresetService.PlaceStored(player, id, x, z, rot, scale, lv)
+ 	local data = ctx.PlayerDataService.Get(player)
+ 	local plot = ctx.PlotSystem.Get(player)
+ 	local rec = data and type(id) == "string" and data.Plot.Stored[id]
+@@ -467,9 +470,7 @@
  	end
  	local P = ctx.Config.Plot
  	local count = ctx.BuildService.Count
@@ -14354,7 +16130,15 @@
  		return false, "Decoration limit reached (" .. ctx.BuildService.DecorLimit(data) .. ")"
  	elseif rec.Type == "CollectionZone" then
  		-- the Nth zone in the yard follows the same rules as buying it (size, rebirth)
-@@ -530,7 +529,10 @@
+@@ -495,6 +496,7 @@
+ 	local size = ctx.PlotMath.PlotSize(P, data.Plot.Expansion)
+ 	local cand = deep(rec)
+ 	cand.X, cand.Z, cand.Rot = x, z, rot
++	cand.Lv = ctx.TreePlacement.CleanLv(lv) -- v2.52: the level the player chose (nil = on top of the blocks under it)
+ 	-- v2.32: the size chosen while placing (cosmetics only; free; checked by BuildService)
+ 	if ctx.BuildService.ApplyScale and not ctx.BuildService.ApplyScale(cand, scale) then
+ 		return false, "Invalid size"
+@@ -530,7 +532,10 @@
  	data.Plot.Objects[id] = cand
  	ctx.PlotSystem.SpawnObject(plot, id, cand)
  	hotbarNext(player, data, id, stack)
@@ -14366,6 +16150,15 @@
  	if sapling then
  		if ctx.MetaService then
  			ctx.MetaService.Track(player, "Build")
+@@ -558,7 +563,7 @@
+ 	elseif a == "Store" then
+ 		return PresetService.Store(player, req.Id)
+ 	elseif a == "PlaceStored" then
+-		return PresetService.PlaceStored(player, req.Id, req.X, req.Z, req.Rot, req.Scale)
++		return PresetService.PlaceStored(player, req.Id, req.X, req.Z, req.Rot, req.Scale, req.Lv)
+ 	end
+ 	return false, "Unknown action"
+ end
 --- a/Quality.lua
 +++ b/Quality.lua
 @@ -1,18 +1,28 @@
@@ -15734,6 +17527,15 @@
  	end
  	local bb, t = label(p, "MutationLabel", "", dom.Color, 1.3 * scale + 0.4)
  	bb:SetAttribute("MutFX", true)
+@@ -514,7 +571,7 @@
+ 		for _, o in obstacles or {} do
+ 			local w = plot.CFrame:PointToWorldSpace(Vector3.new(x, lp.Y, z))
+ 			local q = o.CFrame:PointToObjectSpace(w)
+-			if math.abs(q.X) <= o.Size.X / 2 + radius and math.abs(q.Z) <= o.Size.Z / 2 + radius then
++			if math.abs(q.X) <= o.Size.X / 2 + radius and math.abs(q.Z) <= o.Size.Z / 2 + radius and math.abs(q.Y) <= o.Size.Y / 2 + radius + 0.5 then -- (v2.52: things stand at any level)
+ 				return true
+ 			end
+ 		end
 @@ -597,13 +654,16 @@
  	if mkey then
  		applyLook(part, def, mkey, scale)
@@ -16042,7 +17844,7 @@
 +					do
 +						local okT, y = pcall(function()
 +							local lp = plot.CFrame:PointToObjectSpace(t.Position)
-+							return ctx.BlockService.TopY(plot, lp.X, lp.Z)
++							return ctx.BlockService.TopYBelow(plot, lp.X, lp.Z, lp.Y) -- (v2.52: under a roof = the floor under it)
 +						end)
 +						if okT and type(y) == "number" then
 +							goalTop = y
@@ -20262,9 +22064,96 @@
  				elseif p.Eq then
  					-- (a pet that follows you stays with you: only pets at home are traded)
  					e.Locked, e.Why = true, "Unequip this pet first — a pet that follows you can't be traded"
+--- a/TreePlacement.lua
++++ b/TreePlacement.lua
+@@ -24,6 +24,14 @@
+ -- v2.32: `blocks` (optional) = the garden's blocks (data.Plot.Blocks): what the
+ -- object stands on (BlockMath.GroundCheck — flat tops, sand / water trees)
+ function TreePlacement.Check(record, objects, ignoreId, plotSize, P, blocks)
++	-- v2.52: every object stands at a level (record.Lv). A bad number is dropped; none = where
++	-- things always stood (on top of the highest column under it)
++	if record.Lv ~= nil then
++		record.Lv = BlockMath.CleanLv(record.Lv)
++	end
++	if blocks and record.Lv == nil then
++		record.Lv = BlockMath.AutoLevel(record, blocks, plotSize, P.CellSize)
++	end
+ 	local ok, why, other = PlotMath.CanPlace(record, objects, ignoreId, plotSize, P.EdgeMargin, P.CellSize, P.KeepOut)
+ 	if ok and blocks then
+ 		local okG, whyG = BlockMath.GroundCheck(record, blocks, plotSize, P.CellSize)
+@@ -34,6 +42,18 @@
+ 	return ok, why, other
+ end
+ 
++-- v2.52: give a record without a level the one it has always stood at
++function TreePlacement.Fill(record, blocks, plotSize, P)
++	if BlockMath.CleanLv(record.Lv) == nil then
++		record.Lv = BlockMath.AutoLevel(record, blocks or {}, plotSize, P.CellSize)
++	end
++	return record
++end
++
++function TreePlacement.CleanLv(v)
++	return BlockMath.CleanLv(v)
++end
++
+ function TreePlacement.FindFreeSpot(record, objects, ignoreId, plotSize, P)
+ 	return PlotMath.FindFreeSpot(record, objects, ignoreId, plotSize, P.CellSize, P.KeepOut)
+ end
+@@ -48,7 +68,7 @@
+ 		return out -- (v2.15: cosmetics take no room)
+ 	end
+ 	for id, other in objects do
+-		if id ~= ignoreId and not PlotMath.IsCosmetic(other) then
++		if id ~= ignoreId and not PlotMath.IsCosmetic(other) and PlotMath.SameLevel(record, other) then
+ 			local gap = PlotMath.GapBetween(record, other, P.KeepOut)
+ 			if gap > 0 then
+ 				table.insert(out, PlotMath.Grow(PlotMath.Rect(other, P.CellSize), gap))
 --- a/TreeSystem.lua
 +++ b/TreeSystem.lua
-@@ -535,7 +535,47 @@
+@@ -226,13 +226,18 @@
+ 					end
+ 				end
+ 			end
+-			if free then
+-				-- v2.32: on top of whatever blocks stand at that spot
+-				local topY = 0
+-				if ctx.BlockService and ctx.BlockService.TopY then
+-					local okY, y = pcall(ctx.BlockService.TopY, entry.Plot, x, z)
+-					topY = if okY and type(y) == "number" then y else 0
++			-- v2.52: the tree stands at its own level: a spot in a wall (a solid block at that level) is no spot
++			local baseY = (entry.Model and entry.Model:GetAttribute("BaseY")) or 0
++			if free and ctx.BlockMath and ctx.BlockService and ctx.BlockService.TopYBelow then
++				local cx, cz = ctx.PlotMath.CellOf(x, z, size, P.CellSize)
++				local lv = ctx.BlockMath.BaseLevel(entry.Record, data.Plot.Blocks, size, P.CellSize)
++				if cx and ctx.BlockMath.SolidAt(data.Plot.Blocks, cx, cz, math.floor(lv) + 1) then
++					free = false
+ 				end
++			end
++			if free then
++				-- v2.32: on top of whatever blocks stand at that spot (v2.52: at the tree's own level)
++				local topY = baseY
+ 				return ctx.PlotMath.ToWorld(entry.Plot.CFrame, x, z, 0, topY) * Vector3.new(0, 1.4, 0), a
+ 			end
+ 		end
+@@ -327,7 +332,15 @@
+ 	-- v2.32: a tree on top of blocks drops from up there (BaseY: ObjectFactory.ApplyRecord)
+ 	local baseY = (entry.Model and entry.Model:GetAttribute("BaseY")) or 0
+ 	local pivot = ctx.PlotMath.ToWorld(entry.Plot.CFrame, entry.Record.X, entry.Record.Z, 0, baseY)
+-	return pivot * Vector3.new(math.cos(a) * d, h + rng:NextNumber(-0.6, 0.6), math.sin(a) * d), a
++	local up = h + rng:NextNumber(-0.6, 0.6)
++	-- v2.52: a roof of blocks over the tree: the drops start under it, not inside it
++	if ctx.BlockService and ctx.BlockService.CeilY then
++		local okC, ceil = pcall(ctx.BlockService.CeilY, entry.Plot, entry.Record.X, entry.Record.Z, baseY + 0.5)
++		if okC and type(ceil) == "number" then
++			up = math.clamp(math.min(up, ceil - baseY - 0.9), 1, math.max(up, 1))
++		end
++	end
++	return pivot * Vector3.new(math.cos(a) * d, up, math.sin(a) * d), a
+ end
+ 
+ -- one harvest; returns bundles spawned, mutated bundles, units spawned
+@@ -535,7 +548,47 @@
  	return false
  end
  
@@ -20312,7 +22201,7 @@
  	local unix = TreeSystem.Unix()
  	if ctx.MutationService then
  		ctx.MutationService.SpawnBoost = 1
-@@ -582,7 +622,15 @@
+@@ -582,7 +635,15 @@
  				publish(entry, wait)
  				local spawned, mutated = TreeSystem.Harvest(entry)
  				if spawned > 0 and ctx.Net and ctx.Net.TreeDropped then
@@ -21782,7 +23671,7 @@
  		ball:Destroy()
 --- a/ru.lua
 +++ b/ru.lua
-@@ -5887,4 +5887,501 @@
+@@ -5887,4 +5887,510 @@
  L.Strings["There is a slab here already — only the same slab fits onto it"] = "Здесь уже лежит плита — на неё можно положить только такую же"
  L.Strings["Trees need a full block — not a slab"] = "Деревьям нужен целый блок, а не плита"
  
@@ -22283,4 +24172,13 @@
 +L.Templates["Thick grass spreads to bare spots (%d%% a step)"] = "Густая трава расползается на пустые места (%1%% за шаг)"
 +L.Templates["Walking in grass slows you down: %d%% tall, %d%% thick, %d%% overgrown"] = "Трава замедляет тебя: %1%% высокая, %2%% густая, %3%% заросли"
 +L.Templates["Next island: %s %s at level %d (💰%s)"] = "Следующий остров: %1 %2 на уровне %3 (💰%4)"
++L.Strings["⬆ Stuck in the pit? You were lifted out of it"] = "⬆ Застрял в яме? Тебя подняли наверх"
++-- v2.52 free placement height
++L.Strings["Inside a block — pick another height"] = "Внутри блока — выбери другую высоту"
++L.Strings["HEIGHT: auto"] = "ВЫСОТА: авто"
++L.Templates["HEIGHT: level %s"] = "ВЫСОТА: уровень %1"
++L.Strings["AUTO"] = "АВТО"
++L.Strings["Height: automatic"] = "Высота: авто"
++L.Templates["Height: level %s"] = "Высота: уровень %1"
++L.Strings["Tip: [ and ] change the height · \\ = automatic"] = "Подсказка: [ и ] меняют высоту · \\ = авто"
  return L
