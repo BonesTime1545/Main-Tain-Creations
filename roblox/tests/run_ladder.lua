@@ -980,6 +980,137 @@ function T.RepairCost(capacity)
 	return math.floor(capacity * T.VacuumRepairPerItem)
 end
 
+-- (inv, round 13) the numbers a tool / item works with, for the Inventory:
+-- { { Icon, Label, Value (string), Unit? } … }. `state` = the decoded "Tools" attribute
+-- ({ Up = { [tool] = levels } }) -> the numbers of the CURRENT tier / upgrades, through the
+-- same functions the game plays with (GrassStats, Trimmer, Whirl, Rake, Blower, Vacuum,
+-- Vortex, Pickaxe, Blaster)
+local function statNum(v, d)
+	v = tonumber(v) or 0
+	d = d or 2
+	local m = 10 ^ d
+	local r = math.floor(v * m + 0.5) / m
+	if r == math.floor(r) then
+		return tostring(math.floor(r))
+	end
+	local str = string.format("%." .. tostring(d) .. "f", r)
+	str = string.gsub(str, "0+$", "")
+	return (string.gsub(str, "%.$", ""))
+end
+T.StatNumber = statNum
+function T.StatLines(id, state)
+	local out = {}
+	local function add(icon, label, value, unit)
+		if value ~= nil then
+			table.insert(out, { Icon = icon, Label = label, Value = if type(value) == "number" then statNum(value) else tostring(value), Unit = unit })
+		end
+	end
+	local up = type(state) == "table" and type(state.Up) == "table" and state.Up[id] or nil
+	up = if type(up) == "table" then up else {}
+	if T.GrassTools[id] then
+		if id == "Trimmer" then
+			local tr, wh = T.Trimmer(up), T.Whirl(up)
+			add("🏅", "Tier", T.TierName("Trimmer", T.HelperTier("Trimmer", up)))
+			add("📏", "Cutting radius", tr.Radius, "studs")
+			add("💪", "Cutting power", tr.Power)
+			add("⚡", "Cuts per second", tr.Rate)
+			add("🔋", "Battery", tr.Battery, "sec")
+			add("🌀", "Whirl radius", wh.Radius, "studs")
+			add("⏱", "Whirl recharge", wh.Cooldown, "sec")
+		else
+			local d: any = T.GrassStats(id, up)
+			if d.Tier and T.GrassTiers[id] then
+				add("🏅", "Tier", tostring(d.Display) .. " (" .. tostring(d.Tier) .. "/" .. tostring(#T.GrassTiers[id].Names) .. ")")
+			end
+			add("📏", "Cutting radius", d.Radius, "studs")
+			add("💪", "Cutting power", d.Power)
+			add("⏱", "Cut every", d.Cooldown, "sec")
+			add("🏃", "Speed", d.Speed, "studs/s")
+			add("🛠", "Durability", d.Durability, "uses")
+			add("⛽", "Fuel", d.Fuel, "sec")
+			add("✨", "Ability recharge", d.AbCooldown, "sec")
+			if d.GoldenChance then
+				add("🌟", "Golden Grass chance", statNum(d.GoldenChance * 100) .. "%")
+			end
+		end
+		local okR, rate = pcall(T.MowRate, id, up)
+		if okR and type(rate) == "number" and rate > 0 then
+			add("🌿", "Mows", statNum(rate, 1), "studs²/s")
+		end
+	elseif id == "Rake" then
+		local r = T.Rake(up)
+		add("🏅", "Tier", T.TierName("Rake", T.HelperTier("Rake", up)))
+		add("📏", "Head width", r.Width, "studs")
+		add("🌾", "Loosens leaves within", r.LoosenRadius, "studs")
+		add("🧲", "Gather radius", r.GatherRadius, "studs")
+		add("⏱", "Gather recharge", r.GatherCooldown, "sec")
+		add("💪", "Power", r.Stats.Power)
+		add("🎯", "Control", r.Stats.Control)
+	elseif id == "Blower" then
+		local b = T.Blower(up)
+		add("🏅", "Tier", T.TierName("Blower", T.HelperTier("Blower", up)))
+		add("📏", "Reach", b.Range, "studs")
+		add("📐", "Stream width", statNum(b.Cone) .. "°")
+		add("💨", "Blow force", b.Force, "studs/s")
+		add("🔋", "Energy", b.Energy, "sec")
+		add("🚀", "Jet recharge", b.JetCooldown, "sec")
+	elseif id == "Vacuum" then
+		local v, vo = T.Vacuum(up), T.Vortex(up)
+		add("🏅", "Tier", T.TierName("Vacuum", T.HelperTier("Vacuum", up)))
+		add("📏", "Reach", v.Range, "studs")
+		add("🌀", "Suction", v.Rate, "items/s")
+		add("📦", "Capacity", v.Capacity, "items")
+		add("🌪", "Vortex radius", vo.Radius, "studs")
+		add("⏱", "Vortex recharge", vo.Cooldown, "sec")
+	elseif id == "Pickaxe" then
+		local p: any = T.Pickaxe(up)
+		add("🏅", "Tier", tostring(p.Name) .. " (" .. tostring(p.Index or T.PickaxeTier(up)) .. "/" .. tostring(#T.PickaxeTiers) .. ")")
+		add("⛏", "Swing every", p.HitEvery, "sec")
+		add("📏", "Reach", p.Reach, "studs")
+		add("🪨", "Swings per stone block", p.Hits and p.Hits.R)
+		add("🛠", "Durability", p.Durability, "blocks")
+		add("💥", "Smash recharge", p.Smash, "sec")
+	elseif id == "Blaster" then
+		local b = T.Blaster(up)
+		add("🏅", "Tier", T.TierName("Blaster", T.HelperTier("Blaster", up)))
+		add("🔫", "Magazine", b.Magazine, "pulses")
+		add("💪", "Pulse power", b.Power, "studs/s")
+		add("⏱", "Fire every", b.FireEvery, "sec")
+		add("🔄", "Reload", b.Reload, "sec")
+		add("📏", "Pulse size", b.Size, "studs")
+		add("🎯", "Range", b.Range, "studs")
+		add("🔋", "Energy", b.Energy, "pulses")
+	elseif T.Consumables[id] then
+		local c: any = T.Consumables[id]
+		add("⏳", "Lasts", c.Duration, "sec")
+		add("📏", "Radius", c.Radius, "studs")
+		add("🧲", "Pull", c.Pull, "studs/s")
+		add("✋", "Collects within", c.Pickup, "studs")
+		if c.SpeedMult then
+			add("🏃", "Mower speed", "+" .. statNum((c.SpeedMult - 1) * 100) .. "%")
+		end
+		if c.Boost then
+			add("🧸", "Pet ability boost", "+" .. statNum(c.Boost * 100) .. "%")
+		end
+		if c.Needs then
+			local nd = T.Def(c.Needs)
+			add("🔌", "For", nd and nd.Display or c.Needs)
+		elseif c.NeedsMower then
+			add("🔌", "For", T.GrassTools.PushMower.Display .. " · " .. T.GrassTools.RidingMower.Display)
+		elseif c.ToolTarget then
+			local names = {}
+			for _, tid in { "Shears", "WeedCutter", "Scythe", "Pickaxe" } do
+				local td = T.RepairTargets[tid] and T.Def(tid)
+				if td then
+					table.insert(names, td.Display)
+				end
+			end
+			add("🔌", "For", table.concat(names, " · "))
+		end
+	end
+	return out
+end
+
 return T
 
 end
