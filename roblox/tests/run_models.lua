@@ -1119,6 +1119,19 @@ builders.GrassSalt = function(m)
 	return h
 end
 
+-- (round 15) the Cow's Milk Bottle: a white bottle with a blue label, a short neck and a red cap
+builders.MilkBottle = function(m)
+	local h = handlePart(m)
+	local MILK = Color3.fromRGB(250, 250, 245)
+	add(m, "Part", { Name = "Bottle", Shape = Enum.PartType.Cylinder, Size = Vector3.new(1.0, 0.8, 0.8), Color = MILK, Material = M.SmoothPlastic }, CFrame.new(0, 0.2, -0.3) * CFrame.Angles(0, 0, math.pi / 2))
+	add(m, "Part", { Name = "Label", Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.42, 0.83, 0.83), Color = Color3.fromRGB(90, 160, 235), Material = M.SmoothPlastic }, CFrame.new(0, 0.15, -0.3) * CFrame.Angles(0, 0, math.pi / 2))
+	add(m, "Part", { Name = "Shoulder", Shape = Enum.PartType.Ball, Size = Vector3.new(0.8, 0.8, 0.8), Color = MILK, Material = M.SmoothPlastic }, CFrame.new(0, 0.62, -0.3))
+	add(m, "Part", { Name = "Neck", Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.4, 0.42, 0.42), Color = MILK, Material = M.SmoothPlastic }, CFrame.new(0, 1.0, -0.3) * CFrame.Angles(0, 0, math.pi / 2))
+	add(m, "Part", { Name = "Cap", Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.18, 0.5, 0.5), Color = Color3.fromRGB(225, 60, 55), Material = M.SmoothPlastic }, CFrame.new(0, 1.24, -0.3) * CFrame.Angles(0, 0, math.pi / 2))
+	add(m, "Part", { Name = "Drop", Shape = Enum.PartType.Ball, Size = Vector3.new(0.22, 0.22, 0.22), Color = Color3.new(1, 1, 1), Material = M.SmoothPlastic }, CFrame.new(0, 0.15, -0.72))
+	return h
+end
+
 ---------------------------------------------------------------- API
 function ToolModels.Has(id)
 	return builders[id] ~= nil

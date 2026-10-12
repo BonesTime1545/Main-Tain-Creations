@@ -694,7 +694,17 @@ T.Consumables = {
 		Description = "Give it to one of your equipped pets: for 5 minutes its ability recharges 50% faster and is 50% stronger.",
 	},
 }
+-- (round 15, harvest) the Cow's MILK BOTTLE: NEVER sold (NotSold: no shop, no stock, no auto-buy, no Money purchase).
+-- A Cow drops bottles in your garden; walk over one to pick it up. Use it on one EQUIPPED pet (the toy picker, or
+-- 🥛 GIVE MILK in the pet panel): +Boost ability power and speed for Duration — a second bottle only refreshes the
+-- time (never stacks). It adds to a toy's boost (PetAbilityService.EffBoost).
+T.Consumables.MilkBottle = {
+	Display = "Milk Bottle", Rarity = "Epic", Price = 50000, Icon = "🥛", PetTarget = true, Milk = true, NotSold = true,
+	Boost = 0.15, Duration = 300,
+	Description = "Fresh milk from your Cow. Give it to one of your equipped pets: for 5 minutes its ability works 15% better. Another bottle only starts the 5 minutes again.",
+}
 T.ConsumableOrder = { "LeafMagnet", "GrassKiller", "BatteryPack", "TurboFuel", "MegaMagnet", "BlowerBattery", "VacuumBattery", "BlasterBattery", "Gasoline", "RepairKit", "GrassSalt", "SmallToy", "MediumToy", "BigToy" }
+table.insert(T.ConsumableOrder, "MilkBottle") -- (round 15: the inventory / trades list it; shops skip NotSold)
 T.RepairTargets = { Shears = true, WeedCutter = true, Scythe = true, Pickaxe = true } -- (what a Repair Kit mends)
 T.ConsumableSlots = 3
 T.MaxStack = math.huge -- (v2.37: no limit on one-use items — nothing refuses by it any more)
@@ -1107,6 +1117,57 @@ function T.StatLines(id, state)
 			end
 			add("🔌", "For", table.concat(names, " · "))
 		end
+	end
+	return out
+end
+
+--[[
+	(round 15) 🐕 GOLDEN RETRIEVER (Home Egg): the tool IN YOUR HAND works better — every stat +X %
+	(PetPowers.ToolMult; the server publishes it as the player attribute ToolBoost with 3 decimals, so the client
+	uses the very same number). Both sides call these on the stat tables they already work with:
+	  T.Boosted(t, mult)     a tool's table (GrassStats, Trimmer, Whirl, Vacuum, Vortex, Blower, Blaster, a pickaxe
+							 tier): a COPY in which every effect number is × mult (radius, reach, power, rate,
+							 force, range, cone, speed, size, arc …) and every waiting time is ÷ mult (cooldowns,
+							 reload, the time between shots / swings). What the tool HOLDS (durability, fuel,
+							 battery, energy, capacity, magazine — gauges counted in the save) and prices / tiers /
+							 ids stay as they are. A Power that is a share of the grass cut never passes 100.
+	  T.BoostStats(s, mult)  the six broom stats (the broom, the rake): every number × mult, 2 decimals.
+	mult = 1 gives back the very same table (no copy).
+]]
+T.BoostFaster = { Cooldown = true, AbCooldown = true, FireEvery = true, Reload = true, GatherCooldown = true, JetCooldown = true, HitEvery = true, Smash = true }
+T.BoostKeep = { Tier = true, Index = true, Durability = true, Fuel = true, Energy = true, Battery = true, Capacity = true, Magazine = true, Price = true, Cost = true, RepairPer = true, HitMult = true, Time = true, Max = true, Slot = true }
+function T.Boosted(t, mult)
+	mult = tonumber(mult) or 1
+	if type(t) ~= "table" or mult == 1 or mult ~= mult or mult <= 0 or mult == math.huge then
+		return t
+	end
+	local out: any = {}
+	for k, v in t do
+		if type(v) == "number" and not T.BoostKeep[k] then
+			if T.BoostFaster[k] then
+				v = v / mult
+			else
+				local nv = v * mult
+				if k == "Power" and v <= 100 then
+					nv = math.min(nv, 100)
+				elseif k == "Arc" then
+					nv = math.min(nv, 360)
+				end
+				v = nv
+			end
+		end
+		out[k] = v
+	end
+	return out
+end
+function T.BoostStats(stats, mult)
+	mult = tonumber(mult) or 1
+	if type(stats) ~= "table" or mult == 1 or mult ~= mult or mult <= 0 or mult == math.huge then
+		return stats
+	end
+	local out: any = {}
+	for k, v in stats do
+		out[k] = if type(v) == "number" then math.floor(v * mult * 100 + 0.5) / 100 else v
 	end
 	return out
 end

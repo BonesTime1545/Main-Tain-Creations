@@ -694,7 +694,17 @@ T.Consumables = {
 		Description = "Give it to one of your equipped pets: for 5 minutes its ability recharges 50% faster and is 50% stronger.",
 	},
 }
+-- (round 15, harvest) the Cow's MILK BOTTLE: NEVER sold (NotSold: no shop, no stock, no auto-buy, no Money purchase).
+-- A Cow drops bottles in your garden; walk over one to pick it up. Use it on one EQUIPPED pet (the toy picker, or
+-- 🥛 GIVE MILK in the pet panel): +Boost ability power and speed for Duration — a second bottle only refreshes the
+-- time (never stacks). It adds to a toy's boost (PetAbilityService.EffBoost).
+T.Consumables.MilkBottle = {
+	Display = "Milk Bottle", Rarity = "Epic", Price = 50000, Icon = "🥛", PetTarget = true, Milk = true, NotSold = true,
+	Boost = 0.15, Duration = 300,
+	Description = "Fresh milk from your Cow. Give it to one of your equipped pets: for 5 minutes its ability works 15% better. Another bottle only starts the 5 minutes again.",
+}
 T.ConsumableOrder = { "LeafMagnet", "GrassKiller", "BatteryPack", "TurboFuel", "MegaMagnet", "BlowerBattery", "VacuumBattery", "BlasterBattery", "Gasoline", "RepairKit", "GrassSalt", "SmallToy", "MediumToy", "BigToy" }
+table.insert(T.ConsumableOrder, "MilkBottle") -- (round 15: the inventory / trades list it; shops skip NotSold)
 T.RepairTargets = { Shears = true, WeedCutter = true, Scythe = true, Pickaxe = true } -- (what a Repair Kit mends)
 T.ConsumableSlots = 3
 T.MaxStack = math.huge -- (v2.37: no limit on one-use items — nothing refuses by it any more)
@@ -1111,6 +1121,57 @@ function T.StatLines(id, state)
 	return out
 end
 
+--[[
+	(round 15) 🐕 GOLDEN RETRIEVER (Home Egg): the tool IN YOUR HAND works better — every stat +X %
+	(PetPowers.ToolMult; the server publishes it as the player attribute ToolBoost with 3 decimals, so the client
+	uses the very same number). Both sides call these on the stat tables they already work with:
+	  T.Boosted(t, mult)     a tool's table (GrassStats, Trimmer, Whirl, Vacuum, Vortex, Blower, Blaster, a pickaxe
+							 tier): a COPY in which every effect number is × mult (radius, reach, power, rate,
+							 force, range, cone, speed, size, arc …) and every waiting time is ÷ mult (cooldowns,
+							 reload, the time between shots / swings). What the tool HOLDS (durability, fuel,
+							 battery, energy, capacity, magazine — gauges counted in the save) and prices / tiers /
+							 ids stay as they are. A Power that is a share of the grass cut never passes 100.
+	  T.BoostStats(s, mult)  the six broom stats (the broom, the rake): every number × mult, 2 decimals.
+	mult = 1 gives back the very same table (no copy).
+]]
+T.BoostFaster = { Cooldown = true, AbCooldown = true, FireEvery = true, Reload = true, GatherCooldown = true, JetCooldown = true, HitEvery = true, Smash = true }
+T.BoostKeep = { Tier = true, Index = true, Durability = true, Fuel = true, Energy = true, Battery = true, Capacity = true, Magazine = true, Price = true, Cost = true, RepairPer = true, HitMult = true, Time = true, Max = true, Slot = true }
+function T.Boosted(t, mult)
+	mult = tonumber(mult) or 1
+	if type(t) ~= "table" or mult == 1 or mult ~= mult or mult <= 0 or mult == math.huge then
+		return t
+	end
+	local out: any = {}
+	for k, v in t do
+		if type(v) == "number" and not T.BoostKeep[k] then
+			if T.BoostFaster[k] then
+				v = v / mult
+			else
+				local nv = v * mult
+				if k == "Power" and v <= 100 then
+					nv = math.min(nv, 100)
+				elseif k == "Arc" then
+					nv = math.min(nv, 360)
+				end
+				v = nv
+			end
+		end
+		out[k] = v
+	end
+	return out
+end
+function T.BoostStats(stats, mult)
+	mult = tonumber(mult) or 1
+	if type(stats) ~= "table" or mult == 1 or mult ~= mult or mult <= 0 or mult == math.huge then
+		return stats
+	end
+	local out: any = {}
+	for k, v in stats do
+		out[k] = if type(v) == "number" then math.floor(v * mult * 100 + 0.5) / 100 else v
+	end
+	return out
+end
+
 return T
 end)() end
 TC_MODULE = mc()
@@ -1173,6 +1234,16 @@ end
 
 local function TC()
 	return ctx.ToolConfig
+end
+-- (round 15) 🐕 the Golden Retriever: the held tool's stat table, boosted (ToolConfig.Boosted; the client does the same)
+local function toolMult(player)
+	return if ctx.PetPowers and ctx.PetPowers.ToolMult then ctx.PetPowers.ToolMult(player) else 1
+end
+local function HB(player, t)
+	if t and TC().Boosted then
+		return TC().Boosted(t, toolMult(player))
+	end
+	return t
 end
 
 local function S(player)
@@ -1255,7 +1326,7 @@ function ToolService.RakeStats(player)
 	local data = ctx.PlayerDataService.Get(player)
 	local up = data and data.Tools and type(data.Tools.Up) == "table" and data.Tools.Up.Rake or nil
 	if TC().Rake then
-		return TC().Rake(up).Stats
+		return (TC().BoostStats or function(x) return x end)(TC().Rake(up).Stats, toolMult(player))
 	end
 	return TC().Helpers.Rake.Stats
 end
@@ -1909,7 +1980,7 @@ function ToolService.Ability(player, pos)
 	end
 	local id = if s.Mower and s.MowerId then s.MowerId else ToolService.Held(player)
 	local ab = id and TC().Abilities[id]
-	local def = ab and TC().GrassStats(id, data.Tools.Up[id])
+	local def = ab and HB(player, TC().GrassStats(id, data.Tools.Up[id]))
 	if not def then
 		return false
 	end
@@ -2164,6 +2235,9 @@ function ToolService.BuyItem(player, id, count)
 	end
 	if count < 1 or count > 10 then
 		return false, "Bad amount"
+	end
+	if def.NotSold then
+		return false, "This item is not sold" -- (round 15: the Milk Bottle comes from a Cow only)
 	end
 	if ctx.IslandService then
 		local can, why = ctx.IslandService.Can(player, "Items")
@@ -2521,6 +2595,17 @@ function ToolService.Use(player, id, pos, pet, toolId)
 		end
 		data.Tools.VacUsed = 0
 		msg = "🔋 Vacuum fully restored!"
+	elseif def.Milk then
+		-- (round 15) the Cow's Milk Bottle: +Boost for Duration to one EQUIPPED pet (refreshed, never stacked)
+		local PA = ctx.PetAbilityService
+		if not PA or not PA.Milk then
+			return false, "Not now"
+		end
+		local okM, textM = PA.Milk(player, pet, def.Boost, def.Duration)
+		if not okM then
+			return false, textM
+		end
+		msg = textM
 	elseif def.PetTarget then
 		-- v2.32 a pet toy: `pet` = the uid of one of your EQUIPPED pets (the client's picker)
 		local PA = ctx.PetAbilityService
@@ -2561,7 +2646,7 @@ end
 function ToolService.CutAt(player, pos, dir)
 	local id = ToolService.Held(player)
 	local dataC = ctx.PlayerDataService.Get(player)
-	local def = id and dataC and TC().GrassStats(id, dataC.Tools.Up[id])
+	local def = id and dataC and HB(player, TC().GrassStats(id, dataC.Tools.Up[id]))
 	if not def or (def.Kind ~= "Snip" and def.Kind ~= "Swipe" and def.Kind ~= "Swing") then
 		return false
 	end
@@ -2616,7 +2701,7 @@ function ToolService.Trim(player, pos)
 	if id ~= "Trimmer" or not data or not root or not plot or typeof(pos) ~= "Vector3" then
 		return false
 	end
-	local tr = TC().Trimmer(data.Tools.Up.Trimmer)
+	local tr = HB(player, TC().Trimmer(data.Tools.Up.Trimmer))
 	if flat(pos - root.Position).Magnitude > tr.Reach + 2 then
 		return false
 	end
@@ -2671,7 +2756,7 @@ function ToolService.Whirl(player)
 	end
 	local s = S(player)
 	local now = ToolService.Now()
-	local W = TC().Whirl(data.Tools.Up.Trimmer)
+	local W = HB(player, TC().Whirl(data.Tools.Up.Trimmer))
 	if not s.WhirlReady and whirlReady[player.UserId] then
 		s.WhirlReady = whirlReady[player.UserId] -- (the cooldown outlives a rejoin, like the vortex's)
 	end
@@ -2750,7 +2835,7 @@ function ToolService.BlowAt(player, dir, jet)
 	-- v2.32 ENERGY: every second of blowing uses a second of it (the client reports
 	-- about 3×/s while it blows; the time between two reports is what was used — a
 	-- first report after a pause counts as one report's worth). Empty = it stops.
-	local B = TC().Blower(data.Tools.Up.Blower or {})
+	local B = HB(player, TC().Blower(data.Tools.Up.Blower or {}))
 	local used = tonumber(data.Tools.BlowUsed) or 0
 	if used >= B.Energy then
 		if not s.BlowWarned then
@@ -2845,7 +2930,7 @@ function ToolService.BlastReload(player)
 	end
 	local s = S(player)
 	local now = ToolService.Now()
-	local B = TC().Blaster(data.Tools.Up.Blaster)
+	local B = HB(player, TC().Blaster(data.Tools.Up.Blaster))
 	blastRefill(s, B, now)
 	if s.BlastReload or s.BlastMag >= B.Magazine then
 		return false -- (already reloading / already full)
@@ -2868,7 +2953,7 @@ function ToolService.BlastAt(player, dir)
 	end
 	local s = S(player)
 	local now = ToolService.Now()
-	local B = TC().Blaster(data.Tools.Up.Blaster)
+	local B = HB(player, TC().Blaster(data.Tools.Up.Blaster))
 	blastRefill(s, B, now)
 	if s.BlastReload then
 		return 0, "reload"
@@ -2996,7 +3081,7 @@ function ToolService.RakeAt(player, pos)
 	s.LastRake = now
 	-- (v2.40: the strip grows with the Tine Width upgrade)
 	local data = ctx.PlayerDataService.Get(player)
-	local radius = if TC().Rake and data then TC().Rake(data.Tools.Up.Rake).LoosenRadius else TC().Helpers.Rake.LoosenRadius
+	local radius = if TC().Rake and data then TC().Rake(data.Tools.Up.Rake).LoosenRadius * toolMult(player) else TC().Helpers.Rake.LoosenRadius
 	return ctx.GrassService.Loosen(player, pos, radius)
 end
 
@@ -3007,7 +3092,7 @@ function ToolService.Vacuum(player, pos, now)
 	if ToolService.Held(player) ~= "Vacuum" or not data or not root or typeof(pos) ~= "Vector3" then
 		return 0
 	end
-	local vac = TC().Vacuum(data.Tools.Up.Vacuum)
+	local vac = HB(player, TC().Vacuum(data.Tools.Up.Vacuum))
 	if data.Tools.VacUsed >= vac.Capacity then
 		return 0, "broken"
 	end
@@ -3115,7 +3200,7 @@ function ToolService.Vortex(player, pos)
 	if s.Vortex then
 		return false, "busy"
 	end
-	local vac = TC().Vacuum(data.Tools.Up.Vacuum)
+	local vac = HB(player, TC().Vacuum(data.Tools.Up.Vacuum))
 	if data.Tools.VacUsed >= vac.Capacity then
 		if now - (s.VortexWarned or -1e9) > 3 then
 			s.VortexWarned = now
@@ -3129,12 +3214,12 @@ function ToolService.Vortex(player, pos)
 	if now < (s.VortexReady or -1e9) then
 		if player:GetAttribute("VortexReady") == nil then
 			-- (after a rejoin the client's gauge doesn't know about it yet)
-			player:SetAttribute("VortexCd", TC().Vortex(data.Tools.Up.Vacuum).Cooldown)
+			player:SetAttribute("VortexCd", HB(player, TC().Vortex(data.Tools.Up.Vacuum)).Cooldown)
 			player:SetAttribute("VortexReady", serverTime() + (s.VortexReady - now))
 		end
 		return false, "cooldown"
 	end
-	local V = TC().Vortex(data.Tools.Up.Vacuum)
+	local V = HB(player, TC().Vortex(data.Tools.Up.Vacuum))
 	if flat(pos - root.Position).Magnitude > V.Cast + 4 or math.abs(pos.Y - root.Position.Y) > 30 then
 		return false, "far"
 	end
@@ -3175,7 +3260,7 @@ function ToolService.VortexStep(player)
 	local data = ctx.PlayerDataService.Get(player)
 	local got = 0
 	if data and ToolService.Held(player) == "Vacuum" then
-		local vac = TC().Vacuum(data.Tools.Up.Vacuum)
+		local vac = HB(player, TC().Vacuum(data.Tools.Up.Vacuum))
 		local room = math.min(vac.Capacity - data.Tools.VacUsed, v.V.Max)
 		if room > 0 then
 			local RS = ctx.ResourceService
@@ -3328,7 +3413,7 @@ end
 
 function ToolService.Mount(player, id)
 	local dataS = ctx.PlayerDataService.Get(player)
-	local def = dataS and TC().GrassStats(id, dataS.Tools.Up[id])
+	local def = dataS and HB(player, TC().GrassStats(id, dataS.Tools.Up[id]))
 	local char = player.Character
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
 	local root = rootOf(player)
@@ -3545,7 +3630,7 @@ function ToolService.MowStep(player, dt)
 	local deckCF, def, mowId
 	if s.Mower and s.Mower.Parent and s.Mower.PrimaryPart then
 		mowId = s.MowerId
-		def = TC().GrassStats(mowId, data.Tools.Up[mowId])
+		def = HB(player, TC().GrassStats(mowId, data.Tools.Up[mowId]))
 		local deckM, speedM = ToolService.AbilityMult(player, mowId) -- (v2.43 Nitro)
 		def = table.clone(def)
 		def.Radius *= deckM
@@ -3567,7 +3652,7 @@ function ToolService.MowStep(player, dt)
 		end
 	else
 		local id = ToolService.Held(player)
-		def = id and TC().GrassStats(id, data.Tools.Up[id])
+		def = id and HB(player, TC().GrassStats(id, data.Tools.Up[id]))
 		if not def or def.Kind ~= "Push" then
 			s.MowerPos = nil
 			return 0
@@ -3725,7 +3810,7 @@ function ToolService.Start()
 					s.JetLast = nil
 					local dataJ = ctx.PlayerDataService.Get(player)
 					if dataJ then
-						local cd = TC().Blower(dataJ.Tools.Up.Blower or {}).JetCooldown
+						local cd = HB(player, TC().Blower(dataJ.Tools.Up.Blower or {})).JetCooldown
 						s.JetReady = ToolService.Now() + cd
 						player:SetAttribute("JetCd", cd)
 						player:SetAttribute("JetReady", serverTime() + cd)

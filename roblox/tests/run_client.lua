@@ -710,7 +710,17 @@ T.Consumables = {
 		Description = "Give it to one of your equipped pets: for 5 minutes its ability recharges 50% faster and is 50% stronger.",
 	},
 }
+-- (round 15, harvest) the Cow's MILK BOTTLE: NEVER sold (NotSold: no shop, no stock, no auto-buy, no Money purchase).
+-- A Cow drops bottles in your garden; walk over one to pick it up. Use it on one EQUIPPED pet (the toy picker, or
+-- 🥛 GIVE MILK in the pet panel): +Boost ability power and speed for Duration — a second bottle only refreshes the
+-- time (never stacks). It adds to a toy's boost (PetAbilityService.EffBoost).
+T.Consumables.MilkBottle = {
+	Display = "Milk Bottle", Rarity = "Epic", Price = 50000, Icon = "🥛", PetTarget = true, Milk = true, NotSold = true,
+	Boost = 0.15, Duration = 300,
+	Description = "Fresh milk from your Cow. Give it to one of your equipped pets: for 5 minutes its ability works 15% better. Another bottle only starts the 5 minutes again.",
+}
 T.ConsumableOrder = { "LeafMagnet", "GrassKiller", "BatteryPack", "TurboFuel", "MegaMagnet", "BlowerBattery", "VacuumBattery", "BlasterBattery", "Gasoline", "RepairKit", "GrassSalt", "SmallToy", "MediumToy", "BigToy" }
+table.insert(T.ConsumableOrder, "MilkBottle") -- (round 15: the inventory / trades list it; shops skip NotSold)
 T.RepairTargets = { Shears = true, WeedCutter = true, Scythe = true, Pickaxe = true } -- (what a Repair Kit mends)
 T.ConsumableSlots = 3
 T.MaxStack = math.huge -- (v2.37: no limit on one-use items — nothing refuses by it any more)
@@ -1127,6 +1137,57 @@ function T.StatLines(id, state)
 	return out
 end
 
+--[[
+	(round 15) 🐕 GOLDEN RETRIEVER (Home Egg): the tool IN YOUR HAND works better — every stat +X %
+	(PetPowers.ToolMult; the server publishes it as the player attribute ToolBoost with 3 decimals, so the client
+	uses the very same number). Both sides call these on the stat tables they already work with:
+	  T.Boosted(t, mult)     a tool's table (GrassStats, Trimmer, Whirl, Vacuum, Vortex, Blower, Blaster, a pickaxe
+							 tier): a COPY in which every effect number is × mult (radius, reach, power, rate,
+							 force, range, cone, speed, size, arc …) and every waiting time is ÷ mult (cooldowns,
+							 reload, the time between shots / swings). What the tool HOLDS (durability, fuel,
+							 battery, energy, capacity, magazine — gauges counted in the save) and prices / tiers /
+							 ids stay as they are. A Power that is a share of the grass cut never passes 100.
+	  T.BoostStats(s, mult)  the six broom stats (the broom, the rake): every number × mult, 2 decimals.
+	mult = 1 gives back the very same table (no copy).
+]]
+T.BoostFaster = { Cooldown = true, AbCooldown = true, FireEvery = true, Reload = true, GatherCooldown = true, JetCooldown = true, HitEvery = true, Smash = true }
+T.BoostKeep = { Tier = true, Index = true, Durability = true, Fuel = true, Energy = true, Battery = true, Capacity = true, Magazine = true, Price = true, Cost = true, RepairPer = true, HitMult = true, Time = true, Max = true, Slot = true }
+function T.Boosted(t, mult)
+	mult = tonumber(mult) or 1
+	if type(t) ~= "table" or mult == 1 or mult ~= mult or mult <= 0 or mult == math.huge then
+		return t
+	end
+	local out: any = {}
+	for k, v in t do
+		if type(v) == "number" and not T.BoostKeep[k] then
+			if T.BoostFaster[k] then
+				v = v / mult
+			else
+				local nv = v * mult
+				if k == "Power" and v <= 100 then
+					nv = math.min(nv, 100)
+				elseif k == "Arc" then
+					nv = math.min(nv, 360)
+				end
+				v = nv
+			end
+		end
+		out[k] = v
+	end
+	return out
+end
+function T.BoostStats(stats, mult)
+	mult = tonumber(mult) or 1
+	if type(stats) ~= "table" or mult == 1 or mult ~= mult or mult <= 0 or mult == math.huge then
+		return stats
+	end
+	local out: any = {}
+	for k, v in stats do
+		out[k] = if type(v) == "number" then math.floor(v * mult * 100 + 0.5) / 100 else v
+	end
+	return out
+end
+
 return T
 end)() end
 TC_MODULE = mc()
@@ -1160,6 +1221,14 @@ local ToolController = {}
 ToolController.__index = ToolController
 
 local player = Players.LocalPlayer
+-- (round 15) 🐕 the Golden Retriever: the held tool's numbers × the server's ToolBoost (ToolConfig.Boosted, like ToolService)
+local function HB(TC, t)
+	local tb = tonumber(player:GetAttribute("ToolBoost")) or 1
+	if t and TC.Boosted and tb ~= 1 then
+		return TC.Boosted(t, tb)
+	end
+	return t
+end
 
 function ToolController.new(deps)
 	local self = setmetatable({}, ToolController)
@@ -1277,7 +1346,7 @@ function ToolController:_rayIgnore(char)
 end
 
 function ToolController:_def()
-	return self.ToolConfig.GrassStats(self.id, self:_up()[self.id]) or self.ToolConfig.Def(self.id) -- (v2.43: with the tier's numbers)
+	return HB(self.ToolConfig, self.ToolConfig.GrassStats(self.id, self:_up()[self.id]) or self.ToolConfig.Def(self.id)) -- (v2.43: with the tier's numbers)
 end
 
 -- v2.43: the Scythe's last tier is the Golden Scythe
@@ -1908,7 +1977,7 @@ local function clampV(v, cap)
 end
 
 function ToolController:_blaster()
-	return self.ToolConfig.Blaster(self:_up().Blaster or {})
+	return HB(self.ToolConfig, self.ToolConfig.Blaster(self:_up().Blaster or {}))
 end
 
 -- v2.43: seconds of the cooldown of this tool's strike-key ability, and how long it is
@@ -2583,16 +2652,16 @@ function ToolController:_up()
 end
 
 function ToolController:_trimmer()
-	return self.ToolConfig.Trimmer(self:_up().Trimmer or {})
+	return HB(self.ToolConfig, self.ToolConfig.Trimmer(self:_up().Trimmer or {}))
 end
 
 function ToolController:_vacuum()
-	return self.ToolConfig.Vacuum(self:_up().Vacuum or {})
+	return HB(self.ToolConfig, self.ToolConfig.Vacuum(self:_up().Vacuum or {}))
 end
 
 -- the blower: leaves in a cone in front fly away from you (the ones you own)
 function ToolController:_blow(aim, dt)
-	local B = self.ToolConfig.Blower(self:_up().Blower or {}) -- (v1.2.1: with its upgrades)
+	local B = HB(self.ToolConfig, self.ToolConfig.Blower(self:_up().Blower or {})) -- (v1.2.1: with its upgrades)
 	local rootPos = self.root.Position
 	local dir = flat(aim - rootPos)
 	dir = if dir.Magnitude > 0.5 then dir.Unit else flat(self.root.CFrame.LookVector).Unit
@@ -2695,7 +2764,7 @@ function ToolController:_jet(aim, dt)
 	end
 	dt = math.clamp(dt, 0, 0.1)
 	local D = (self.ToolConfig.Helpers and self.ToolConfig.Helpers.Blower) or {}
-	local B = self.ToolConfig.Blower(self:_up().Blower or {})
+	local B = HB(self.ToolConfig, self.ToolConfig.Blower(self:_up().Blower or {}))
 	local rootPos = root.Position
 	-- where the gust (and you) go: away from the aim
 	local to = aim - rootPos
@@ -2856,7 +2925,7 @@ function ToolController:Vortex(fromButton)
 		return false
 	end
 	self.vortexSent = now
-	local V = self.ToolConfig.Vortex(self:_up().Vacuum or {})
+	local V = HB(self.ToolConfig, self.ToolConfig.Vortex(self:_up().Vacuum or {}))
 	local at
 	if fromButton and not self.touchPos then
 		local look = flat(self.root.CFrame.LookVector)
@@ -2911,7 +2980,7 @@ function ToolController:Whirl(_fromButton)
 		return false
 	end
 	local now = os.clock()
-	local W = self.ToolConfig.Whirl(self:_up().Trimmer or {})
+	local W = HB(self.ToolConfig, self.ToolConfig.Whirl(self:_up().Trimmer or {}))
 	local left = self:WhirlLeft()
 	if left > 0 then
 		-- still recharging: say so (not on every key press)
