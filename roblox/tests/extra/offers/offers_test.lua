@@ -44,7 +44,7 @@ check(R.OfferProductOf(R.OfferById.Starter) == nil, "unset product = nil")
 local st = R.ContentsTotals(R.OfferById.Starter)
 eq(st.Gems, 200, "starter gems"); eq(st.Money, 100000, "starter money"); eq(st.Eggs, 2, "starter eggs"); eq(st.Tools, 1, "starter tools"); eq(st.BoostSeconds, 3600, "starter boost")
 local mg = R.ContentsTotals(R.OfferById.Mega)
-eq(mg.Gems, 1500, "mega gems"); eq(mg.Eggs, 4, "mega eggs"); eq(mg.Tools, 3, "mega tools"); eq(mg.BoostSeconds, 3 * 3 * 3600, "mega boosts")
+eq(mg.Gems, 1500, "mega gems"); eq(mg.Eggs, 6, "mega eggs"); eq(mg.Tools, 3, "mega tools"); eq(mg.BoostSeconds, 3 * 3 * 3600, "mega boosts")
 local pp = R.ContentsTotals(R.OfferById.PetPack)
 eq(pp.Eggs, 6, "pet pack eggs"); eq(pp.Items, 4, "pet pack toys")
 for _, o in R.Offers do

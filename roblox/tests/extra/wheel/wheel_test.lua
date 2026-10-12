@@ -196,7 +196,7 @@ do
 	check(W.PickFromContents(c, 0) == "A" and W.PickFromContents(c, 0.26) == "B" and W.PickFromContents(c, 0.99) == "C", "PickFromContents is deterministic by id")
 	check(W.PickFromContents({}, 0.5) == nil, "empty egg")
 	-- the egg of the last island
-	check(W.EggForTier(P.Eggs, 1) ~= nil and W.EggForTier(P.Eggs, 99) == "CelestialEgg", "EggForTier")
+	check(W.EggForTier(P.Eggs, 1) ~= nil and W.EggForTier(P.Eggs, 11) == "FrostEgg", "EggForTier")
 end
 
 ---------------------------------------------------------------- 5. what each segment says (Describe) — every one has text
