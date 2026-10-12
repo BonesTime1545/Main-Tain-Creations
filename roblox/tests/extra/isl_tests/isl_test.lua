@@ -84,7 +84,7 @@ local P = PCmod()
 local list = P.ShopList(I.MaxTier)
 local got = {}
 for _, r in list do table.insert(got, (r.Egg or ("soon:" .. r.Soon)) .. "@" .. r.Island) end
-local want = "StarterEgg@1,HomeEgg@2,RainEgg@3,ForestEgg@4,BlossomEgg@5,FarmEgg@6,HarvestEgg@7,NightEgg@8,FrostEgg@9,soon:Wind Egg@10,soon:Sand Egg@11"
+local want = "StarterEgg@1,HomeEgg@2,RainEgg@3,ForestEgg@4,BlossomEgg@5,FarmEgg@6,HarvestEgg@7,NightEgg@8,FrostEgg@9,WindEgg@10,SandEgg@11"
 check(table.concat(got, ",") == want, "shop order: " .. table.concat(got, ","))
 for _, id in { "FireEgg", "RobotEgg", "MutationEgg", "CelestialEgg", "GoldenEgg" } do
 	check(not P.InShop(id) and P.Eggs[id] ~= nil, id .. " hidden but still exists")
@@ -104,7 +104,7 @@ for i, row in W0.Pass.Rewards do
 end
 -- 7. the wheel's "egg of your island"
 local W = WCmod()
-local exp = { "StarterEgg", "HomeEgg", "RainEgg", "ForestEgg", "BlossomEgg", "FarmEgg", "HarvestEgg", "NightEgg", "FrostEgg", "FrostEgg", "FrostEgg" }
+local exp = { "StarterEgg", "HomeEgg", "RainEgg", "ForestEgg", "BlossomEgg", "FarmEgg", "HarvestEgg", "NightEgg", "FrostEgg", "WindEgg", "SandEgg" }
 for tier = 1, 11 do
 	check(W.EggForTier(P.Eggs, tier) == exp[tier], "island egg of tier " .. tier .. " = " .. W.EggForTier(P.Eggs, tier))
 end

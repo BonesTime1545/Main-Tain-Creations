@@ -1172,6 +1172,33 @@ function T.BoostStats(stats, mult)
 	return out
 end
 
+-- (round 16 wind) the Leaf Blower's numbers with the Wind Egg pets: `wind` = the Wyvern (× Range, Cone, Force and
+-- Energy, ÷ JetCooldown), `reach` = the Wind Squirrel (× Range). The server publishes both as the player attributes
+-- WindBoost / WindReach (3 decimals), so the client uses the very same numbers. 1 / 1 gives back the same table.
+function T.WindBlower(t, wind, reach)
+	wind, reach = tonumber(wind) or 1, tonumber(reach) or 1
+	if type(t) ~= "table" or (wind == 1 and reach == 1) or wind ~= wind or reach ~= reach or wind <= 0 or reach <= 0 then
+		return t
+	end
+	local out = table.clone(t)
+	if type(out.Range) == "number" then
+		out.Range = out.Range * wind * reach
+	end
+	if type(out.Cone) == "number" then
+		out.Cone = math.min(out.Cone * wind, 80)
+	end
+	if type(out.Force) == "number" then
+		out.Force = out.Force * wind
+	end
+	if type(out.Energy) == "number" then
+		out.Energy = math.floor(out.Energy * wind + 0.5)
+	end
+	if type(out.JetCooldown) == "number" then
+		out.JetCooldown = out.JetCooldown / wind
+	end
+	return out
+end
+
 return T
 end)() end
 TC_MODULE = mc()
@@ -1242,6 +1269,15 @@ end
 local function HB(player, t)
 	if t and TC().Boosted then
 		return TC().Boosted(t, toolMult(player))
+	end
+	return t
+end
+
+-- (round 16 wind) the Wind Egg pets on the Leaf Blower (ToolConfig.WindBlower)
+local function WB(player, t)
+	local PP = ctx.PetPowers
+	if t and TC().WindBlower and PP and PP.WindMult then
+		return TC().WindBlower(t, PP.WindMult(player), if PP.WindReach then PP.WindReach(player) else 1)
 	end
 	return t
 end
@@ -1338,7 +1374,7 @@ function ToolService.PublishBlow(player, force)
 		return
 	end
 	local s = S(player)
-	local max = TC().Blower(data.Tools.Up.Blower or {}).Energy
+	local max = WB(player, TC().Blower(data.Tools.Up.Blower or {})).Energy
 	data.Tools.BlowUsed = math.clamp(tonumber(data.Tools.BlowUsed) or 0, 0, max)
 	local v = math.floor((max - data.Tools.BlowUsed) * 10 + 0.5) / 10
 	if force or not s.BlowPub or math.abs(s.BlowPub - v) >= 0.5 or (v <= 0) ~= (s.BlowPub <= 0) then
@@ -1752,8 +1788,8 @@ end
 
 -- v2.32 the Leaf Blower's energy is put back like the vacuum is repaired: for Money,
 -- by how much is missing (ToolConfig.BlowerRechargePerSecond) — or with a Blower Battery
-function ToolService.RechargeCost(data)
-	local max = TC().Blower(data.Tools.Up.Blower or {}).Energy
+function ToolService.RechargeCost(data, player) -- (round 16: + player = the wind pets' energy bonus)
+	local max = WB(player, TC().Blower(data.Tools.Up.Blower or {})).Energy
 	local used = math.clamp(tonumber(data.Tools.BlowUsed) or 0, 0, max)
 	return TC().RechargeCost(used), used
 end
@@ -1763,7 +1799,7 @@ function ToolService.Recharge(player)
 	if not data or not data.Tools.Owned.Blower then
 		return false, "You have no leaf blower"
 	end
-	local cost, used = ToolService.RechargeCost(data)
+	local cost, used = ToolService.RechargeCost(data, player)
 	if used < 0.5 then
 		return false, "It's fully charged"
 	end
@@ -2835,7 +2871,7 @@ function ToolService.BlowAt(player, dir, jet)
 	-- v2.32 ENERGY: every second of blowing uses a second of it (the client reports
 	-- about 3×/s while it blows; the time between two reports is what was used — a
 	-- first report after a pause counts as one report's worth). Empty = it stops.
-	local B = HB(player, TC().Blower(data.Tools.Up.Blower or {}))
+	local B = WB(player, HB(player, TC().Blower(data.Tools.Up.Blower or {})))
 	local used = tonumber(data.Tools.BlowUsed) or 0
 	if used >= B.Energy then
 		if not s.BlowWarned then
@@ -2872,6 +2908,10 @@ function ToolService.BlowAt(player, dir, jet)
 	d = d.Unit
 	if look.Magnitude > 1e-3 and d:Dot(look.Unit) < math.cos(math.rad(75)) then
 		d = look.Unit -- (the client's aim may turn it only so far from where you face)
+	end
+	-- (round 16 wind) the Wind Squirrel works while you blow: where and how far
+	if ctx.PetPowers and ctx.PetPowers.OnBlow then
+		pcall(ctx.PetPowers.OnBlow, player, root.Position, d, B.Range)
 	end
 	local cosHalf = math.cos(math.rad(B.Cone + 10))
 	local n = 0
@@ -3810,7 +3850,7 @@ function ToolService.Start()
 					s.JetLast = nil
 					local dataJ = ctx.PlayerDataService.Get(player)
 					if dataJ then
-						local cd = HB(player, TC().Blower(dataJ.Tools.Up.Blower or {})).JetCooldown
+						local cd = WB(player, HB(player, TC().Blower(dataJ.Tools.Up.Blower or {}))).JetCooldown
 						s.JetReady = ToolService.Now() + cd
 						player:SetAttribute("JetCd", cd)
 						player:SetAttribute("JetReady", serverTime() + cd)

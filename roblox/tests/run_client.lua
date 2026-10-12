@@ -1188,6 +1188,33 @@ function T.BoostStats(stats, mult)
 	return out
 end
 
+-- (round 16 wind) the Leaf Blower's numbers with the Wind Egg pets: `wind` = the Wyvern (× Range, Cone, Force and
+-- Energy, ÷ JetCooldown), `reach` = the Wind Squirrel (× Range). The server publishes both as the player attributes
+-- WindBoost / WindReach (3 decimals), so the client uses the very same numbers. 1 / 1 gives back the same table.
+function T.WindBlower(t, wind, reach)
+	wind, reach = tonumber(wind) or 1, tonumber(reach) or 1
+	if type(t) ~= "table" or (wind == 1 and reach == 1) or wind ~= wind or reach ~= reach or wind <= 0 or reach <= 0 then
+		return t
+	end
+	local out = table.clone(t)
+	if type(out.Range) == "number" then
+		out.Range = out.Range * wind * reach
+	end
+	if type(out.Cone) == "number" then
+		out.Cone = math.min(out.Cone * wind, 80)
+	end
+	if type(out.Force) == "number" then
+		out.Force = out.Force * wind
+	end
+	if type(out.Energy) == "number" then
+		out.Energy = math.floor(out.Energy * wind + 0.5)
+	end
+	if type(out.JetCooldown) == "number" then
+		out.JetCooldown = out.JetCooldown / wind
+	end
+	return out
+end
+
 return T
 end)() end
 TC_MODULE = mc()
@@ -1226,6 +1253,14 @@ local function HB(TC, t)
 	local tb = tonumber(player:GetAttribute("ToolBoost")) or 1
 	if t and TC.Boosted and tb ~= 1 then
 		return TC.Boosted(t, tb)
+	end
+	return t
+end
+
+-- (round 16 wind) the Wind Egg pets on the Leaf Blower: the numbers the server publishes (WindBoost / WindReach)
+local function WB(TC, t)
+	if t and TC.WindBlower then
+		return TC.WindBlower(t, tonumber(player:GetAttribute("WindBoost")) or 1, tonumber(player:GetAttribute("WindReach")) or 1)
 	end
 	return t
 end
@@ -2661,7 +2696,7 @@ end
 
 -- the blower: leaves in a cone in front fly away from you (the ones you own)
 function ToolController:_blow(aim, dt)
-	local B = HB(self.ToolConfig, self.ToolConfig.Blower(self:_up().Blower or {})) -- (v1.2.1: with its upgrades)
+	local B = WB(self.ToolConfig, HB(self.ToolConfig, self.ToolConfig.Blower(self:_up().Blower or {}))) -- (v1.2.1: with its upgrades · round 16: + the wind pets)
 	local rootPos = self.root.Position
 	local dir = flat(aim - rootPos)
 	dir = if dir.Magnitude > 0.5 then dir.Unit else flat(self.root.CFrame.LookVector).Unit
@@ -2764,7 +2799,7 @@ function ToolController:_jet(aim, dt)
 	end
 	dt = math.clamp(dt, 0, 0.1)
 	local D = (self.ToolConfig.Helpers and self.ToolConfig.Helpers.Blower) or {}
-	local B = HB(self.ToolConfig, self.ToolConfig.Blower(self:_up().Blower or {}))
+	local B = WB(self.ToolConfig, HB(self.ToolConfig, self.ToolConfig.Blower(self:_up().Blower or {})))
 	local rootPos = root.Position
 	-- where the gust (and you) go: away from the aim
 	local to = aim - rootPos
@@ -2785,11 +2820,13 @@ function ToolController:_jet(aim, dt)
 	end
 	-- horizontal: a speed that builds up toward "away from the aim" (+ a little steering)
 	-- v2.35: the flight grows with the Blow Force upgrade (k = 0 … 1 over its levels)
-	local maxSpeed = D.JetMaxSpeed or 33
+	-- (round 16 wind) the Wyvern: the JET flies faster too — still under the movement guard (45 studs/s)
+	local windJ = math.max(1, tonumber(player:GetAttribute("WindBoost")) or 1)
+	local maxSpeed = math.min((D.JetMaxSpeed or 33) * windJ, 42)
 	local fu = self.ToolConfig.BlowerUpgrades and self.ToolConfig.BlowerUpgrades.Force
 	local span = fu and (fu.Max or 5) * (fu.Per or 3) or 15
 	local k = math.clamp((B.Force - (D.Force or 22)) / math.max(span, 1), 0, 1)
-	local speed = math.min(maxSpeed, (D.JetSpeed or 16) + ((D.JetSpeedMax or maxSpeed) - (D.JetSpeed or 16)) * k)
+	local speed = math.min(maxSpeed, ((D.JetSpeed or 16) + ((D.JetSpeedMax or maxSpeed) - (D.JetSpeed or 16)) * k) * windJ)
 	local move = flat(hum.MoveDirection)
 	local wantH = flat(stream) * speed + move * (D.JetSteer or 7)
 	local want = Vector2.new(wantH.X, wantH.Z)

@@ -1172,6 +1172,33 @@ function T.BoostStats(stats, mult)
 	return out
 end
 
+-- (round 16 wind) the Leaf Blower's numbers with the Wind Egg pets: `wind` = the Wyvern (× Range, Cone, Force and
+-- Energy, ÷ JetCooldown), `reach` = the Wind Squirrel (× Range). The server publishes both as the player attributes
+-- WindBoost / WindReach (3 decimals), so the client uses the very same numbers. 1 / 1 gives back the same table.
+function T.WindBlower(t, wind, reach)
+	wind, reach = tonumber(wind) or 1, tonumber(reach) or 1
+	if type(t) ~= "table" or (wind == 1 and reach == 1) or wind ~= wind or reach ~= reach or wind <= 0 or reach <= 0 then
+		return t
+	end
+	local out = table.clone(t)
+	if type(out.Range) == "number" then
+		out.Range = out.Range * wind * reach
+	end
+	if type(out.Cone) == "number" then
+		out.Cone = math.min(out.Cone * wind, 80)
+	end
+	if type(out.Force) == "number" then
+		out.Force = out.Force * wind
+	end
+	if type(out.Energy) == "number" then
+		out.Energy = math.floor(out.Energy * wind + 0.5)
+	end
+	if type(out.JetCooldown) == "number" then
+		out.JetCooldown = out.JetCooldown / wind
+	end
+	return out
+end
+
 return T
 
 end
