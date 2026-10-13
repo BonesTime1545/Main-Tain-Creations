@@ -272,3 +272,10 @@ RidingMower       345.6      446.1       1.28
 
 ## 9. Для разработчиков
 `tests/run_all.sh [place.rbxl]` — тесты (нужен `luau`). `tools/export_scripts.py place.rbxl dir` — вытащить все скрипты в `.lua`; `tools/rbxwrite.py in.rbxl out.rbxl dir Имя1,Имя2` — вернуть изменённые скрипты в файл (перезаписываются только их `Source`; нужен `pip install lz4 zstandard`).
+
+### 8aa. UI round 18 (v43)
+- Index (ex-Bestiary) rebuilt as a normal window with left tab column, search, filters, details panel.
+- Shop hubs: tab columns now live inside each page window (no floating strip); texture flicker fix (synchronous time-budgeted autoStyle).
+- Broom info panel: pattern under the 3D model and text; Items window uses maroon palette.
+- Dock buttons: no text, 3D toy-brick models in ViewportFrames; top MY GARDEN / BUY restyled; fixed slots so buttons never shift.
+- Not verified in Roblox Studio (only stub + test suite).
