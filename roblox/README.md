@@ -279,3 +279,10 @@ RidingMower       345.6      446.1       1.28
 - Broom info panel: pattern under the 3D model and text; Items window uses maroon palette.
 - Dock buttons: no text, 3D toy-brick models in ViewportFrames; top MY GARDEN / BUY restyled; fixed slots so buttons never shift.
 - Not verified in Roblox Studio (only stub + test suite).
+
+### 8ab. UI round 19 (v44)
+- Dock order Shop/Pass/Inventory/Pets-with-you (collar model, slide-out list)/Index/Editor; top buttons text-only, grow in place with glow.
+- Cards, egg tiles and menu tabs hover in place (UIScale, no layout shifts); one title ribbon for Brooms/Tools/Items, colour per tab.
+- Index: plate 3D models visible and rotating, details model rotates steadily, milestone marks removed.
+- Pet descriptions short (+10% 🪙) with detailed text on hover/hold.
+- Not verified in Roblox Studio.
