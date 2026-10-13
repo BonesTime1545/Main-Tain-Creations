@@ -1007,7 +1007,7 @@ end
 
 ---------------------------------------------------------------- v2.43 grass tool tiers
 --[[
-	Shears, Weed Cutter, Scythe, Push Mower and Riding Mower have five tiers
+	Shears, Grass Cutter, Scythe, Push Mower and Riding Mower have five tiers
 	(ToolConfig.GrassTiers). Tier 1 is the plain tool; 2-4 are repainted (and get extra
 	parts) here; tier 5 of the Scythe IS the Golden Scythe and tier 5 of the Riding Mower
 	IS the Turbo Mower (their own builders above).
@@ -1039,7 +1039,7 @@ local function recolor(m, names, color, material, reflectance)
 end
 
 local tierPaint = {}
--- (tier 5 of the Shears / the Weed Cutter / the Push Mower = the "golden" one: every piece is in its tier colour)
+-- (tier 5 of the Shears / the Grass Cutter / the Push Mower = the "golden" one: every piece is in its tier colour)
 tierPaint.Shears = function(m, tier)
 	recolor(m, { Blade = true }, TIER_METAL[tier], M.Metal, 0.1 * tier)
 	recolor(m, { Grip = true }, TIER_ACCENT[tier])

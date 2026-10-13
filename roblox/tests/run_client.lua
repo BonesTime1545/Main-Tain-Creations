@@ -151,7 +151,7 @@ T.GrassTools = {
 		Description = "Small garden shears. Slow and tiny, but free — they trim neatly around trees and decorations. Strike key = SNIP BURST: five spots around your aim are cut at once. They wear out with every cut — repair them. Upgrade them: five tiers, up to the Golden Shears.",
 	},
 	WeedCutter = {
-		Display = "Weed Cutter", Rarity = "Uncommon", Price = 8000, Kind = "Swipe", Icon = "🔪",
+		Display = "Grass Cutter", Rarity = "Uncommon", Price = 8000, Kind = "Swipe", Icon = "🔪",
 		Radius = 5, Arc = 110, Power = 34, Cooldown = 0.3, Reach = 3,
 		Description = "A hand cutter for tall grass. Swipe the mouse left and right while holding the button — fast and cheap, great for small patches. Strike key = SLASH WAVE: a long strip of grass in front of you is cut. It wears out — repair it. Five tiers, up to the Master Cutter.",
 	},
@@ -207,7 +207,7 @@ T.TrimmerUpgradeOrder = { "BladeSpeed", "Range", "Battery", "Power" }
 T.BatteryRecharge = 0.25 -- seconds of battery gained per second while it's off
 
 --[[
-	v2.43 THE GRASS TOOLS GROW UP. Shears, Weed Cutter, Scythe, Push Mower and Riding Mower
+	v2.43 THE GRASS TOOLS GROW UP. Shears, Grass Cutter, Scythe, Push Mower and Riding Mower
 	have five TIERS (the upgrade "Tier", saved as data.Tools.Up.<Tool>.Tier = 0 … 4, like the
 	pickaxe): every tier has its own NAME and LOOK, a bit more reach / power / speed and more
 	DURABILITY (the hand tools: cuts before it is worn out; it is repaired for Money in the
@@ -221,13 +221,13 @@ T.BatteryRecharge = 0.25 -- seconds of battery gained per second while it's off
 	THE LADDER. The tools are meant to be replaced one by one, so each one is clearly better
 	than the one before: the BASE of every tool clears more grass per second than the FULLY
 	UPGRADED tool before it (by at least 25 %) — T.MowRate says how much grass a tool clears
-	per second (the order: Shears → Weed Cutter → Scythe → Push Mower → Trimmer → Riding Mower).
+	per second (the order: Shears → Grass Cutter → Scythe → Push Mower → Trimmer → Riding Mower).
 	tests/ladder_test.lua checks it; keep it true when you change a number.
 ]]
 local GRASS_TIERS: { [string]: any } = {
 	Shears = { Names = { "Grass Shears", "Iron Shears", "Steel Shears", "Pro Shears", "Golden Shears" }, Costs = { 3000, 9000, 25000, 70000 },
 		Durability = { 300, 380, 470, 580, 720 }, RepairPer = 4, Grow = { Radius = 1.03, Power = 1.035, Cooldown = 0.985 } },
-	WeedCutter = { Names = { "Weed Cutter", "Sharp Cutter", "Steel Cutter", "Power Cutter", "Master Cutter" }, Costs = { 4000, 10000, 22000, 45000 },
+	WeedCutter = { Names = { "Grass Cutter", "Sharp Cutter", "Steel Cutter", "Power Cutter", "Master Cutter" }, Costs = { 4000, 10000, 22000, 45000 },
 		Durability = { 400, 500, 620, 760, 940 }, RepairPer = 6, Grow = { Radius = 1.03, Power = 1.035, Cooldown = 0.985 } },
 	Scythe = { Names = { "Scythe", "Iron Scythe", "Steel Scythe", "Moon Scythe", "Golden Scythe" }, Costs = { 20000, 48000, 110000, 240000 },
 		Durability = { 250, 320, 400, 500, 640 }, RepairPer = 20, Grow = { Radius = 1.03, Power = 1.035, Cooldown = 0.985 } },
@@ -676,11 +676,11 @@ T.Consumables = {
 		Display = "Gasoline", Rarity = "Epic", Price = 60000, Icon = "⛽", NeedsMower = true, Fuel = true,
 		Description = "A can of gasoline: fills the fuel tank of your Push Mower and your Riding Mower to the top.",
 	},
-	-- v2.43: repairs ONE of Shears, Weed Cutter, Scythe, Pickaxe — use it, then pick the tool
+	-- v2.43: repairs ONE of Shears, Grass Cutter, Scythe, Pickaxe — use it, then pick the tool
 	-- in the panel (the ones in your hotbar)
 	RepairKit = {
 		Display = "Repair Kit", Rarity = "Epic", Price = 75000, Icon = "🧰", ToolTarget = true,
-		Description = "Use it, then pick one of your Grass Shears, Weed Cutter, Scythe or Pickaxe in the panel: it is repaired completely.",
+		Description = "Use it, then pick one of your Grass Shears, Grass Cutter, Scythe or Pickaxe in the panel: it is repaired completely.",
 	},
 	-- v2.51: GRASS SALT — pick a grass spot (a lawn cell or the top of an Earth block): grass never
 	-- grows there again. Pricey (the dearest of the everyday items after the Big Toy's league):
@@ -1227,7 +1227,7 @@ local function mt() return (function()
 	Use = the Sweep binding (left mouse by default; on a phone: touch the ground).
 
 	  ✂️ Shears       click a spot: snip (small, slow; also around trees & decor)
-	  🔪 Weed Cutter  hold and swipe the mouse LEFT–RIGHT: every swipe cuts in front
+	  🔪 Grass Cutter  hold and swipe the mouse LEFT–RIGHT: every swipe cuts in front
 	  🌙 Scythe       click: wind up… and one wide swing all around the front
 	  ⚡ Trimmer      hold: cuts under the aim while the battery lasts (VRRRRR)
 	  🛒 Push Mower   just walk: the server cuts under it
@@ -2029,7 +2029,7 @@ function ToolController:AbilityLeft()
 	return math.clamp(ready - serverNow(), 0, total), total
 end
 
--- the strike key with Shears / Weed Cutter / Scythe / Push Mower in the hand (the server decides)
+-- the strike key with Shears / Grass Cutter / Scythe / Push Mower in the hand (the server decides)
 function ToolController:UseAbility()
 	local ab = self.ToolConfig.Abilities[self.id]
 	if not self.active or self.uiOpen or not ab or not self.root then

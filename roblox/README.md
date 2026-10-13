@@ -286,3 +286,9 @@ RidingMower       345.6      446.1       1.28
 - Index: plate 3D models visible and rotating, details model rotates steadily, milestone marks removed.
 - Pet descriptions short (+10% 🪙) with detailed text on hover/hold.
 - Not verified in Roblox Studio.
+
+### 8ac. UI round 20 (v45)
+- Cosmetic boxes moved to the Egg shop (Eggs | Boxes picker); one box per island (two on Snowy Forest), shop ordered by island; 4 new boxes, 10 new cosmetics, old Harvest Barrel / Town Parcel migrated.
+- Brooms & Tools shop header centred like the egg shop, colour per tab (tools dark green, items maroon, brooms brown); shared canonical close button (UIKit.closeButton) in every menu.
+- Pets-with-you panel: round 3D pet pictures with rarity rings, INFO + UNEQUIP buttons, larger info panel; collar model rebuilt; 🪙 replaced by 💰; "Weed Cutter" → "Grass Cutter" (display only).
+- Not verified in Roblox Studio.

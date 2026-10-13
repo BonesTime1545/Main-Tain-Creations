@@ -135,7 +135,7 @@ T.GrassTools = {
 		Description = "Small garden shears. Slow and tiny, but free — they trim neatly around trees and decorations. Strike key = SNIP BURST: five spots around your aim are cut at once. They wear out with every cut — repair them. Upgrade them: five tiers, up to the Golden Shears.",
 	},
 	WeedCutter = {
-		Display = "Weed Cutter", Rarity = "Uncommon", Price = 8000, Kind = "Swipe", Icon = "🔪",
+		Display = "Grass Cutter", Rarity = "Uncommon", Price = 8000, Kind = "Swipe", Icon = "🔪",
 		Radius = 5, Arc = 110, Power = 34, Cooldown = 0.3, Reach = 3,
 		Description = "A hand cutter for tall grass. Swipe the mouse left and right while holding the button — fast and cheap, great for small patches. Strike key = SLASH WAVE: a long strip of grass in front of you is cut. It wears out — repair it. Five tiers, up to the Master Cutter.",
 	},
@@ -191,7 +191,7 @@ T.TrimmerUpgradeOrder = { "BladeSpeed", "Range", "Battery", "Power" }
 T.BatteryRecharge = 0.25 -- seconds of battery gained per second while it's off
 
 --[[
-	v2.43 THE GRASS TOOLS GROW UP. Shears, Weed Cutter, Scythe, Push Mower and Riding Mower
+	v2.43 THE GRASS TOOLS GROW UP. Shears, Grass Cutter, Scythe, Push Mower and Riding Mower
 	have five TIERS (the upgrade "Tier", saved as data.Tools.Up.<Tool>.Tier = 0 … 4, like the
 	pickaxe): every tier has its own NAME and LOOK, a bit more reach / power / speed and more
 	DURABILITY (the hand tools: cuts before it is worn out; it is repaired for Money in the
@@ -205,13 +205,13 @@ T.BatteryRecharge = 0.25 -- seconds of battery gained per second while it's off
 	THE LADDER. The tools are meant to be replaced one by one, so each one is clearly better
 	than the one before: the BASE of every tool clears more grass per second than the FULLY
 	UPGRADED tool before it (by at least 25 %) — T.MowRate says how much grass a tool clears
-	per second (the order: Shears → Weed Cutter → Scythe → Push Mower → Trimmer → Riding Mower).
+	per second (the order: Shears → Grass Cutter → Scythe → Push Mower → Trimmer → Riding Mower).
 	tests/ladder_test.lua checks it; keep it true when you change a number.
 ]]
 local GRASS_TIERS: { [string]: any } = {
 	Shears = { Names = { "Grass Shears", "Iron Shears", "Steel Shears", "Pro Shears", "Golden Shears" }, Costs = { 3000, 9000, 25000, 70000 },
 		Durability = { 300, 380, 470, 580, 720 }, RepairPer = 4, Grow = { Radius = 1.03, Power = 1.035, Cooldown = 0.985 } },
-	WeedCutter = { Names = { "Weed Cutter", "Sharp Cutter", "Steel Cutter", "Power Cutter", "Master Cutter" }, Costs = { 4000, 10000, 22000, 45000 },
+	WeedCutter = { Names = { "Grass Cutter", "Sharp Cutter", "Steel Cutter", "Power Cutter", "Master Cutter" }, Costs = { 4000, 10000, 22000, 45000 },
 		Durability = { 400, 500, 620, 760, 940 }, RepairPer = 6, Grow = { Radius = 1.03, Power = 1.035, Cooldown = 0.985 } },
 	Scythe = { Names = { "Scythe", "Iron Scythe", "Steel Scythe", "Moon Scythe", "Golden Scythe" }, Costs = { 20000, 48000, 110000, 240000 },
 		Durability = { 250, 320, 400, 500, 640 }, RepairPer = 20, Grow = { Radius = 1.03, Power = 1.035, Cooldown = 0.985 } },
@@ -660,11 +660,11 @@ T.Consumables = {
 		Display = "Gasoline", Rarity = "Epic", Price = 60000, Icon = "⛽", NeedsMower = true, Fuel = true,
 		Description = "A can of gasoline: fills the fuel tank of your Push Mower and your Riding Mower to the top.",
 	},
-	-- v2.43: repairs ONE of Shears, Weed Cutter, Scythe, Pickaxe — use it, then pick the tool
+	-- v2.43: repairs ONE of Shears, Grass Cutter, Scythe, Pickaxe — use it, then pick the tool
 	-- in the panel (the ones in your hotbar)
 	RepairKit = {
 		Display = "Repair Kit", Rarity = "Epic", Price = 75000, Icon = "🧰", ToolTarget = true,
-		Description = "Use it, then pick one of your Grass Shears, Weed Cutter, Scythe or Pickaxe in the panel: it is repaired completely.",
+		Description = "Use it, then pick one of your Grass Shears, Grass Cutter, Scythe or Pickaxe in the panel: it is repaired completely.",
 	},
 	-- v2.51: GRASS SALT — pick a grass spot (a lawn cell or the top of an Earth block): grass never
 	-- grows there again. Pricey (the dearest of the everyday items after the Big Toy's league):
@@ -1220,13 +1220,13 @@ local function ms() return (function()
 	  { Action = "Repair" }                  fix the vacuum (Money, by how worn it is)
 	  { Action = "Recharge" }                v2.32: refill the Leaf Blower's energy (Money, by how empty)
 	  { Action = "RechargeBlast" }           v2.42: refill the Leaf Blaster's energy (Money, by how empty)
-	  { Action = "RepairTool", Id }          v2.43: repair Shears / Weed Cutter / Scythe (Money, by how worn)
+	  { Action = "RepairTool", Id }          v2.43: repair Shears / Grass Cutter / Scythe (Money, by how worn)
 	  { Action = "Refuel", Id }              v2.43: fill the tank of the Push / Riding Mower (Money, by how empty)
 	  { Action = "BuyItem", Id, Count }      one-use items (1…10)
 	  { Action = "Slot", Id, On }            show a one-use item in the hotbar (max 3)
 	  { Action = "Use", Id, Pos? }           use one (Grass Killer: Pos = where; v2.32 pet toys: Pet = uid)
 	RemoteEvent ToolAction (while working, rate-limited):
-	  { A = "Cut", Pos, Dir }  Shears / Weed Cutter / Scythe (cooldown per tool)
+	  { A = "Cut", Pos, Dir }  Shears / Grass Cutter / Scythe (cooldown per tool)
 	  { A = "Trim", Pos }      the trimmer is running at Pos (uses battery)
 	  { A = "Rake", Pos }      the rake passes here (pulls stuck leaves out)
 	  { A = "Vac", Pos }       the vacuum sucks at Pos
@@ -1815,7 +1815,7 @@ end
 
 ---------------------------------------------------------------- v2.43 wear, fuel, repair
 --[[
-	Shears / Weed Cutter / Scythe wear out: every cut uses one point of their DURABILITY
+	Shears / Grass Cutter / Scythe wear out: every cut uses one point of their DURABILITY
 	(data.Tools.Wear[id] = cuts since the last repair; the tier says how many they stand —
 	ToolConfig.GrassTiers). A worn-out tool cuts nothing until it is repaired: SHOP · TOOLS
 	(Money by how worn) or a Repair Kit. The Push / Riding Mower burn FUEL while they cut
@@ -1946,13 +1946,13 @@ end
 
 ---------------------------------------------------------------- v2.43 the abilities of the grass tools
 --[[
-	{ A = "Ability", Pos } — the strike key (Q) with Shears, Weed Cutter, Scythe or the Push
+	{ A = "Ability", Pos } — the strike key (Q) with Shears, Grass Cutter, Scythe or the Push
 	Mower in the hand, or sitting on the Riding Mower. Every tool has its OWN ability
 	(ToolConfig.Abilities); the cooldown runs on the server's clock and is published as the
 	player attributes <Name>Ready (server time it is ready again) and <Name>Cd (its length)
 	— the hotbar draws it as a separate bar under the tool, like the broom's strike:
 	  Shears        Snip Burst  five spots around the aim are cut at once
-	  Weed Cutter   Slash Wave  a long strip in front of you is cut
+	  Grass Cutter   Slash Wave  a long strip in front of you is cut
 	  Scythe        Harvest     a huge cone in front of you is cut to the ground
 	  Push Mower    Overdrive   a much wider deck and a faster walk for a while
 	  Riding Mower  Nitro       a burst of speed (and a bit wider deck)
@@ -2603,7 +2603,7 @@ function ToolService.Use(player, id, pos, pet, toolId)
 		S(player).FuelPub = nil
 		msg = "⛽ The tank is full!"
 	elseif id == "RepairKit" then
-		-- v2.43: ONE of Shears / Weed Cutter / Scythe / Pickaxe (toolId = the one picked in the panel)
+		-- v2.43: ONE of Shears / Grass Cutter / Scythe / Pickaxe (toolId = the one picked in the panel)
 		if type(toolId) ~= "string" or not TC().RepairTargets[toolId] or not data.Tools.Owned[toolId] then
 			return false, "Pick a tool to repair"
 		end
@@ -2678,7 +2678,7 @@ local function flat(v)
 	return Vector3.new(v.X, 0, v.Z)
 end
 
--- Shears / Weed Cutter / Scythe
+-- Shears / Grass Cutter / Scythe
 function ToolService.CutAt(player, pos, dir)
 	local id = ToolService.Held(player)
 	local dataC = ctx.PlayerDataService.Get(player)
