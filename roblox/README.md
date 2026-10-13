@@ -292,3 +292,10 @@ RidingMower       345.6      446.1       1.28
 - Brooms & Tools shop header centred like the egg shop, colour per tab (tools dark green, items maroon, brooms brown); shared canonical close button (UIKit.closeButton) in every menu.
 - Pets-with-you panel: round 3D pet pictures with rarity rings, INFO + UNEQUIP buttons, larger info panel; collar model rebuilt; 🪙 replaced by 💰; "Weed Cutter" → "Grass Cutter" (display only).
 - Not verified in Roblox Studio.
+
+### 8ad. Round 22 (v46, built on GAME26)
+- Restock ("завоз") for EGGS and BUILDINGS (StockConfig shops Eggs/Buildings, checked in PetService.BuyEgg / BuildService, auto-buy aware); timer + ×N / sold-out in the egg shop and the Buildings tab.
+- Placed-egg cards removed from the egg buy page.
+- Stall circles: BuildShop shows the rarest of Trees/Buildings, EggShop the rarest egg or box (boxes no longer above the Build shop).
+- Brooms & Tools: timer/auto-buy a bit higher; INFO button green + RU, hover in place; editor close button restored.
+- Not verified in Roblox Studio.
