@@ -307,3 +307,8 @@ RidingMower       345.6      446.1       1.28
 - Player circles (avatar + name) over gardens, click = visit (existing SocialRequest Visit). Module embedded in LeafRushClient.
 - All eggs redone as simple smooth eggs per colour (Robo egg unchanged), Fire egg burns.
 - Not verified in Roblox Studio.
+
+### 8af. Round 24 (v48)
+- Stuck hover on tool-shop tabs fixed (hover poll resets when hidden); lock card FeatureLock no longer styled/grows.
+- Index chips/claim/'?'/plates and every Editor button in fixed slots (grow in place); undo emoji 🔙; editor tabs ordered Trees, Eggs, Buildings, Cosmetics, Blocks, Gardens.
+- Not verified in Roblox Studio.
