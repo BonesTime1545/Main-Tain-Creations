@@ -319,3 +319,10 @@ RidingMower       345.6      446.1       1.28
 - Capital letters bug (зАВОС) fixed in Loc (Cyrillic-aware upper/lower).
 - One leaderboard stand with E-menu (all boards) and dancing top-1 avatars for 3 boards.
 - Not verified in Roblox Studio.
+
+### 8ah. Round 26 (v50)
+- Golden Egg out of the shop → Lucky Wheel gives 3 Golden Eggs and Golden pets come from its pool.
+- Per-egg effects (High/Medium/Low tiers), combo flame over the head (10 s window), tree rebalance (price-ordered curve, tier visuals, short blurbs, income per minute/hour), weather projectiles ignore trees.
+- Index: Tools tab (brooms+tools+consumables), Resources tab, discovery gifts for eggs/boxes/cosmetics/buildings/tools, RU names.
+- Pets-with-you "?" detail toggle, smaller leaderboard nameplates, tablet model on the leaderboard stand, island palette swatches removed.
+- Not verified in Roblox Studio.
