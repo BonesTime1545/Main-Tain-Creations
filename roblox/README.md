@@ -312,3 +312,10 @@ RidingMower       345.6      446.1       1.28
 - Stuck hover on tool-shop tabs fixed (hover poll resets when hidden); lock card FeatureLock no longer styled/grows.
 - Index chips/claim/'?'/plates and every Editor button in fixed slots (grow in place); undo emoji 🔙; editor tabs ordered Trees, Eggs, Buildings, Cosmetics, Blocks, Gardens.
 - Not verified in Roblox Studio.
+
+### 8ag. Round 25 (v49)
+- Index: flat lists by default + Islands grouping button on every page, reward tiles (3D, rarity, chance) in egg/box details, new Player and Buildings tabs, unobtainable entries hidden.
+- Shops hide unobtainable items; build shop fills the empty area; "Eggs" label removed; left HUD currency column (money / gems / speed); pit idle teleport removed (BlockService.guardPlayer).
+- Capital letters bug (зАВОС) fixed in Loc (Cyrillic-aware upper/lower).
+- One leaderboard stand with E-menu (all boards) and dancing top-1 avatars for 3 boards.
+- Not verified in Roblox Studio.
