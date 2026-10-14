@@ -299,3 +299,11 @@ RidingMower       345.6      446.1       1.28
 - Stall circles: BuildShop shows the rarest of Trees/Buildings, EggShop the rarest egg or box (boxes no longer above the Build shop).
 - Brooms & Tools: timer/auto-buy a bit higher; INFO button green + RU, hover in place; editor close button restored.
 - Not verified in Roblox Studio.
+
+### 8ae. Round 23 (v47)
+- Egg shop: fixed-slot cards (no shifting), one restock pill style for Eggs/Boxes, restock flash fix, natural order with dimmed out-of-stock items in all shops, cosmetic hover card in boxes, blue "?" for detailed pet text.
+- Index: pets by island (incl. new eggs; PartyBunny crash fixed), rarity sort on every tab, Eggs/Boxes/Cosmetics pages, tabs by importance.
+- Effects off / Low graphics hide button shine at once.
+- Player circles (avatar + name) over gardens, click = visit (existing SocialRequest Visit). Module embedded in LeafRushClient.
+- All eggs redone as simple smooth eggs per colour (Robo egg unchanged), Fire egg burns.
+- Not verified in Roblox Studio.
