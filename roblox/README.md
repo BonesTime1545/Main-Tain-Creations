@@ -351,3 +351,7 @@ RidingMower       345.6      446.1       1.28
 ### 8an. Round 32 (v56)
 - All tools/helpers/consumables: rewritten EN+RU descriptions, ToolConfig.AbilityInfo (description + ability line in the tools panel). Maxed Leaf Blower pushes stones (BlowHeavy attribute + ToolController nudge).
 - Not verified in Roblox Studio.
+
+### 8ao. Round 33 (v57)
+- Build shop and Index tree details show "Income per hour" (level 1) again — only the per-hour line.
+- Not verified in Roblox Studio.
