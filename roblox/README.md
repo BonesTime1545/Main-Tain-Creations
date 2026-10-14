@@ -343,3 +343,7 @@ RidingMower       345.6      446.1       1.28
 ### 8al. Round 30 (v54)
 - ItemGrid tiles are fixed slots; badges (count / level / stock) are siblings of the growing card → no blink. Tree model keys include the level. Income per minute/hour removed everywhere; build shop shows "Produces: …" with resource values. Index: no "Max level" row, one 🔍 in search. All tool/broom/consumable descriptions shortened (≤ 60 chars) with RU lines.
 - Not verified in Roblox Studio.
+
+### 8am. Round 31 (v55)
+- Plot boards (avatar + name circles over gardens): fixed on-screen size (120x124 px canvas × 0.8, shrinking with distance to ≥0.55), MaxDistance 1200 → readable, pressable from far; new setting "Allow teleports to my garden" (Setting_AllowVisits, MetaConfig/DataSchema/Prefs/SettingsUI) hides the owner's circle and SocialService.Visit refuses.
+- Not verified in Roblox Studio.
