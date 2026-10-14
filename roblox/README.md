@@ -326,3 +326,8 @@ RidingMower       345.6      446.1       1.28
 - Index: Tools tab (brooms+tools+consumables), Resources tab, discovery gifts for eggs/boxes/cosmetics/buildings/tools, RU names.
 - Pets-with-you "?" detail toggle, smaller leaderboard nameplates, tablet model on the leaderboard stand, island palette swatches removed.
 - Not verified in Roblox Studio.
+
+### 8ai. Round 27 (v51)
+- Islands above MaxTier (11) are always closed (IslandConfig.Soon computed from MaxTier; server refuses island/egg/box purchases of Soon islands, Robux paths too); Soon-island stock never rolled; island cards show only lock + COMING SOON; Soon unlock quests hidden. Code kept, admin untouched.
+- Index tree details shortened + income per minute/hour.
+- Not verified in Roblox Studio.
