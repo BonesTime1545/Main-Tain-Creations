@@ -331,3 +331,7 @@ RidingMower       345.6      446.1       1.28
 - Islands above MaxTier (11) are always closed (IslandConfig.Soon computed from MaxTier; server refuses island/egg/box purchases of Soon islands, Robux paths too); Soon-island stock never rolled; island cards show only lock + COMING SOON; Soon unlock quests hidden. Code kept, admin untouched.
 - Index tree details shortened + income per minute/hour.
 - Not verified in Roblox Studio.
+
+### 8aj. Round 28 (v52)
+- Stall circle models for eggs/buildings (no more white cube), leaderboard stand cleanup (plain tablet, shorter posts, stud texture), smaller nameplates, old T trade menu removed, one "Swept fallen items" stat (also feeds the leaves board), Rake model in Index, hotbar hover/press + detached "in hand" label, combo flame v2 with ×N and COMBO splashes.
+- Not verified in Roblox Studio.
