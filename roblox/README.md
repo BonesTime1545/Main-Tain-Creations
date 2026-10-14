@@ -339,3 +339,7 @@ RidingMower       345.6      446.1       1.28
 ### 8ak. Round 29 (v53)
 - Leaderboard stand: stud circles removed, block material (Plastic + studs on box parts), glowing tablet screen; build shop: no SOLD OUT tag, stable owned-count badge; Index: item sources with chances at Lv1/Lv10, tree drop prices, apples/gold rows removed from Player tab.
 - Not verified in Roblox Studio.
+
+### 8al. Round 30 (v54)
+- ItemGrid tiles are fixed slots; badges (count / level / stock) are siblings of the growing card → no blink. Tree model keys include the level. Income per minute/hour removed everywhere; build shop shows "Produces: …" with resource values. Index: no "Max level" row, one 🔍 in search. All tool/broom/consumable descriptions shortened (≤ 60 chars) with RU lines.
+- Not verified in Roblox Studio.

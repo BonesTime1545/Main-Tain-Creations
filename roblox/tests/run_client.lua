@@ -148,17 +148,17 @@ T.GrassTools = {
 	Shears = {
 		Display = "Grass Shears", Rarity = "Common", Price = 0, Kind = "Snip", Icon = "✂️",
 		Radius = 2.4, Power = 24, Cooldown = 0.5, Reach = 8, CutsObjects = true,
-		Description = "Small garden shears. Slow and tiny, but free — they trim neatly around trees and decorations. Strike key = SNIP BURST: five spots around your aim are cut at once. They wear out with every cut — repair them. Upgrade them: five tiers, up to the Golden Shears.",
+		Description = "Free shears. Snip Burst cuts five spots at once.",
 	},
 	WeedCutter = {
 		Display = "Grass Cutter", Rarity = "Uncommon", Price = 8000, Kind = "Swipe", Icon = "🔪",
 		Radius = 5, Arc = 110, Power = 34, Cooldown = 0.3, Reach = 3,
-		Description = "A hand cutter for tall grass. Swipe the mouse left and right while holding the button — fast and cheap, great for small patches. Strike key = SLASH WAVE: a long strip of grass in front of you is cut. It wears out — repair it. Five tiers, up to the Master Cutter.",
+		Description = "Swipe to cut grass fast. Slash Wave cuts a long strip.",
 	},
 	Scythe = {
 		Display = "Scythe", Rarity = "Rare", Price = 40000, Kind = "Swing", Icon = "🌙",
 		Radius = 7.2, Arc = 170, Power = 48, Cooldown = 1, Reach = 0,
-		Description = "The classic scythe. One wide, slow swing mows several rows of grass around you. Strike key = HARVEST: a huge cone in front of you is cut down to the ground. It wears out — repair it. Five tiers: the last one is the Golden Scythe.",
+		Description = "One wide swing mows rows. Harvest cuts a huge cone.",
 	},
 	Trimmer = {
 		Display = "Lawn Trimmer", Rarity = "Legendary", Price = 1400000, Kind = "Trimmer", Icon = "⚡",
@@ -174,17 +174,17 @@ T.GrassTools = {
 		WhirlPower = 100, -- grass cut in every spot of the ring (100 = down to the ground)
 		WhirlTime = 0.6, -- seconds the spin takes
 		WhirlHop = 9, -- studs/s the loose leaves in the ring hop up with
-		Description = "An electric string trimmer. Hold the button and guide it with the mouse — VRRRRR! Strike key = WHIRL: the line shoots out, you spin once and ALL the grass in a wide ring around you is cut (costs battery). Runs on its battery; upgrade it at the shop.",
+		Description = "Hold to cut under your aim. Whirl clears a ring.",
 	},
 	PushMower = {
 		Display = "Push Mower", Rarity = "Epic", Price = 300000, Kind = "Push", Icon = "🛒",
 		Radius = 2.6, Power = 100, Speed = 16,
-		Description = "A proper lawn mower. Just walk with W A S D — it rolls in front of you and cuts everything under it, leaving neat stripes. Strike key = OVERDRIVE: a much wider deck and a faster walk for a while. It burns fuel — refuel it with Gasoline or in the shop. Five tiers.",
+		Description = "Walk to mow stripes. Overdrive widens the deck.",
 	},
 	RidingMower = {
 		Display = "Riding Mower", Rarity = "Mythic", Price = 6500000, Kind = "Ride", Icon = "🚜",
 		Radius = 6.4, Power = 100, Speed = 27,
-		Description = "Sit down and drive (W A S D). Mows a wide strip and paints perfect stripes. Space = get off. Strike key = NITRO: a burst of speed. It burns fuel — refuel it with Gasoline or in the shop. Five tiers: the last one is the Turbo Mower.",
+		Description = "Drive to mow a wide strip. Nitro is a speed burst.",
 	},
 }
 -- v1.4 the Push Mower is not held in the hand: it is fixed to your body (so it never
@@ -198,8 +198,8 @@ T.StarterGrassTool = "Shears"
 
 -- Lawn Trimmer upgrades (level 0…5): cost = Base × Growth^level (v1.2.1 balance)
 T.TrimmerUpgrades = {
-	BladeSpeed = { Display = "Blade Speed", Base = 40000, Growth = 2.2, Max = 5, Per = 1.5, Help = "+1.5 cuts per second · the WHIRL recharges 3 s faster" },
-	Range = { Display = "Cutting Range", Base = 40000, Growth = 2.2, Max = 5, Per = 0.5, Help = "+0.5 studs cutting radius · +1.2 studs WHIRL radius" },
+	BladeSpeed = { Display = "Blade Speed", Base = 40000, Growth = 2.2, Max = 5, Per = 1.5, Help = "+1.5 cuts/s · Whirl 3 s faster" },
+	Range = { Display = "Cutting Range", Base = 40000, Growth = 2.2, Max = 5, Per = 0.5, Help = "+0.5 studs radius · Whirl +1.2" },
 	Battery = { Display = "Battery", Base = 25000, Growth = 2.2, Max = 5, Per = 20, Help = "+20 s of battery" },
 	Power = { Display = "Cutting Power", Base = 60000, Growth = 2.2, Max = 5, Per = 2.5, Help = "+2.5 grass cut per hit" },
 }
@@ -240,7 +240,7 @@ T.GrassTiers = GRASS_TIERS
 T.TrimmerNames = { "Lawn Trimmer", "Pro Trimmer", "Turbo Trimmer", "Legendary Trimmer" }
 local GRASS_UP: { [string]: any } = {}
 for id, t: any in T.GrassTiers do
-	local help = "a better " .. string.lower(t.Names[1]) .. ": more power, reach and " .. (if t.Fuel then "fuel" else "durability")
+	local help = "a better " .. string.lower(t.Names[1])
 	GRASS_UP[id] = { Tier = { Display = "Tier", Max = #t.Names - 1, Costs = t.Costs, Help = help } }
 end
 T.GrassUpgrades = GRASS_UP
@@ -253,10 +253,10 @@ T.WearLow = 0.2 -- the gauge warns below this share of the durability / fuel
 -- the strike-key abilities (the Trimmer's WHIRL and the Vacuum's VORTEX are in their tools)
 -- Cooldown seconds at tier 1, minus Per for every tier above (the server's clock)
 T.Abilities = {
-	Shears = { Display = "Snip Burst", Icon = "✂️", Cooldown = 24, Per = 2, Spots = 5, Spread = 1.7, Help = "five spots around your aim are cut at once" },
-	WeedCutter = { Display = "Slash Wave", Icon = "🌊", Cooldown = 30, Per = 2.5, Length = 18, LengthPer = 1.5, Help = "a long strip in front of you is cut" },
-	Scythe = { Display = "Harvest", Icon = "🌾", Cooldown = 40, Per = 3, Range = 15, RangePer = 1.5, Arc = 130, Golden = 0.1, Help = "a huge cone in front of you is cut to the ground" },
-	PushMower = { Display = "Overdrive", Icon = "💨", Cooldown = 45, Per = 3, Time = 8, TimePer = 0.5, Deck = 2, Walk = 1.35, Help = "a much wider deck and a faster walk" },
+	Shears = { Display = "Snip Burst", Icon = "✂️", Cooldown = 24, Per = 2, Spots = 5, Spread = 1.7, Help = "five spots cut at once" },
+	WeedCutter = { Display = "Slash Wave", Icon = "🌊", Cooldown = 30, Per = 2.5, Length = 18, LengthPer = 1.5, Help = "cuts a long strip ahead" },
+	Scythe = { Display = "Harvest", Icon = "🌾", Cooldown = 40, Per = 3, Range = 15, RangePer = 1.5, Arc = 130, Golden = 0.1, Help = "cuts a huge cone" },
+	PushMower = { Display = "Overdrive", Icon = "💨", Cooldown = 45, Per = 3, Time = 8, TimePer = 0.5, Deck = 2, Walk = 1.35, Help = "wider deck, faster walk" },
 	RidingMower = { Display = "Nitro", Icon = "🔥", Cooldown = 50, Per = 4, Time = 7, TimePer = 0.5, Deck = 1.3, Boost = 1.7, Help = "a burst of speed" },
 }
 
@@ -380,7 +380,7 @@ T.Helpers = {
 		GatherRadius = 8, -- Q: rakes everything this close into one pile
 		GatherCooldown = 4,
 		-- (v2.40: these are the numbers WITHOUT upgrades — T.RakeUpgrades / T.Rake(levels))
-		Description = "Not a broom: a rake PULLS. Drag it toward you and the tines drag the leaves along (pushed away it slides over them). Press the strike key to GATHER everything around it into one big pile — huge piles swept into your zone pay a Big Pile bonus. Works in tall grass and pulls stuck leaves out of thick grass. Upgrade it here: wider tines, a bigger and quicker GATHER.",
+		Description = "Pulls leaves toward you. Gather makes one big pile.",
 	},
 	Blower = {
 		Display = "Leaf Blower", Rarity = "Epic", Price = 90000, Slot = 4, Icon = "💨",
@@ -397,7 +397,7 @@ T.Helpers = {
 		JetLiftMin = 16, JetLift = 32, JetLiftG = 1.9, JetMinHeight = 12, JetMaxHeight = 40, -- climb 16 -> 32 · ceiling 12 -> 40 -- climb speed · lift (× gravity) · ceiling above the ground
 		JetCooldown = 20, -- v2.43: seconds before the JET (strike key) can be started again after it was used (+ per level below)
 		JetCooldownPer = -1, -- (−1 s per Blow Force level: 20 -> 15 s — never short)
-		Description = "Doesn't collect anything — it BLOWS. Hold the button: leaves in front of you fly away from the nozzle. Great for moving a pile toward your zone or out of tall grass. Strike key = JET (the gust carries YOU; it needs a long recharge afterwards). Runs on energy: recharge it for Money in the shop or with a Blower Battery.",
+		Description = "Blows leaves away from you. Jet carries you.",
 	},
 	Vacuum = {
 		Display = "Vacuum", Rarity = "Legendary", Price = 450000, Slot = 5, Icon = "🌀",
@@ -417,13 +417,13 @@ T.Helpers = {
 		VortexGulp = 5.5, -- what lies this close to its centre at the end is swallowed
 		VortexSpeed = 11, -- studs/s the items are pulled with
 		VortexMax = 150, -- items in one gulp at most (and never more than the capacity left)
-		Description = "Sucks up leaves and pays for them at once, as if they reached your zone. Strike key = VORTEX: a whirlwind at your aim pulls every loose leaf around into one pile, then the vacuum swallows it in one gulp. It wears out — repair it for Money or with a Vacuum Battery.",
+		Description = "Sucks up leaves and pays at once. Vortex pulls a pile.",
 	},
 	-- v2.32: breaks the BLOCKS of your garden (BlockConfig: reach, swings per block).
 	-- Kind "Pick": it has its own controller on the client (Pickaxe), not ToolController.
 	Pickaxe = {
 		Display = "Pickaxe", Rarity = "Common", Price = 2500, Slot = 6, Icon = "⛏", Kind = "Pick",
-		Description = "Breaks the blocks of your garden: point at a block and click — or hold. Strike key = SMASH: one heavy blow breaks 3×3 blocks. Every block wears it down — repair it here. Upgrade it: Iron, Gold, Diamond and Rainbow mine faster, reach further and last longer.",
+		Description = "Breaks blocks. Smash breaks 3×3 at once.",
 	},
 	-- v2.42 the LEAF BLASTER (hotbar: after the pickaxe). Fires small AIR PULSES: every pulse
 	-- hits (items fly away) -> the flying items crash into the ones lying around and bounce
@@ -442,7 +442,7 @@ T.Helpers = {
 		PulseSpeed = 85, -- studs/s the pulse itself flies
 		PlayerPush = 30, PlayerLift = 10, -- the shove other players get (+12 % per Pulse Power level)
 		Energy = 60, -- pulses on a full charge (upgrade "Energy": up to 360)
-		Description = "Fires small air pulses. Click (or hold) to shoot: a pulse hits, the leaves fly away, crash into the ones lying around and bounce off them. Six pulses, then a long reload (strike key = reload now). Stone items and blocks of ice stay where they are; other players get a shove. Runs on energy — recharge it for Money in the shop. Upgrade its power, fire rate, pulse size and energy. FULLY UPGRADED (every upgrade at level 5) the pulses BREAK blocks of ice (3 pulses) and nudge STONE items a little.",
+		Description = "Shoots air pulses that knock leaves away.",
 	},
 }
 
@@ -472,7 +472,7 @@ for i, t in T.PickaxeTiers do
 	t.Index = i
 end
 T.PickaxeUpgrades = {
-	Tier = { Display = "Tier", Max = #T.PickaxeTiers - 1, Costs = {}, Help = "a better pickaxe: faster, further, tougher" },
+	Tier = { Display = "Tier", Max = #T.PickaxeTiers - 1, Costs = {}, Help = "a better pickaxe" },
 }
 for i = 2, #T.PickaxeTiers do
 	T.PickaxeUpgrades.Tier.Costs[i - 1] = T.PickaxeTiers[i].Cost
@@ -585,7 +585,7 @@ T.VacuumUpgrades = {
 
 -- v1.2.1 Leaf Blower upgrades (level 0…5)
 T.BlowerUpgrades = {
-	Force = { Display = "Blow Force", Base = 30000, Growth = 2.1, Max = 5, Per = 3, Help = "+3 studs/s blow speed · faster and higher JET flight" },
+	Force = { Display = "Blow Force", Base = 30000, Growth = 2.1, Max = 5, Per = 3, Help = "+3 studs/s blow speed" },
 	Range = { Display = "Blow Range", Base = 30000, Growth = 2.1, Max = 5, Per = 1.5, Help = "+1.5 studs reach" },
 	Cone = { Display = "Nozzle Width", Base = 20000, Growth = 2.1, Max = 5, Per = 4, Help = "+4° wider stream" },
 	-- v2.32: how long it blows on one charge (T.BlowerEnergy: 30 → 60 → 90 → 120 → 150 → 180 s)
@@ -613,10 +613,10 @@ T.VacuumRepairPerItem = 60 -- Money per item of capacity
 	The look follows the sum of Power + Rate + Size (the blower's tiers, T.HelperTier).
 ]]
 T.BlasterUpgrades = {
-	Power = { Display = "Pulse Power", Base = 900000, Growth = 2, Max = 5, Per = 4.5, Help = "+4.5 studs/s: items fly further · players are shoved harder" },
-	Rate = { Display = "Fire Rate", Base = 900000, Growth = 2, Max = 5, Per = 0.06, Help = "0.06 s faster between pulses · 0.25 s faster reload" },
-	Size = { Display = "Pulse Size", Base = 800000, Growth = 2, Max = 5, Per = 0.5, Help = "+0.5 studs wider pulse · +1.5 studs range" },
-	Energy = { Display = "Energy", Base = 700000, Growth = 2, Max = 5, Help = "more pulses on one charge (60 → 360)" },
+	Power = { Display = "Pulse Power", Base = 900000, Growth = 2, Max = 5, Per = 4.5, Help = "+4.5 studs/s pulse speed" },
+	Rate = { Display = "Fire Rate", Base = 900000, Growth = 2, Max = 5, Per = 0.06, Help = "0.06 s faster shots" },
+	Size = { Display = "Pulse Size", Base = 800000, Growth = 2, Max = 5, Per = 0.5, Help = "+0.5 studs wider pulse" },
+	Energy = { Display = "Energy", Base = 700000, Growth = 2, Max = 5, Help = "more pulses per charge" },
 }
 T.BlasterUpgradeOrder = { "Power", "Rate", "Size", "Energy" }
 T.BlasterEnergy = { [0] = 60, 100, 150, 210, 280, 360 }
@@ -630,12 +630,12 @@ T.Consumables = {
 		Duration = 20, Radius = 12, Pull = 8, -- (v2.43: no Pickup: only the Mega Magnet collects by itself)
 		-- v1.7: it really pulls now (the old drift was eaten by ground friction), and
 		-- whatever reaches you is picked up at once, as if it reached your Collect zone
-		Description = "20 seconds: leaves near you drift to you — you still sweep them up yourself. Only the Mega Magnet collects them for you.",
+		Description = "20 s: leaves near you drift to you.",
 	},
 	GrassKiller = {
 		Display = "Grass Killer", Rarity = "Uncommon", Price = 4000, Icon = "🧴", Target = true,
 		Radius = 7,
-		Description = "Pick a spot: all the grass there vanishes at once. Handy — but it leaves no Grass Clippings.",
+		Description = "Removes all grass on a spot. No clippings.",
 	},
 	BatteryPack = {
 		Display = "Battery Pack", Rarity = "Uncommon", Price = 12000, Icon = "🔋", Needs = "Trimmer",
@@ -650,12 +650,12 @@ T.Consumables = {
 		Display = "Mega Magnet", Rarity = "Legendary", Price = 250000, Icon = "🌟",
 		Duration = 40, Radius = 18, Pull = 14, Pickup = 5,
 		-- v1.7: lasts twice as long as the Leaf Magnet (it was shorter: 12 s)
-		Description = "40 seconds: leaves all around you fly to you and are collected the moment they touch you.",
+		Description = "40 s: leaves fly to you and are collected.",
 	},
 	-- v2.32: a full charge for the Leaf Blower (its energy gauge)
 	BlowerBattery = {
 		Display = "Blower Battery", Rarity = "Rare", Price = 18000, Icon = "🔌", Needs = "Blower",
-		Description = "Fully recharges your Leaf Blower's energy — right where you stand.",
+		Description = "Fully recharges your Leaf Blower.",
 	},
 	-- v2.38: the VACUUM's battery — puts its whole capacity back (exactly what the paid
 	-- repair does), anywhere. Dearer than the two other batteries; a full repair costs
@@ -664,23 +664,23 @@ T.Consumables = {
 	-- dearer from level 4 on — there the battery (rare in stock) is the better deal.
 	VacuumBattery = {
 		Display = "Vacuum Battery", Rarity = "Epic", Price = 95000, Icon = "🔋", Needs = "Vacuum",
-		Description = "A heavy-duty power cell: fully restores your Vacuum's worn-out capacity — right where you stand, even when it has broken down.",
+		Description = "Fully restores your Vacuum's capacity.",
 	},
 	-- v2.43: a full charge for the Leaf Blaster (its energy gauge)
 	BlasterBattery = {
 		Display = "Blaster Battery", Rarity = "Epic", Price = 120000, Icon = "🔋", Needs = "Blaster",
-		Description = "Fully recharges your Leaf Blaster's energy — right where you stand.",
+		Description = "Fully recharges your Leaf Blaster.",
 	},
 	-- v2.43: fills the fuel tank of the Push Mower AND the Riding Mower
 	Gasoline = {
 		Display = "Gasoline", Rarity = "Epic", Price = 60000, Icon = "⛽", NeedsMower = true, Fuel = true,
-		Description = "A can of gasoline: fills the fuel tank of your Push Mower and your Riding Mower to the top.",
+		Description = "Fills the fuel tank of both mowers.",
 	},
 	-- v2.43: repairs ONE of Shears, Grass Cutter, Scythe, Pickaxe — use it, then pick the tool
 	-- in the panel (the ones in your hotbar)
 	RepairKit = {
 		Display = "Repair Kit", Rarity = "Epic", Price = 75000, Icon = "🧰", ToolTarget = true,
-		Description = "Use it, then pick one of your Grass Shears, Grass Cutter, Scythe or Pickaxe in the panel: it is repaired completely.",
+		Description = "Repairs one tool fully.",
 	},
 	-- v2.51: GRASS SALT — pick a grass spot (a lawn cell or the top of an Earth block): grass never
 	-- grows there again. Pricey (the dearest of the everyday items after the Big Toy's league):
@@ -689,7 +689,7 @@ T.Consumables = {
 	GrassSalt = {
 		Display = "Grass Salt", Rarity = "Legendary", Price = 200000, Icon = "🧂", Target = true,
 		Radius = 2.5,
-		Description = "Pick a grass spot — a lawn cell or the top of an Earth block: the grass there is gone and NEVER grows back. While you hold it, every spot without grass glows.",
+		Description = "Grass on one spot never grows back.",
 	},
 	-- v2.32 PET TOYS: use one, pick one of your EQUIPPED pets — for 5 minutes its ability
 	-- recharges faster and is stronger by Boost (PetConfig.BoostValue / PetAbilityService.Boost).
@@ -697,17 +697,17 @@ T.Consumables = {
 	SmallToy = {
 		Display = "Small Toy", Rarity = "Rare", Price = 10000, Icon = "🧸", PetTarget = true,
 		Boost = 0.10, Duration = 300,
-		Description = "Give it to one of your equipped pets: for 5 minutes its ability recharges 10% faster and is 10% stronger.",
+		Description = "5 min: pet ability 10% faster and stronger.",
 	},
 	MediumToy = {
 		Display = "Medium Toy", Rarity = "Epic", Price = 40000, Icon = "🧸", PetTarget = true,
 		Boost = 0.25, Duration = 300,
-		Description = "Give it to one of your equipped pets: for 5 minutes its ability recharges 25% faster and is 25% stronger.",
+		Description = "5 min: pet ability 25% faster and stronger.",
 	},
 	BigToy = {
 		Display = "Big Toy", Rarity = "Legendary", Price = 150000, Icon = "🧸", PetTarget = true,
 		Boost = 0.50, Duration = 300,
-		Description = "Give it to one of your equipped pets: for 5 minutes its ability recharges 50% faster and is 50% stronger.",
+		Description = "5 min: pet ability 50% faster and stronger.",
 	},
 }
 -- (round 15, harvest) the Cow's MILK BOTTLE: NEVER sold (NotSold: no shop, no stock, no auto-buy, no Money purchase).
@@ -717,7 +717,7 @@ T.Consumables = {
 T.Consumables.MilkBottle = {
 	Display = "Milk Bottle", Rarity = "Epic", Price = 50000, Icon = "🥛", PetTarget = true, Milk = true, NotSold = true,
 	Boost = 0.15, Duration = 300,
-	Description = "Fresh milk from your Cow. Give it to one of your equipped pets: for 5 minutes its ability works 15% better. Another bottle only starts the 5 minutes again.",
+	Description = "5 min: a pet's ability works 15% better.",
 }
 T.ConsumableOrder = { "LeafMagnet", "GrassKiller", "BatteryPack", "TurboFuel", "MegaMagnet", "BlowerBattery", "VacuumBattery", "BlasterBattery", "Gasoline", "RepairKit", "GrassSalt", "SmallToy", "MediumToy", "BigToy" }
 table.insert(T.ConsumableOrder, "MilkBottle") -- (round 15: the inventory / trades list it; shops skip NotSold)
