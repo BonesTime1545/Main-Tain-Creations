@@ -347,3 +347,7 @@ RidingMower       345.6      446.1       1.28
 ### 8am. Round 31 (v55)
 - Plot boards (avatar + name circles over gardens): fixed on-screen size (120x124 px canvas × 0.8, shrinking with distance to ≥0.55), MaxDistance 1200 → readable, pressable from far; new setting "Allow teleports to my garden" (Setting_AllowVisits, MetaConfig/DataSchema/Prefs/SettingsUI) hides the owner's circle and SocialService.Visit refuses.
 - Not verified in Roblox Studio.
+
+### 8an. Round 32 (v56)
+- All tools/helpers/consumables: rewritten EN+RU descriptions, ToolConfig.AbilityInfo (description + ability line in the tools panel). Maxed Leaf Blower pushes stones (BlowHeavy attribute + ToolController nudge).
+- Not verified in Roblox Studio.

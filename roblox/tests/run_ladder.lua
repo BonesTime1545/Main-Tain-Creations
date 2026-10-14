@@ -132,17 +132,17 @@ T.GrassTools = {
 	Shears = {
 		Display = "Grass Shears", Rarity = "Common", Price = 0, Kind = "Snip", Icon = "✂️",
 		Radius = 2.4, Power = 24, Cooldown = 0.5, Reach = 8, CutsObjects = true,
-		Description = "Free shears. Snip Burst cuts five spots at once.",
+		Description = "Free starter shears. Click a spot to cut the grass.",
 	},
 	WeedCutter = {
 		Display = "Grass Cutter", Rarity = "Uncommon", Price = 8000, Kind = "Swipe", Icon = "🔪",
 		Radius = 5, Arc = 110, Power = 34, Cooldown = 0.3, Reach = 3,
-		Description = "Swipe to cut grass fast. Slash Wave cuts a long strip.",
+		Description = "Quick cutter. Hold and swipe to mow grass in an arc.",
 	},
 	Scythe = {
 		Display = "Scythe", Rarity = "Rare", Price = 40000, Kind = "Swing", Icon = "🌙",
 		Radius = 7.2, Arc = 170, Power = 48, Cooldown = 1, Reach = 0,
-		Description = "One wide swing mows rows. Harvest cuts a huge cone.",
+		Description = "One wide swing mows several rows around you.",
 	},
 	Trimmer = {
 		Display = "Lawn Trimmer", Rarity = "Legendary", Price = 1400000, Kind = "Trimmer", Icon = "⚡",
@@ -158,17 +158,17 @@ T.GrassTools = {
 		WhirlPower = 100, -- grass cut in every spot of the ring (100 = down to the ground)
 		WhirlTime = 0.6, -- seconds the spin takes
 		WhirlHop = 9, -- studs/s the loose leaves in the ring hop up with
-		Description = "Hold to cut under your aim. Whirl clears a ring.",
+		Description = "Hold to cut the grass under your aim. Needs battery.",
 	},
 	PushMower = {
 		Display = "Push Mower", Rarity = "Epic", Price = 300000, Kind = "Push", Icon = "🛒",
 		Radius = 2.6, Power = 100, Speed = 16,
-		Description = "Walk to mow stripes. Overdrive widens the deck.",
+		Description = "Walk with it to mow stripes. Uses fuel.",
 	},
 	RidingMower = {
 		Display = "Riding Mower", Rarity = "Mythic", Price = 6500000, Kind = "Ride", Icon = "🚜",
 		Radius = 6.4, Power = 100, Speed = 27,
-		Description = "Drive to mow a wide strip. Nitro is a speed burst.",
+		Description = "Sit down and drive (W A S D) to mow a wide strip. Uses fuel.",
 	},
 }
 -- v1.4 the Push Mower is not held in the hand: it is fixed to your body (so it never
@@ -248,6 +248,23 @@ T.Abilities = {
 -- and <Name>Cd (its length) — the hotbar draws them as a separate bar under the tool, ToolHud /
 -- the touch button read them too
 T.AbilityAttr = { Shears = "Snip", WeedCutter = "Slash", Scythe = "Harvest", PushMower = "Overdrive", RidingMower = "Nitro", Trimmer = "Whirl", Vacuum = "Vortex", Pickaxe = "Smash", Blower = "Jet" }
+
+-- round 32: the second text of every tool: its ABILITY (strike key). Name = the ability's name,
+-- Line = "Name: what it does" (the tools panel shows "⚡ " .. Line, then the recharge and the key).
+-- Cooldown: "Q" (the strike key) · no recharge for the Leaf Blaster's early reload.
+T.AbilityInfo = {
+	Shears = { Name = "Snip Burst", Line = "Snip Burst: Cuts five spots around your aim at once." },
+	WeedCutter = { Name = "Slash Wave", Line = "Slash Wave: Sends a wave that cuts a long strip ahead." },
+	Scythe = { Name = "Harvest", Line = "Harvest: Cuts a huge cone of grass in front of you." },
+	Trimmer = { Name = "Whirl", Line = "Whirl: One spin cuts all the grass in a wide ring around you." },
+	PushMower = { Name = "Overdrive", Line = "Overdrive: A wider deck and faster walking for a few seconds." },
+	RidingMower = { Name = "Nitro", Line = "Nitro: A short burst of speed and a wider deck." },
+	Rake = { Name = "Gather", Line = "Gather: Rakes all the leaves around into one big pile." },
+	Blower = { Name = "Jet", Line = "Jet: The stream carries you through the air, forward or up." },
+	Vacuum = { Name = "Vortex", Line = "Vortex: A whirlwind pulls items into a pile, then swallows it." },
+	Pickaxe = { Name = "Smash", Line = "Smash: Breaks a 3×3 area of blocks in one blow." },
+	Blaster = { Name = "Quick Reload", Line = "Quick Reload: Refills the magazine before it is empty.", NoRecharge = true },
+}
 
 -- which tier (1 … 5) a tool has by its upgrade levels (data.Tools.Up[tool])
 function T.GrassTierOf(id, levels)
@@ -364,7 +381,7 @@ T.Helpers = {
 		GatherRadius = 8, -- Q: rakes everything this close into one pile
 		GatherCooldown = 4,
 		-- (v2.40: these are the numbers WITHOUT upgrades — T.RakeUpgrades / T.Rake(levels))
-		Description = "Pulls leaves toward you. Gather makes one big pile.",
+		Description = "Drag it toward you to pull the leaves along.",
 	},
 	Blower = {
 		Display = "Leaf Blower", Rarity = "Epic", Price = 90000, Slot = 4, Icon = "💨",
@@ -381,7 +398,7 @@ T.Helpers = {
 		JetLiftMin = 16, JetLift = 32, JetLiftG = 1.9, JetMinHeight = 12, JetMaxHeight = 40, -- climb 16 -> 32 · ceiling 12 -> 40 -- climb speed · lift (× gravity) · ceiling above the ground
 		JetCooldown = 20, -- v2.43: seconds before the JET (strike key) can be started again after it was used (+ per level below)
 		JetCooldownPer = -1, -- (−1 s per Blow Force level: 20 -> 15 s — never short)
-		Description = "Blows leaves away from you. Jet carries you.",
+		Description = "Blows leaves away. Fully upgraded, it pushes stones too.",
 	},
 	Vacuum = {
 		Display = "Vacuum", Rarity = "Legendary", Price = 450000, Slot = 5, Icon = "🌀",
@@ -401,13 +418,13 @@ T.Helpers = {
 		VortexGulp = 5.5, -- what lies this close to its centre at the end is swallowed
 		VortexSpeed = 11, -- studs/s the items are pulled with
 		VortexMax = 150, -- items in one gulp at most (and never more than the capacity left)
-		Description = "Sucks up leaves and pays at once. Vortex pulls a pile.",
+		Description = "Sucks up leaves and pays for them at once.",
 	},
 	-- v2.32: breaks the BLOCKS of your garden (BlockConfig: reach, swings per block).
 	-- Kind "Pick": it has its own controller on the client (Pickaxe), not ToolController.
 	Pickaxe = {
 		Display = "Pickaxe", Rarity = "Common", Price = 2500, Slot = 6, Icon = "⛏", Kind = "Pick",
-		Description = "Breaks blocks. Smash breaks 3×3 at once.",
+		Description = "Breaks blocks in your garden. Better picks are faster.",
 	},
 	-- v2.42 the LEAF BLASTER (hotbar: after the pickaxe). Fires small AIR PULSES: every pulse
 	-- hits (items fly away) -> the flying items crash into the ones lying around and bounce
@@ -859,7 +876,14 @@ end
 function T.Blower(levels)
 	levels = levels or {}
 	local d, U = T.Helpers.Blower, T.BlowerUpgrades
+	-- round 32: every upgrade at its top = the stream can also push STONE items (mutation Stone)
+	local function top(stat)
+		return (tonumber(levels[stat]) or 0) >= U[stat].Max
+	end
+	local maxed = top("Force") and top("Range") and top("Cone") and top("Energy")
 	return {
+		Maxed = maxed,
+		StoneNudge = maxed,
 		JetCooldown = math.max(10, d.JetCooldown + (tonumber(levels.Force) or 0) * d.JetCooldownPer),
 		Range = d.Range + (levels.Range or 0) * U.Range.Per,
 		Cone = d.Cone + (levels.Cone or 0) * U.Cone.Per,
