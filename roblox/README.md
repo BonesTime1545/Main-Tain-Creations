@@ -335,3 +335,7 @@ RidingMower       345.6      446.1       1.28
 ### 8aj. Round 28 (v52)
 - Stall circle models for eggs/buildings (no more white cube), leaderboard stand cleanup (plain tablet, shorter posts, stud texture), smaller nameplates, old T trade menu removed, one "Swept fallen items" stat (also feeds the leaves board), Rake model in Index, hotbar hover/press + detached "in hand" label, combo flame v2 with ×N and COMBO splashes.
 - Not verified in Roblox Studio.
+
+### 8ak. Round 29 (v53)
+- Leaderboard stand: stud circles removed, block material (Plastic + studs on box parts), glowing tablet screen; build shop: no SOLD OUT tag, stable owned-count badge; Index: item sources with chances at Lv1/Lv10, tree drop prices, apples/gold rows removed from Player tab.
+- Not verified in Roblox Studio.
